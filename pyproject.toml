@@ -1,0 +1,48 @@
+[project]
+name = "dorea-mobile-api"
+version = "0.1.0"
+description = "Dorea Church — backend FastAPI (monolithe). Possède le schéma PostgreSQL et le fait évoluer ; expose les surfaces /api/backoffice (PWA) et /api/mobile (Flutter)."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pyjwt>=2.10.0",
+    "argon2-cffi>=23.1.0",
+    "structlog>=24.4.0",
+    "pypdf>=6.0.0",  # extraction texte des sermons PDF (contexte sermon, S-5)
+    "python-pptx>=1.0.0",  # extraction texte des sermons PPTX (contexte sermon, S-5)
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "aiosqlite>=0.20.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["app", "tests"]
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dorea-postgres
+    environment:
+      POSTGRES_USER: dorea
+      POSTGRES_PASSWORD: dorea
+      POSTGRES_DB: dorea
+    ports:
+      # Port hôte élevé : un Postgres natif Windows occupe déjà 5432/5433.
+      - "55432:5432"
+    volumes:
+      - dorea_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dorea -d dorea"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mobile-api:
+    build: .
+    container_name: dorea-mobile-api
+    environment:
+      # host.docker.internal → db du compose
+      DATABASE_URL: postgresql+asyncpg://dorea:dorea@db:5432/dorea
+      ENVIRONMENT: local
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dorea_pg_data:
