@@ -77,7 +77,6 @@ _OUTCOME_OF_CAUSE: dict[ExtinguishCause, SignalOutcome] = {
     ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT: SignalOutcome.EXPLAINED_BY_ANNOUNCEMENT,
     ExtinguishCause.RETURNED: SignalOutcome.RESTORED,
     ExtinguishCause.DECEASED: SignalOutcome.DECEASED,
-    ExtinguishCause.LIFE_SIGN: SignalOutcome.RESTORED,
 }
 
 

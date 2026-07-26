@@ -67,18 +67,46 @@ def test_a_system_cause_closes_without_a_human():
     assert signal.closed_by_account_id is None
 
 
-def test_a_life_sign_may_not_close_a_case_by_itself():
-    """Décision produit **en attente** : le vocabulaire existe, la permission n'est pas donnée.
+def test_a_return_closes_the_neutralization_but_never_the_case():
+    """« On peut être présent et endeuillé. »
 
-    Une reconnaissance déposée serait la seconde clôture système du produit. Tant que ce n'est
-    pas tranché, le cas reste ouvert — c'est le côté prudent de l'erreur."""
-    assert ExtinguishCause.LIFE_SIGN not in SYSTEM_CLOSURE_CAUSES
+    Venir une fois au culte explique le silence — ça ne dit pas que le deuil est passé. Fermer
+    le soin parce que la personne est là, ce serait confondre « elle est venue » et « elle va
+    bien »."""
+    assert ExtinguishCause.RETURNED not in SYSTEM_CLOSURE_CAUSES
 
     signal = _signal()
     with pytest.raises(HumanClosureRequiredError):
-        signal.close(
-            outcome=SignalOutcome.RESTORED, at=_NOW, cause=ExtinguishCause.LIFE_SIGN
-        )
+        signal.close(outcome=SignalOutcome.RESTORED, at=_NOW, cause=ExtinguishCause.RETURNED)
+
+    assert signal.status is SignalStatus.OPEN  # le cas reste ouvert, et c'est voulu
+
+
+def test_there_is_no_such_thing_as_extinguishing_by_life_sign():
+    """Un signe de vie n'éteint pas un cas — il l'éclaire.
+
+    Déposer une reconnaissance prouve qu'on est vivant et engagé, pas qu'on est revenu en
+    cellule. La cause n'existe donc pas au vocabulaire : elle ne peut pas être invoquée par
+    distraction. Ce que fait un signe de vie est décrit par `EnrichCase(annotation, downgrade)`."""
+    assert not hasattr(ExtinguishCause, "LIFE_SIGN")
+    assert SYSTEM_CLOSURE_CAUSES == {
+        ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT,
+        ExtinguishCause.DECEASED,
+    }
+
+
+def test_a_life_sign_enriches_and_downgrades_instead_of_closing():
+    """« Absente depuis 4 semaines. A déposé un sujet de reconnaissance le 12 avril. »"""
+    enrichment = EnrichCase(
+        subject_id=uuid4(),
+        reason="signe de vie",
+        origin=CasePriority.ABSENCE,
+        annotation="A déposé un sujet de reconnaissance le 12 avril.",
+        downgrade=True,
+    )
+
+    assert enrichment.downgrade is True
+    assert "reconnaissance" in enrichment.annotation
 
 
 # --- Les absorbants ----------------------------------------------------------------------------

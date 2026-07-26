@@ -8,10 +8,14 @@ un client.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from app.contexts.attendance.infrastructure.persistence.absence_repository import (
     SqlPlannedAbsenceRepository,
     SqlWatchExclusionRepository,
 )
+from app.contexts.watch.application.designate_referent import DesignateReferent
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.life_event_announced import (
@@ -19,11 +23,26 @@ from app.contexts.watch.application.interpreters.life_event_announced import (
 )
 from app.contexts.watch.application.interpreters.presence_recorded import PresenceRecordedV1
 from app.contexts.watch.application.projections import RebuildProjections
+from app.contexts.watch.application.referent_resolution import (
+    ResolveReferent,
+    ResolveSignalOwner,
+)
 from app.contexts.watch.domain.registry import default_registry
+from app.contexts.watch.infrastructure.directories import (
+    SqlGroupDirectory,
+    SqlInviterDirectory,
+    SqlPeopleDirectory,
+)
 from app.contexts.watch.infrastructure.neutralization_store import (
     AttendanceNeutralizationStore,
 )
 from app.contexts.watch.infrastructure.persistence.ledger import SqlFactLedger
+from app.contexts.watch.infrastructure.persistence.referent import (
+    SqlGroupTypePolicyRepository,
+    SqlPrimaryGroupOverrideRepository,
+    SqlReferentHistoryRepository,
+    SqlReferentOverrideRepository,
+)
 from app.contexts.watch.infrastructure.persistence.signals import SqlSignalStore
 
 SOURCES = default_registry()
@@ -47,6 +66,35 @@ def build_intake(session) -> Intake:
     return Intake(
         SqlFactLedger(session), SOURCES, INTERPRETERS,
         build_store(session), build_signals(session),
+    )
+
+
+def build_referents(session) -> ResolveReferent:
+    """La cascade. Rien n'est stocké : le référent est résolu à chaque lecture."""
+    return ResolveReferent(
+        SqlReferentOverrideRepository(session),
+        SqlPrimaryGroupOverrideRepository(session),
+        SqlGroupTypePolicyRepository(session),
+        SqlGroupDirectory(session),
+        SqlPeopleDirectory(session),
+        SqlInviterDirectory(session),
+        build_store(session),
+    )
+
+
+def build_signal_owner(session) -> ResolveSignalOwner:
+    """À qui adresser un cas — **jamais nul**, contrairement au référent."""
+    return ResolveSignalOwner(build_referents(session), SqlPeopleDirectory(session))
+
+
+def build_designate_referent(session) -> DesignateReferent:
+    return DesignateReferent(
+        SqlReferentOverrideRepository(session),
+        SqlReferentHistoryRepository(session),
+        SqlPeopleDirectory(session),
+        build_referents(session),
+        id_factory=uuid4,
+        clock=lambda: datetime.now(UTC),
     )
 
 

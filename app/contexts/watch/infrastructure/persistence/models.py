@@ -13,7 +13,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, BigInteger, DateTime, Index, Integer, String, Uuid
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contexts.watch.domain.signal import LIVE_STATUSES
@@ -85,6 +95,91 @@ class SignalModel(Base):
 
 
 LIVE_STATUS_VALUES: tuple[str, ...] = tuple(s.value for s in LIVE_STATUSES)
+
+
+class GroupTypePolicyModel(Base):
+    """La politique de veille d'un **type** de groupe — le rang est une donnée, pas du code.
+
+    `resolve_primary_group` lit cette table et ne connaît le nom d'aucun type. Enrichir
+    `GroupType` devient une insertion de ligne : zéro code touché, zéro régression possible.
+    """
+
+    __tablename__ = "watch_group_type_policies"
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "group_type", name="uq_watch_group_type_policy"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # NULL = politique **par défaut**, valable pour toute église qui n'a pas la sienne.
+    tenant_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    group_type: Mapped[str] = mapped_column(String)
+    # Ce type peut-il fonder un lien de veille ? Un type qui ne porte pas de politique
+    # d'alerte (commission, association) ne le peut pas — la personne dont c'est la seule
+    # appartenance est alors un trou de couverture, et c'est juste.
+    bears_veille: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Ordonné par **durabilité du lien**, pas par intensité : une classe s'achève, un
+    # ministère dure.
+    primacy_rank: Mapped[int] = mapped_column(Integer)
+
+
+class ReferentOverrideModel(Base):
+    """Une désignation explicite. Stockée **seulement parce qu'elle existe**."""
+
+    __tablename__ = "watch_referent_overrides"
+
+    __table_args__ = (
+        Index("ix_watch_referent_overrides_person", "tenant_id", "person_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    person_id: Mapped[UUID] = mapped_column(Uuid)
+    referent_person_id: Mapped[UUID] = mapped_column(Uuid)
+    origin: Mapped[str] = mapped_column(String)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_by_account_id: Mapped[UUID] = mapped_column(Uuid)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class PrimaryGroupOverrideModel(Base):
+    """« C'est ce groupe-là qui compte pour elle. » Stocké seulement s'il existe.
+
+    Il n'y a **pas** de drapeau `is_primary` sur l'appartenance : un champ que personne n'a
+    intérêt à maintenir pourrit, et on retrouve des gens à zéro ou deux primaires."""
+
+    __tablename__ = "watch_primary_group_overrides"
+
+    __table_args__ = (Index("ix_watch_primary_group_person", "tenant_id", "person_id"),)
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    person_id: Mapped[UUID] = mapped_column(Uuid)
+    group_id: Mapped[UUID] = mapped_column(Uuid)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_by_account_id: Mapped[UUID] = mapped_column(Uuid)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ReferentHistoryModel(Base):
+    """Append-only. `referent_person_id` NULL = **début d'un trou**, daté.
+
+    « Sans référent » n'est pas actionnable ; « sans référent depuis quatre mois » l'est."""
+
+    __tablename__ = "watch_referent_history"
+
+    __table_args__ = (
+        Index("ix_watch_referent_history_person", "tenant_id", "person_id", "observed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    person_id: Mapped[UUID] = mapped_column(Uuid)
+    referent_person_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    origin: Mapped[str | None] = mapped_column(String, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cause: Mapped[str] = mapped_column(String)
 
 
 class CareMemoryModel(Base):

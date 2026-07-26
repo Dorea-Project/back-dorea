@@ -349,6 +349,28 @@ async def test_replaying_the_ledger_rebuilds_the_same_state():
     assert report.facts == 2
 
 
+async def test_coming_back_does_not_close_the_grief():
+    """Le cas le plus facile à casser sans s'en apercevoir.
+
+    L'endeuillée vient au culte : son silence n'était pas un silence, mais son deuil n'est pas
+    passé pour autant. La neutralisation se ferme, le cas de soin reste ouvert — quelqu'un doit
+    encore aller vers elle."""
+    tenant, widow, author, gathering = uuid4(), uuid4(), uuid4(), uuid4()
+    signals = FakeSignals()
+    intake, _, _, _, _ = _engine(signals=signals)
+
+    death = _announcement(Cat.DEATH, tenant=tenant, author=author)
+    await _announce(intake, death, [SubjectDraft(account_id=widow, role=Role.BEREAVED)])
+    assert len(await signals.live_cases(tenant)) == 1
+
+    await DetectReturn(intake).on_positive_presence(
+        account_id=widow, tenant_id=tenant, occurred_at=_NOW + timedelta(days=10),
+        gathering_id=gathering, recorded_at=_NOW + timedelta(days=10),
+    )
+
+    assert len(await signals.live_cases(tenant)) == 1  # toujours ouvert
+
+
 async def test_replaying_opens_retroactively_what_could_not_be_written_before():
     """La promesse du ledger, vérifiée : un fait garde son sens jusqu'à ce qu'on sache l'écrire.
 

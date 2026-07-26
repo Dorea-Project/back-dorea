@@ -174,6 +174,59 @@ seconde clôture système du produit — c'est un arbitrage à prendre, pas un d
 Tant qu'il n'est pas pris, le cas reste ouvert : c'est le côté prudent de l'erreur. Une ligne à
 changer le jour venu, et un test qui le dit.
 
+### R — Le Referent ([referent.py](../app/contexts/watch/domain/referent.py))
+
+*Une personne, quelqu'un qui la connaît.* Matérialisé **sans créer un champ à maintenir** :
+aucun `current_referent_id` sur la personne, aucun `is_primary` sur l'appartenance. Le référent
+est **résolu à la lecture**. Un champ que personne n'a intérêt à tenir à jour pourrit en trois
+mois, et on retrouve des gens à zéro ou deux primaires — l'indétermination qu'on voulait
+supprimer.
+
+Ce qui est stocké, et seulement cela : les **désignations explicites**, l'**override de groupe
+primaire**, et l'**historique observé** (pour dater les trous).
+
+**La cascade** — `MANUAL` → `GROUP_LEAD` → `INVITER` → `WELCOME_TEAM` → trou. Un candidat
+inéligible ne bloque pas : on continue de descendre.
+
+`GROUP_LEAD` est un **pointeur calculé**. Remplacer Jean par Paul change le référent des dix-huit
+membres de Béthel **sans une seule écriture**, et leur histoire relationnelle reste attachée à
+elles. C'est exactement ce qu'un groupe WhatsApp ne sait pas faire.
+
+**Le rang des types de groupe est une donnée, pas une constante.** Il vit dans
+`watch_group_type_policies` : le résolveur ne contient le nom d'aucun type — c'est vérifié par un
+test qui inspecte les littéraux du module. Enrichir `GroupType` devient une insertion de ligne.
+
+Le défaut livré, ordonné par **durabilité du lien** et non par intensité :
+
+| Type | `bears_veille` | `primacy_rank` |
+|---|---|---|
+| `cellule` | vrai | 1 |
+| `ministere` | vrai | 2 |
+| `classe` | vrai | 3 |
+
+Une classe d'intégration s'achève en quelques mois, un ministère dure : quelqu'un qui est dans
+les deux voit son référent basculer tout seul à la fin de la classe. Aucun type n'est exclu
+aujourd'hui — le mécanisme `bears_veille` est en place **avant** le risque, prêt pour le jour où
+`COMMISSION` existera.
+
+**Le référent n'est pas le propriétaire d'un signal.** Le premier est un lien durable et **peut
+être nul** — « personne ne connaît cette personne » est la donnée la plus utile du module. Le
+second est une assignation et ne l'est **jamais** ; quand il faut escalader, le motif est
+renvoyé pour être stocké avec le signal — un pasteur qui reçoit un cas inexplicable l'ignore.
+
+> Si l'escalade remplissait le référent, la couverture vaudrait mécaniquement 100 % et la
+> métrique la plus vendable du produit ne mesurerait plus rien. Un pasteur référent de deux cents
+> personnes n'est le référent de personne.
+
+**Les trous sont datés.** Un trou de trois jours (le responsable vient de partir) et un trou de
+huit mois ne portent pas la même information. « Sans référent » n'est pas actionnable ; « sans
+référent depuis quatre mois » l'est.
+
+**Désigner est explicite.** Traiter un signal ne crée jamais de référent : un appel ponctuel ne
+fait de personne un lien durable. L'écran de résolution *propose* l'action, elle reste un tap
+séparé. Sans cette proposition le trou remonte indéfiniment ; implicite, il se comble sur le
+papier seulement.
+
 ### 05 — Notification
 
 Pas encore construit. Le budget de parole vient avec le bloc 3.
@@ -276,9 +329,27 @@ reprojection effacerait des neutralisations légitimes sans savoir les reconstru
 |---|---|---|
 | 1 | Ledger, registre, intake, interprétation, reprojection | **livré** |
 | 2 | Machine à états du `Signal`, arbitrage complet, mémoire du lien | **livré** |
-| 3 | `SCHEDULE_CHECK`, worker d'échéance, rétraction, réévaluation des retenus | prochain |
-| 4 | Notification et budget de parole | après le 3 |
-| 5 | `Referent` — **fondation, pas un bloc du moteur** | à lancer en parallèle |
+| **R** | `Referent` — cascade, lien primaire dérivé, trous datés, désignation | **livré** |
+| 3 | `Episode`, `owner_id` NOT NULL, escalade horaire, `ContactAttempt` + boomerang | prochain |
+| 4 | `SCHEDULE_CHECK`, worker, rétraction, réévaluation des retenus | après 3 |
+| 5 | Notification, budget de parole, écran Veille (API) | après 3 |
+| 6 | Compagnon (8 sous-blocs) | après 4 et 5 |
+
+### Deux dettes ouvertes par les documents Referent et Signal
+
+**Le propriétaire d'un signal n'est pas le référent.** `Signal.owner_account_id` est aujourd'hui
+nullable — c'est exactement la confusion que le module Referent interdit. Le référent **peut**
+être nul (« personne ne connaît cette personne » est une donnée) ; le propriétaire d'un cas
+**jamais** (sinon le cas n'a personne pour le traiter). La colonne devient NOT NULL une fois
+`resolve_signal_owner` écrit, avec son motif d'escalade stocké.
+
+**`owner_id` reste nullable en base.** La colonne devient NOT NULL au bloc 3, quand tout signal
+passera par `ResolveSignalOwner` à l'ouverture. Le résolveur existe déjà ; il n'est pas encore
+branché sur la matérialisation.
+
+**Le rang des types de groupe est réglé** — il est en table (§ R), pas dans le code. La question
+« quels types mettre dans le rang » ne se pose plus au niveau du code : c'est une ligne à
+insérer, par église si besoin.
 
 ### Ce qui reste suspendu, et ce que ça bloque
 

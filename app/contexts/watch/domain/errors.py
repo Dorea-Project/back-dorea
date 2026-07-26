@@ -65,6 +65,20 @@ class HumanClosureRequiredError(WatchError):
     http_status = 422
 
 
+class SelfReferentError(WatchError):
+    """Nul n'est son propre référent — sinon la couverture se remplirait de solitudes."""
+
+    code = "WATCH_SELF_REFERENT"
+    http_status = 422
+
+
+class IneligibleReferentError(WatchError):
+    """Compte inactif, appartenance close, ou personne retirée de la veille."""
+
+    code = "WATCH_INELIGIBLE_REFERENT"
+    http_status = 422
+
+
 class NoInterpreterError(WatchError):
     """Aucun interpreter enregistré pour ce type de fait à cette date.
 

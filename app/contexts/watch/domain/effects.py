@@ -45,19 +45,27 @@ class ExtinguishCause(StrEnum):
     EXPLAINED_BY_ANNOUNCEMENT = "explained_by_announcement"
     RETURNED = "returned"
     DECEASED = "deceased"
-    # Une reconnaissance déposée : la personne a parlé, le doute n'a plus lieu d'être.
-    # **Le vocabulaire existe, la permission de clore sans humain n'est PAS accordée** — voir
-    # `SYSTEM_CLOSURE_CAUSES`. C'est une décision produit en attente, pas un oubli.
-    LIFE_SIGN = "life_sign"
 
 
-# Les seules causes qui autorisent une clôture **sans acte humain**. Toute autre exige un
-# `closed_by`. La justification commune : le cas n'était pas réel, et on ne demande pas à un
-# responsable de fermer à la main une erreur du système.
+# Il n'existe **pas** de cause « signe de vie ». Déposer une reconnaissance prouve qu'on est
+# vivant et engagé — pas qu'on est revenu en cellule. Éteindre le cas là-dessus serait la même
+# erreur que fermer un deuil parce que la personne est venue au culte : confondre une présence
+# avec un état. Un signe de vie **enrichit** le cas et en abaisse la priorité (`EnrichCase`),
+# pour que le responsable lise « absente depuis 4 semaines, a déposé un sujet de reconnaissance
+# le 12 avril » et comprenne immédiatement de quoi il s'agit.
+
+
+# Les seules causes qui autorisent une clôture de **cas** sans acte humain. Toute autre exige un
+# `closed_by`. La justification commune : le cas n'était pas réel, ou son sujet est hors de
+# portée — et on ne demande pas à un responsable de fermer à la main une erreur du système.
+#
+# `RETURNED` n'y est **pas**, et c'est le point délicat : un retour ferme la *neutralisation*
+# (son silence avait une explication, elle a pris fin) mais **pas le cas**. On peut être présent
+# et endeuillé. Fermer le soin parce que la personne est venue une fois, ce serait confondre
+# « elle est là » avec « elle va bien » — exactement l'erreur que le module doit empêcher.
 SYSTEM_CLOSURE_CAUSES: frozenset[ExtinguishCause] = frozenset(
     {
         ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT,
-        ExtinguishCause.RETURNED,
         ExtinguishCause.DECEASED,
     }
 )
@@ -95,8 +103,16 @@ class OpenCase(_Effect):
 
 @dataclass(frozen=True)
 class EnrichCase(_Effect):
+    """Le cas existe déjà : on lui ajoute ce qu'on vient d'apprendre, sans le dupliquer.
+
+    `annotation` est une phrase **ajoutée** à la fiche du cas — jamais une réécriture de sa
+    raison d'origine. `downgrade` abaisse la priorité : ce qui vient d'arriver rend le cas moins
+    urgent sans le rendre inexistant."""
+
     origin: CasePriority
     extend_to: datetime | None = None
+    annotation: str | None = None
+    downgrade: bool = False
 
 
 @dataclass(frozen=True)
