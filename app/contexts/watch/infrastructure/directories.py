@@ -154,6 +154,21 @@ class SqlPeopleDirectory(PeopleDirectory):
     async def pastor(self, tenant_id: UUID) -> UUID | None:
         return await self._holder_of(RoleCode.PASTOR, tenant_id)
 
+    async def pastors(self, tenant_id: UUID) -> list[UUID]:
+        """Ordre déterministe (ancienneté d'assignation) : le relais doit être reproductible."""
+        stmt = (
+            select(MembershipModel.account_id)
+            .join(RoleAssignmentModel, RoleAssignmentModel.membership_id == MembershipModel.id)
+            .where(
+                RoleAssignmentModel.tenant_id == tenant_id,
+                RoleAssignmentModel.role == RoleCode.PASTOR.value,
+                RoleAssignmentModel.revoked_at.is_(None),
+                MembershipModel.status != MembershipStatus.CLOSED.value,
+            )
+            .order_by(RoleAssignmentModel.assigned_at, MembershipModel.account_id)
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
     async def _holder_of(self, role: RoleCode, tenant_id: UUID) -> UUID | None:
         stmt = (
             select(MembershipModel.account_id)
@@ -177,10 +192,16 @@ class SqlInviterDirectory(InviterDirectory):
         self._session = session
 
     async def inviter_of(self, account_id: UUID, tenant_id: UUID) -> UUID | None:
+        """Qui a fait entrer cette personne.
+
+        On interroge `person_account_id` — la personne telle qu'elle existe **dès
+        l'acceptation**. En lisant `integrated_account_id`, l'inviteur ne devenait référent
+        qu'après l'intégration, c'est-à-dire au moment exact où la personne en avait le moins
+        besoin ; entre les deux, elle n'était sous le regard de personne."""
         stmt = (
             select(SeekerModel.inviter_account_id)
             .where(
-                SeekerModel.integrated_account_id == account_id,
+                SeekerModel.person_account_id == account_id,
                 SeekerModel.tenant_id == tenant_id,
                 SeekerModel.inviter_account_id.isnot(None),
             )

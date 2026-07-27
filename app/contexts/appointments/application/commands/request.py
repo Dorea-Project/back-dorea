@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from app.contexts.appointments.application.dtos import AppointmentDTO
 from app.contexts.appointments.application.mapping import to_appointment_dto
+from app.contexts.appointments.application.relay import RouteAppointment
 from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
 from app.contexts.appointments.domain.aggregates import Appointment
 from app.contexts.appointments.domain.enums import AppointmentCategory
@@ -29,12 +30,14 @@ class RequestAppointment:
         appointments: AppointmentRepository,
         memberships: MembershipRepository,
         facts: EmitAppointmentFacts | None = None,
+        routing: RouteAppointment | None = None,
         *,
         clock,
     ) -> None:
         self._appointments = appointments
         self._memberships = memberships
         self._facts = facts
+        self._routing = routing
         self._clock = clock
 
     async def execute(
@@ -62,6 +65,10 @@ class RequestAppointment:
             preferred_at=preferred_at,
             note=note,
         )
+        # Adresser tout de suite, à quelqu'un de **disponible** : une absence déclarée est
+        # connue d'avance, donc contournée sans faire attendre le délai de relais.
+        if self._routing is not None:
+            await self._routing.initial(appointment, at=appointment.created_at)
         await self._appointments.add(appointment)
         # Le fait entre **ici**, au geste — pas à la confirmation du créneau. Sinon on perd
         # l'antériorité, qui est toute la valeur du canal.

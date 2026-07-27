@@ -74,6 +74,12 @@ class SourceRegistry:
 ANNOUNCEMENTS: SourceId = "announcements"
 ATTENDANCE: SourceId = "attendance"
 APPOINTMENTS: SourceId = "appointments"
+MISSION: SourceId = "mission"
+# Les deux surfaces d'où part un signalement par un tiers. Deux sources, **un seul** kind : le
+# responsable depuis son écran de veille, le membre depuis son compagnon. Les distinguer sert à
+# lire l'adoption de chaque canal, jamais à traiter les faits différemment.
+WATCH_UI: SourceId = "watch_ui"
+COMPANION: SourceId = "companion"
 WATCH_SCHEDULER: SourceId = "watch_scheduler"  # le worker de l'engine, qui fait entrer le temps
 
 
@@ -102,6 +108,22 @@ def default_registry() -> SourceRegistry:
             required_payload_keys=frozenset({"appointment_id", "state"}),
         )
     )
+    # La mission n'émet **que** l'acceptation — jamais les réactions à une capsule. Une
+    # réaction anonyme est une graine, pas une entrée en veille : elle n'a pas à être fichée.
+    registry.register(
+        RegisteredSource(
+            id=MISSION,
+            kinds=frozenset({FactKind.SELF_DECLARATION}),
+            required_payload_keys=frozenset({"kind"}),
+        )
+    )
+    # Le signalement par un tiers n'exige **aucune** clé de payload : la nuance est optionnelle,
+    # et le propriétaire peut légitimement être nul quand personne ne connaît la personne. Ce
+    # vide est la spécification, pas un oubli — il n'y a rien à écrire sur quelqu'un.
+    for surface in (WATCH_UI, COMPANION):
+        registry.register(
+            RegisteredSource(id=surface, kinds=frozenset({FactKind.THIRD_PARTY_CONCERN}))
+        )
     registry.register(
         RegisteredSource(
             id=WATCH_SCHEDULER,

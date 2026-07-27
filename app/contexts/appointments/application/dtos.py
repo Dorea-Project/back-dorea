@@ -30,6 +30,28 @@ class AppointmentDTO:
 
 
 @dataclass(frozen=True)
+class AgendaEntryDTO:
+    """Un créneau **à organiser** — ce que le secrétariat a le droit de voir. Rien de plus.
+
+    Ce n'est pas un `AppointmentDTO` amputé : c'est un **type différent**, et c'est délibéré.
+    Un filtrage conditionnel s'oublie ; un type qui ne porte pas le champ ne peut pas le fuir.
+    Ni `subject`, ni `note`, ni `decision_note` n'existent ici.
+
+    Le secrétariat voit un créneau à préparer, jamais une demande en attente ni son motif —
+    sans quoi « on sait qu'il a demandé » circule dans l'église, et le coût social que le canal
+    venait de supprimer revient par la porte administrative.
+    """
+
+    id: UUID
+    requester_account_id: UUID | None
+    requester_name: str | None  # walk-in
+    with_pastor_account_id: UUID | None
+    category: str
+    scheduled_at: datetime  # toujours posé : une entrée d'agenda est un créneau
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class AvailabilityRuleDTO:
     """Une disponibilité récurrente d'un pasteur (jour + fenêtre + durée de créneau)."""
 

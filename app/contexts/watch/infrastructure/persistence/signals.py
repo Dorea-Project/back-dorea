@@ -10,24 +10,34 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.watch.application.ports import SignalStore
+from app.contexts.watch.application.ports import ContactAttemptStore, SignalStore
+from app.contexts.watch.domain.contact import (
+    ContactAttempt,
+    ContactChannel,
+    ContactResult,
+)
 from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 from app.contexts.watch.domain.errors import HumanClosureRequiredError
 from app.contexts.watch.domain.signal import (
     LIVE_STATUSES,
+    ON_SHOULDERS_STATUSES,
     Signal,
+    SignalOutcome,
     SignalStatus,
     outcome_for,
+    priority_rank,
 )
 from app.contexts.watch.infrastructure.persistence.models import (
     CareMemoryModel,
+    ContactAttemptModel,
     SignalModel,
 )
 
 _LIVE = tuple(s.value for s in LIVE_STATUSES)
+_ON_SHOULDERS = tuple(s.value for s in ON_SHOULDERS_STATUSES)
 
 
 def _aware(dt):
@@ -37,8 +47,6 @@ def _aware(dt):
 
 
 def _to_signal(row: SignalModel) -> Signal:
-    from app.contexts.watch.domain.signal import SignalOutcome
-
     return Signal(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -50,6 +58,14 @@ def _to_signal(row: SignalModel) -> Signal:
         expires_at=_aware(row.expires_at),
         owner_account_id=row.owner_account_id,
         source_refs=[UUID(r) for r in (row.source_refs or [])],
+        first_seen_at=_aware(row.first_seen_at),
+        first_contact_at=_aware(row.first_contact_at),
+        episode_id=row.episode_id,
+        occurrence_number=row.occurrence_number,
+        previous_outcome=(
+            SignalOutcome(row.previous_outcome) if row.previous_outcome else None
+        ),
+        previous_closed_at=_aware(row.previous_closed_at),
         priority=CasePriority(row.priority) if row.priority else None,
         annotations=list(row.annotations or []),
         gestures_count=row.gestures_count,
@@ -77,6 +93,24 @@ class SqlSignalStore(SignalStore):
         )
         return (await self._session.execute(stmt)).scalars().first()
 
+    async def _last_resolved_row(self, subject_id: UUID, tenant_id: UUID) -> SignalModel | None:
+        """Le dernier cas **clos** de cette personne — jamais un cas rétracté.
+
+        Une rétractation n'a rien résolu : la transmettre ferait porter à la réouverture une
+        issue qui n'a jamais eu lieu."""
+        stmt = (
+            select(SignalModel)
+            .where(
+                SignalModel.tenant_id == tenant_id,
+                SignalModel.subject_id == subject_id,
+                SignalModel.status == SignalStatus.CLOSED.value,
+                SignalModel.outcome.is_not(None),
+            )
+            .order_by(SignalModel.closed_at.desc())
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalars().first()
+
     async def open_case(
         self,
         *,
@@ -88,6 +122,7 @@ class SqlSignalStore(SignalStore):
         expires_at: datetime | None,
         source_ref: UUID,
         held: bool,
+        owner_account_id: UUID | None = None,
     ) -> None:
         existing = await self._live_row(subject_id, tenant_id)
         if existing is not None:
@@ -96,17 +131,36 @@ class SqlSignalStore(SignalStore):
             await self._merge(existing, source_ref=source_ref, extend_to=expires_at)
             return
 
+        # Un cas retenu par le plafond garde son propriétaire mais **pas** le statut `ASSIGNED` :
+        # il est détecté, pas encore sur les épaules de quelqu'un.
+        if held:
+            status = SignalStatus.HELD
+        elif owner_account_id is not None:
+            status = SignalStatus.ASSIGNED
+        else:
+            status = SignalStatus.OPEN
+
+        case_id = uuid4()
+        previous = await self._last_resolved_row(subject_id, tenant_id)
         self._session.add(
             SignalModel(
-                id=uuid4(),
+                id=case_id,
                 tenant_id=tenant_id,
                 subject_id=subject_id,
                 origin=origin,
-                status=(SignalStatus.HELD if held else SignalStatus.OPEN).value,
+                status=status.value,
+                episode_id=previous.episode_id if previous is not None else case_id,
+                occurrence_number=(
+                    previous.occurrence_number + 1 if previous is not None else 1
+                ),
+                previous_outcome=previous.outcome if previous is not None else None,
+                previous_closed_at=previous.closed_at if previous is not None else None,
                 reason=reason,
                 opened_at=opened_at,
                 expires_at=expires_at,
-                owner_account_id=None,  # `Referent` n'existe pas encore — NULL est la vérité
+                # NULL reste admis, et c'est **une donnée** : « personne ne connaît cette
+                # personne » est précisément ce qu'il faut voir.
+                owner_account_id=owner_account_id,
                 source_refs=[str(source_ref)],
                 priority=CasePriority(origin).value,
                 annotations=[],
@@ -209,6 +263,122 @@ class SqlSignalStore(SignalStore):
             for r in rows
         ]
 
+    async def do_not_contact_ids(self, tenant_id: UUID) -> set[UUID]:
+        """Absorbant : ce retrait vaut pour toutes les surfaces, moteur ou non."""
+        stmt = select(SignalModel.subject_id).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.outcome == SignalOutcome.DO_NOT_CONTACT.value,
+        )
+        return set((await self._session.execute(stmt)).scalars().all())
+
+    async def mark_contact_started(
+        self, *, signal_id: UUID, tenant_id: UUID, at: datetime
+    ) -> None:
+        row = await self._session.get(SignalModel, signal_id)
+        if row is None or row.tenant_id != tenant_id:
+            return
+        signal = _to_signal(row)
+        signal.record_contact_attempt(at=at)
+        row.status = signal.status.value
+        row.first_seen_at = signal.first_seen_at
+        row.first_contact_at = signal.first_contact_at
+        await self._session.flush()
+
+    async def origin_of(self, signal_id: UUID, tenant_id: UUID) -> CasePriority | None:
+        row = await self._session.get(SignalModel, signal_id)
+        if row is None or row.tenant_id != tenant_id:
+            return None
+        return CasePriority(row.origin)
+
+    async def extinguish_by_id(
+        self, *, signal_id: UUID, tenant_id: UUID, cause: str, at: datetime
+    ) -> None:
+        row = await self._session.get(SignalModel, signal_id)
+        if row is None or row.tenant_id != tenant_id:
+            return
+        parsed = ExtinguishCause(cause)
+        signal = _to_signal(row)
+        try:
+            signal.close(outcome=outcome_for(parsed), at=at, cause=parsed)
+        except HumanClosureRequiredError:
+            return
+        row.status = signal.status.value
+        row.outcome = signal.outcome.value if signal.outcome else None
+        row.closed_at = signal.closed_at
+        await self._session.flush()
+
+    async def cases_of_owner(self, *, account_id: UUID, tenant_id: UUID) -> list[Signal]:
+        stmt = select(SignalModel).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.owner_account_id == account_id,
+            SignalModel.status.in_(_ON_SHOULDERS),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        cases = [_to_signal(r) for r in rows]
+        # Tri en Python : l'ordre est celui des **rangs de priorité**, qui vivent dans le
+        # domaine. Le reproduire en SQL le dupliquerait, et les deux divergeraient.
+        cases.sort(key=lambda s: (priority_rank(s.priority), s.opened_at))
+        return cases
+
+    async def get_case(self, *, signal_id: UUID, tenant_id: UUID) -> Signal | None:
+        row = await self._session.get(SignalModel, signal_id)
+        if row is None or row.tenant_id != tenant_id:
+            return None
+        return _to_signal(row)
+
+    async def save_case(self, signal: Signal) -> None:
+        row = await self._session.get(SignalModel, signal.id)
+        if row is None:
+            return
+        row.status = signal.status.value
+        row.owner_account_id = signal.owner_account_id
+        row.priority = signal.priority.value
+        row.annotations = list(signal.annotations)
+        row.gestures_count = signal.gestures_count
+        row.first_seen_at = signal.first_seen_at
+        row.first_contact_at = signal.first_contact_at
+        row.outcome = signal.outcome.value if signal.outcome else None
+        row.closed_at = signal.closed_at
+        row.closed_by_account_id = signal.closed_by_account_id
+        row.retracted_at = signal.retracted_at
+        await self._session.flush()
+
+    async def stale_concerns(
+        self, *, tenant_id: UUID, opened_before: datetime
+    ) -> list[tuple[UUID, UUID | None, datetime]]:
+        stmt = select(SignalModel).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.origin == CasePriority.CONCERN.value,
+            SignalModel.status.in_(_LIVE),
+            SignalModel.first_contact_at.is_(None),
+            SignalModel.opened_at <= opened_before,
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [(r.id, r.owner_account_id, _aware(r.opened_at)) for r in rows]
+
+    async def concern_activity(
+        self, *, tenant_id: UUID, since: datetime
+    ) -> list[tuple[UUID | None, bool]]:
+        stmt = select(SignalModel.owner_account_id, SignalModel.first_contact_at).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.origin == CasePriority.CONCERN.value,
+            SignalModel.opened_at >= since,
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [(owner, contacted is not None) for owner, contacted in rows]
+
+    async def concern_outcomes(self, *, tenant_id: UUID, since: datetime) -> list[str]:
+        # Les rétractées sont hors du calcul : un cas devenu faux n'a rien résolu, et le compter
+        # comme une intuition ratée punirait le déclarant d'une erreur du système.
+        stmt = select(SignalModel.outcome).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.origin == CasePriority.CONCERN.value,
+            SignalModel.status == SignalStatus.CLOSED.value,
+            SignalModel.closed_at >= since,
+            SignalModel.outcome.is_not(None),
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
     async def purge_projected(self, tenant_id: UUID) -> None:
         await self._session.execute(
             delete(SignalModel).where(SignalModel.tenant_id == tenant_id)
@@ -217,3 +387,67 @@ class SqlSignalStore(SignalStore):
             delete(CareMemoryModel).where(CareMemoryModel.tenant_id == tenant_id)
         )
         await self._session.flush()
+
+
+def _to_attempt(row: ContactAttemptModel) -> ContactAttempt:
+    return ContactAttempt(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        signal_id=row.signal_id,
+        by_account_id=row.by_account_id,
+        channel=ContactChannel(row.channel),
+        attempted_at=_aware(row.attempted_at),
+        result=ContactResult(row.result),
+        answered_at=_aware(row.answered_at),
+    )
+
+
+class SqlContactAttemptStore(ContactAttemptStore):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, attempt: ContactAttempt) -> None:
+        self._session.add(
+            ContactAttemptModel(
+                id=attempt.id,
+                tenant_id=attempt.tenant_id,
+                signal_id=attempt.signal_id,
+                by_account_id=attempt.by_account_id,
+                channel=attempt.channel.value,
+                attempted_at=attempt.attempted_at,
+                result=attempt.result.value,
+                answered_at=attempt.answered_at,
+            )
+        )
+        await self._session.flush()
+
+    async def get(self, attempt_id: UUID) -> ContactAttempt | None:
+        row = await self._session.get(ContactAttemptModel, attempt_id)
+        return _to_attempt(row) if row is not None else None
+
+    async def save(self, attempt: ContactAttempt) -> None:
+        row = await self._session.get(ContactAttemptModel, attempt.id)
+        if row is None:
+            return
+        row.result = attempt.result.value
+        row.answered_at = attempt.answered_at
+        await self._session.flush()
+
+    async def count_not_reached(self, signal_id: UUID) -> int:
+        stmt = select(func.count()).where(
+            ContactAttemptModel.signal_id == signal_id,
+            ContactAttemptModel.result == ContactResult.NOT_REACHED.value,
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def pending_for(
+        self, *, account_id: UUID, tenant_id: UUID, since: datetime
+    ) -> list[ContactAttempt]:
+        stmt = select(ContactAttemptModel).where(
+            ContactAttemptModel.tenant_id == tenant_id,
+            ContactAttemptModel.by_account_id == account_id,
+            ContactAttemptModel.result == ContactResult.PENDING.value,
+            ContactAttemptModel.attempted_at >= since,
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_attempt(r) for r in rows]

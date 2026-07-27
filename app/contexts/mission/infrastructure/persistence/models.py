@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Uuid
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -32,6 +32,8 @@ class MissionLinkModel(Base):
 class SeekerModel(Base):
     __tablename__ = "seekers"
 
+    __table_args__ = (Index("ix_seekers_person", "person_account_id"),)
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
     link_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("mission_links.id"))
@@ -44,6 +46,10 @@ class SeekerModel(Base):
     accompanied_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     accompanied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # La **personne**, créée dès l'acceptation. Tant qu'elle n'existait qu'à l'intégration,
+    # l'inviteur ne devenait référent qu'au moment où elle en avait le moins besoin — et
+    # ces gens restaient hors du dénominateur de couverture, c'est-à-dire les plus fragiles.
+    person_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     integrated_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     integrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

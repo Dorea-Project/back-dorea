@@ -60,10 +60,16 @@ class SignalOutcome(StrEnum):
     UNREACHABLE_ARCHIVED = "unreachable_archived"
     KNOWN_AND_FOLLOWED = "known_and_followed"  # on sait, quelqu'un s'en occupe déjà
     NO_RETURN = "no_return"  # l'échéance est passée, pas de retour constaté
+    # « J'ai pris contact, tout allait bien. » Sans cette issue, la calibration du signalement
+    # par un tiers ne veut rien dire : aucune autre ne permet de distinguer une intuition juste
+    # d'une intuition fausse, et le taux de justesse mesurerait le vide.
+    NOTHING_TO_REPORT = "nothing_to_report"
     EPISODE_NO_GESTURE = "episode_no_gesture"  # l'épisode a expiré sans qu'un geste soit posé
     EXPLAINED_BY_ANNOUNCEMENT = "explained_by_announcement"  # clôture système
     DECEASED = "deceased"  # absorbant
     DO_NOT_CONTACT = "do_not_contact"  # absorbant — la personne a demandé qu'on cesse
+    # Un défaut de couverture ne se résout pas par un contact, mais par une **désignation**.
+    DESIGNATED = "designated"
 
 
 # Absorbants : une fois posés, plus aucune transition. Ce ne sont pas des états « terminés »
@@ -77,6 +83,7 @@ _OUTCOME_OF_CAUSE: dict[ExtinguishCause, SignalOutcome] = {
     ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT: SignalOutcome.EXPLAINED_BY_ANNOUNCEMENT,
     ExtinguishCause.RETURNED: SignalOutcome.RESTORED,
     ExtinguishCause.DECEASED: SignalOutcome.DECEASED,
+    ExtinguishCause.UNREACHABLE: SignalOutcome.UNREACHABLE_ARCHIVED,
 }
 
 
@@ -100,13 +107,50 @@ _PRIORITY_RANK: dict[CasePriority, int] = {
     CasePriority.DECLARED: 0,
     CasePriority.DEADLINE: 1,
     CasePriority.ANNOUNCEMENT: 2,
-    CasePriority.ABSENCE: 3,
+    # La parole d'un tiers : plus qu'une absence calculée, moins que celle de l'intéressé.
+    CasePriority.CONCERN: 3,
+    CasePriority.ABSENCE: 4,
 }
 
 
 LIVE_STATUSES: frozenset[SignalStatus] = frozenset(
     {SignalStatus.HELD, SignalStatus.OPEN, SignalStatus.ASSIGNED, SignalStatus.IN_CONTACT}
 )
+
+# Ce qui pèse réellement sur quelqu'un. `HELD` en est exclu : un cas retenu est détecté, pas
+# encore confié — l'afficher dans la file ferait mentir le plafond au moment même où il protège.
+ON_SHOULDERS_STATUSES: frozenset[SignalStatus] = frozenset(
+    {SignalStatus.OPEN, SignalStatus.ASSIGNED, SignalStatus.IN_CONTACT}
+)
+
+
+# Ce que l'issue précédente dit, en clair et sans jargon, à qui rouvre un cas. Court exprès :
+# la phrase s'ajoute à la raison, elle ne la remplace pas.
+_OUTCOME_LABELS: dict[SignalOutcome, str] = {
+    SignalOutcome.RESTORED: "retour constaté",
+    SignalOutcome.FOLLOWED: "repris contact, situation suivie",
+    SignalOutcome.CHANGED_CHURCH: "a rejoint une autre église",
+    SignalOutcome.UNREACHABLE_ARCHIVED: "resté sans réponse",
+    SignalOutcome.KNOWN_AND_FOLLOWED: "déjà suivi par quelqu'un",
+    SignalOutcome.NO_RETURN: "pas de retour constaté",
+    SignalOutcome.EPISODE_NO_GESTURE: "aucun geste posé",
+    SignalOutcome.NOTHING_TO_REPORT: "contact pris, rien à signaler",
+    SignalOutcome.EXPLAINED_BY_ANNOUNCEMENT: "expliqué par une annonce",
+    SignalOutcome.DECEASED: "décès",
+    SignalOutcome.DO_NOT_CONTACT: "a demandé qu'on cesse",
+    SignalOutcome.DESIGNATED: "un référent a été désigné",
+}
+
+_MONTHS: tuple[str, ...] = (
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+)
+
+
+def _spoken_date(at: datetime) -> str:
+    """« 3 février » — une date qui se lit, pas un horodatage qu'on déchiffre."""
+    day = "1er" if at.day == 1 else str(at.day)
+    return f"{day} {_MONTHS[at.month - 1]}"
 
 
 class Signal(AggregateRoot):
@@ -126,6 +170,12 @@ class Signal(AggregateRoot):
         priority: CasePriority | None = None,  # à défaut, celle de l'origine
         annotations: list[str] | None = None,
         gestures_count: int = 0,
+        first_seen_at: datetime | None = None,
+        first_contact_at: datetime | None = None,
+        episode_id: UUID | None = None,  # à défaut, le cas ouvre son propre épisode
+        occurrence_number: int = 1,
+        previous_outcome: SignalOutcome | None = None,
+        previous_closed_at: datetime | None = None,
         outcome: SignalOutcome | None = None,
         closed_at: datetime | None = None,
         closed_by_account_id: UUID | None = None,
@@ -146,6 +196,18 @@ class Signal(AggregateRoot):
         # Ce qu'on a **appris depuis** l'ouverture. Ajouté, jamais substitué à la raison :
         # « Absente depuis 4 semaines. » puis « A annulé le rendez-vous qu'elle avait demandé. »
         self.annotations = annotations or []
+        # Les deux métriques du pilote. `first_seen_at` alimente le taux d'ignorés — le seul
+        # indicateur qui **anticipe** l'abandon ; `first_contact_at` le délai détection → contact.
+        self.first_seen_at = first_seen_at
+        self.first_contact_at = first_contact_at
+        # L'**épisode** : la chaîne des cas successifs sur une même personne. Il n'existe que
+        # pour une raison — la réouverture. Sans lui, le troisième cas d'affilée s'affiche comme
+        # le premier, et le responsable qui a déjà appelé deux fois recommence de zéro. Trois
+        # champs suffisent à produire la phrase ; on n'a pas construit une histoire complète.
+        self.episode_id = episode_id or id
+        self.occurrence_number = occurrence_number
+        self.previous_outcome = previous_outcome
+        self.previous_closed_at = previous_closed_at
         self.gestures_count = gestures_count
         self.outcome = outcome
         self.closed_at = closed_at
@@ -172,6 +234,26 @@ class Signal(AggregateRoot):
         return self.outcome in ABSORBING_OUTCOMES
 
     @property
+    def is_reopening(self) -> bool:
+        return self.occurrence_number > 1
+
+    @property
+    def previous_case_note(self) -> str | None:
+        """« Cas précédent clos le 3 février — repris contact, situation suivie. »
+
+        Elle s'**ajoute** à la raison, elle ne la remplace pas : le motif d'aujourd'hui reste
+        celui d'aujourd'hui. Ce que cette phrase évite est très concret — rappeler quelqu'un en
+        ouvrant par « je vois que tu n'es pas venue » alors qu'on lui a déjà parlé en février.
+
+        Une rétractation n'en produit aucune : un cas devenu faux n'a rien à transmettre."""
+        if self.previous_outcome is None or self.previous_closed_at is None:
+            return None
+        return (
+            f"Cas précédent clos le {_spoken_date(self.previous_closed_at)} — "
+            f"{_OUTCOME_LABELS[self.previous_outcome]}."
+        )
+
+    @property
     def counts_as_resolved(self) -> bool:
         """Une rétraction n'entre dans aucune métrique de résolution : elle n'a rien résolu."""
         return self.status is SignalStatus.CLOSED
@@ -195,9 +277,26 @@ class Signal(AggregateRoot):
         """Le plafond s'est desserré : le cas retenu devient visible."""
         self._move_to(SignalStatus.OPEN)
 
+    def see(self, *, at: datetime) -> None:
+        """Le propriétaire a **ouvert** le cas. Un cas jamais ouvert est le vrai signal d'alarme
+        du produit : il monte *avant* l'abandon, quand tout le reste a encore l'air normal."""
+        if self.first_seen_at is None:
+            self.first_seen_at = at
+
     def assign(self, *, owner_account_id: UUID) -> None:
         self._move_to(SignalStatus.ASSIGNED)
         self.owner_account_id = owner_account_id
+
+    def record_contact_attempt(self, *, at: datetime) -> None:
+        """L'intention est écrite **avant** que l'application perde la main.
+
+        Si le responsable ne revient jamais dire ce qui s'est passé, on saura au moins qu'il a
+        essayé — et le produit ne conclura pas à un échec là où il y a eu un appel."""
+        self.see(at=at)
+        if self.first_contact_at is None:
+            self.first_contact_at = at
+        if self.status is SignalStatus.ASSIGNED:
+            self._move_to(SignalStatus.IN_CONTACT)
 
     def start_contact(self) -> None:
         self._move_to(SignalStatus.IN_CONTACT)
@@ -277,6 +376,11 @@ class Signal(AggregateRoot):
         métriques au lieu d'y figurer comme un succès."""
         self._move_to(SignalStatus.RETRACTED)
         self.retracted_at = at
+
+
+def priority_rank(priority: CasePriority) -> int:
+    """Le rang d'urgence — plus petit, plus urgent. Défini **une fois**, ici."""
+    return _PRIORITY_RANK[priority]
 
 
 def outcome_for(cause: ExtinguishCause) -> SignalOutcome:

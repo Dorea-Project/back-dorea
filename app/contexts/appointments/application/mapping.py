@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.contexts.appointments.application.dtos import (
+    AgendaEntryDTO,
     AppointmentDTO,
     AvailabilityRuleDTO,
     SlotDTO,
@@ -26,6 +27,20 @@ def to_appointment_dto(a: Appointment) -> AppointmentDTO:
         decision_note=a.decision_note,
         created_at=a.created_at,
         updated_at=a.updated_at,
+    )
+
+
+def to_agenda_entry_dto(a: Appointment) -> AgendaEntryDTO:
+    """Le créneau, sans rien de confidentiel. **Aucun champ sensible n'est mappé ici.**"""
+    assert a.scheduled_at is not None  # garanti par la requête, qui ne sert que des confirmés
+    return AgendaEntryDTO(
+        id=a.id,
+        requester_account_id=a.requester_account_id,
+        requester_name=a.requester_name,
+        with_pastor_account_id=a.with_pastor_account_id,
+        category=a.category.value,
+        scheduled_at=a.scheduled_at,
+        created_at=a.created_at,
     )
 
 

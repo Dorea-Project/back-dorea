@@ -9,11 +9,26 @@ un client.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import uuid4
 
+from fastapi import Depends
+
+from app.api.deps import DbSession
 from app.contexts.attendance.infrastructure.persistence.absence_repository import (
     SqlPlannedAbsenceRepository,
     SqlWatchExclusionRepository,
+)
+from app.contexts.notifications.interface.dependencies import build_scheduler
+from app.contexts.watch.application.concern_watchdog import (
+    EscalateStaleConcerns,
+    GuardAgainstDumping,
+    MeasureConcernPrecision,
+)
+from app.contexts.watch.application.contact_loop import (
+    AnswerContact,
+    PendingAttempts,
+    StartContact,
 )
 from app.contexts.watch.application.designate_referent import DesignateReferent
 from app.contexts.watch.application.intake import Intake
@@ -25,7 +40,13 @@ from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
 )
 from app.contexts.watch.application.interpreters.presence_recorded import PresenceRecordedV1
+from app.contexts.watch.application.interpreters.self_declaration import SelfDeclarationV1
+from app.contexts.watch.application.interpreters.third_party_concern import (
+    ThirdPartyConcernV1,
+)
+from app.contexts.watch.application.my_cases import CloseCase, ListMyCases, SeeCase
 from app.contexts.watch.application.projections import RebuildProjections
+from app.contexts.watch.application.raise_concern import RaiseConcern
 from app.contexts.watch.application.referent_resolution import (
     MeasureReferentGap,
     ResolveReferent,
@@ -47,8 +68,12 @@ from app.contexts.watch.infrastructure.persistence.referent import (
     SqlPrimaryGroupOverrideRepository,
     SqlReferentHistoryRepository,
     SqlReferentOverrideRepository,
+    SqlWatchParameterRepository,
 )
-from app.contexts.watch.infrastructure.persistence.signals import SqlSignalStore
+from app.contexts.watch.infrastructure.persistence.signals import (
+    SqlContactAttemptStore,
+    SqlSignalStore,
+)
 
 SOURCES = default_registry()
 
@@ -56,6 +81,8 @@ INTERPRETERS = InterpreterRegistry()
 INTERPRETERS.register(LifeEventAnnouncedV1())
 INTERPRETERS.register(PresenceRecordedV1())
 INTERPRETERS.register(AppointmentRequestedV1())
+INTERPRETERS.register(SelfDeclarationV1())
+INTERPRETERS.register(ThirdPartyConcernV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -124,3 +151,95 @@ def build_rebuild(session) -> RebuildProjections:
     return RebuildProjections(
         SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session)
     )
+
+
+def build_raise_concern(session) -> RaiseConcern:
+    """« Je m'en occupe cette semaine. » — la source la moins chère du produit."""
+    return RaiseConcern(
+        build_intake(session),
+        build_signal_owner(session),
+        build_signals(session),
+        build_store(session),
+        clock=lambda: datetime.now(UTC),
+        id_factory=uuid4,
+    )
+
+
+def build_escalate_concerns(session) -> EscalateStaleConcerns:
+    return EscalateStaleConcerns(
+        build_signals(session),
+        SqlCoverageGapStore(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
+        id_factory=uuid4,
+    )
+
+
+def build_dumping_guard(session) -> GuardAgainstDumping:
+    return GuardAgainstDumping(
+        build_signals(session),
+        SqlCoverageGapStore(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
+        id_factory=uuid4,
+    )
+
+
+def build_concern_precision(session) -> MeasureConcernPrecision:
+    return MeasureConcernPrecision(
+        build_signals(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
+    )
+
+
+def build_contacts(session) -> SqlContactAttemptStore:
+    return SqlContactAttemptStore(session)
+
+
+# --- Injection FastAPI ------------------------------------------------------------------------
+
+_now = lambda: datetime.now(UTC)  # noqa: E731 — une horloge, pas une fonction métier
+
+
+async def get_raise_concern(session: DbSession) -> RaiseConcern:
+    return build_raise_concern(session)
+
+
+async def get_my_cases(session: DbSession) -> ListMyCases:
+    return ListMyCases(build_signals(session))
+
+
+async def get_see_case(session: DbSession) -> SeeCase:
+    return SeeCase(build_signals(session), clock=_now)
+
+
+async def get_close_case(session: DbSession) -> CloseCase:
+    return CloseCase(build_signals(session), clock=_now)
+
+
+async def get_start_contact(session: DbSession) -> StartContact:
+    return StartContact(
+        build_contacts(session),
+        build_signals(session),
+        build_scheduler(session),  # le rappel de retour part d'ici, ou nulle part
+        clock=_now,
+        id_factory=uuid4,
+    )
+
+
+async def get_answer_contact(session: DbSession) -> AnswerContact:
+    return AnswerContact(build_contacts(session), build_signals(session), clock=_now)
+
+
+async def get_pending_attempts(session: DbSession) -> PendingAttempts:
+    return PendingAttempts(build_contacts(session), clock=_now)
+
+
+RaiseConcernDep = Annotated[RaiseConcern, Depends(get_raise_concern)]
+ListMyCasesDep = Annotated[ListMyCases, Depends(get_my_cases)]
+SeeCaseDep = Annotated[SeeCase, Depends(get_see_case)]
+CloseCaseDep = Annotated[CloseCase, Depends(get_close_case)]
+StartContactDep = Annotated[StartContact, Depends(get_start_contact)]
+AnswerContactDep = Annotated[AnswerContact, Depends(get_answer_contact)]
+PendingAttemptsDep = Annotated[PendingAttempts, Depends(get_pending_attempts)]

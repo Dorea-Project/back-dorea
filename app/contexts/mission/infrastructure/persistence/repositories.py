@@ -122,6 +122,7 @@ class SqlSeekerRepository(SeekerRepository):
                 accompanied_by_account_id=seeker.accompanied_by_account_id,
                 accompanied_at=seeker.accompanied_at,
                 closed_at=seeker.closed_at,
+                person_account_id=seeker.person_account_id,
                 integrated_account_id=seeker.integrated_account_id,
                 integrated_at=seeker.integrated_at,
             )
@@ -140,6 +141,7 @@ class SqlSeekerRepository(SeekerRepository):
         row.accompanied_by_account_id = seeker.accompanied_by_account_id
         row.accompanied_at = seeker.accompanied_at
         row.closed_at = seeker.closed_at
+        row.person_account_id = seeker.person_account_id
         row.integrated_account_id = seeker.integrated_account_id
         row.integrated_at = seeker.integrated_at
         await self._session.flush()
@@ -178,6 +180,7 @@ def _to_seeker(row: SeekerModel) -> Seeker:
         accompanied_by_account_id=row.accompanied_by_account_id,
         accompanied_at=row.accompanied_at,
         closed_at=row.closed_at,
+        person_account_id=row.person_account_id,
         integrated_account_id=row.integrated_account_id,
         integrated_at=row.integrated_at,
     )

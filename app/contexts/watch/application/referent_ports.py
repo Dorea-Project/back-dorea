@@ -9,6 +9,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app.contexts.watch.domain.coverage import CoverageGapRecord
+from app.contexts.watch.domain.parameters import WatchParam
 from app.contexts.watch.domain.referent import (
     GroupTypePolicy,
     MembershipCandidate,
@@ -67,6 +68,11 @@ class PeopleDirectory(ABC):
 
     @abstractmethod
     async def pastor(self, tenant_id: UUID) -> UUID | None: ...
+
+    @abstractmethod
+    async def pastors(self, tenant_id: UUID) -> list[UUID]:
+        """Tous les pasteurs actifs — les candidats au relais, dans un ordre déterministe."""
+        ...
 
 
 class InviterDirectory(ABC):
@@ -134,3 +140,12 @@ class ReferentHistoryRepository(ABC):
     async def last_for(
         self, person_id: UUID, tenant_id: UUID, *, before: datetime | None = None
     ) -> ReferentHistoryEntry | None: ...
+
+
+class WatchParameterRepository(ABC):
+    """Les valeurs calibrables, par église, avec repli sur le défaut du produit."""
+
+    @abstractmethod
+    async def get_int(self, tenant_id: UUID, param: WatchParam) -> int:
+        """La valeur pour cette église, sinon le défaut. **Jamais une constante lue au vol.**"""
+        ...

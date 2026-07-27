@@ -59,6 +59,7 @@ from app.contexts.tenant.interface.onboarding_router import (
     public_router as onboarding_public_router,
 )
 from app.contexts.tenant.interface.router import router as tenant_router
+from app.contexts.watch.interface.mobile_router import router as mobile_watch_router
 
 # --- Surface mobile ---
 api_router = APIRouter()
@@ -82,6 +83,9 @@ api_router.include_router(
     mobile_notifications_router, prefix="/notifications", tags=["notifications"]
 )
 api_router.include_router(mobile_sermon_router, prefix="/sermons", tags=["sermons"])
+# La première surface du moteur de veille. Elle n'expose pas la file des cas — seulement le
+# geste qui l'alimente : quelqu'un pense à quelqu'un, et il l'écrit une fois.
+api_router.include_router(mobile_watch_router, prefix="/watch", tags=["watch"])
 
 # --- Surface backoffice ---
 backoffice_router = APIRouter()

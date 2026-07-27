@@ -354,19 +354,30 @@ async def test_confirm_unknown_appointment_is_404():
         await cmd.execute(actor_account_id=keeper, appointment_id=uuid4(), scheduled_at=_SLOT)
 
 
-async def test_agenda_shows_open_appointments_to_the_keeper():
+async def test_the_agenda_shows_slots_to_organise_never_pending_requests():
+    """Le secrétariat organise des créneaux. Il ne voit **ni** les demandes en attente, **ni**
+    leur motif.
+
+    C'est ce qui permet de demander sans que « on sait qu'il a demandé » circule dans l'église.
+    Le coût social est exactement ce que le canal venait de supprimer : le faire revenir par la
+    porte administrative annulerait tout le bénéfice."""
     tenant = uuid4()
     keeper, ms = _secretary(tenant)
-    pending = _appt(tenant)
+    pending = _appt(tenant)  # une main levée — pas l'affaire du secrétariat
     confirmed = _appt(tenant, status=AppointmentStatus.CONFIRMED)
+    confirmed.scheduled_at = _SLOT
     resolved = _appt(tenant)
-    resolved.cancel(now=_NOW)  # ne doit pas apparaître dans l'agenda vivant
+    resolved.cancel(now=_NOW)
     appts = _FakeAppointments([confirmed, pending, resolved])
-    dtos = await ListTenantAgenda(appts, _access(ms)).execute(
+
+    entries = await ListTenantAgenda(appts, _access(ms)).execute(
         actor_account_id=keeper, tenant_id=tenant
     )
-    statuses = {d.status for d in dtos}
-    assert len(dtos) == 2 and statuses == {"requested", "confirmed"}
+
+    assert [e.id for e in entries] == [confirmed.id]
+    # Le type de sortie ne porte tout simplement pas ces champs.
+    assert not hasattr(entries[0], "subject")
+    assert not hasattr(entries[0], "note")
 
 
 async def test_agenda_is_refused_to_a_non_keeper():

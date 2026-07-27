@@ -93,8 +93,13 @@ class SignalStore(ABC):
         expires_at: datetime | None,
         source_ref: UUID,
         held: bool,
+        owner_account_id: UUID | None = None,
     ) -> None:
-        """Ouvre un cas, ou **enrichit** celui qui existe déjà. Jamais deux sur une personne."""
+        """Ouvre un cas, ou **enrichit** celui qui existe déjà. Jamais deux sur une personne.
+
+        `owner_account_id` non nul assigne le cas dès l'ouverture. C'est ce qui permet à
+        l'escalade et au garde-fou de ratio d'exister : un cas sans destinataire est un cas que
+        personne ne traite, et dont personne ne répond."""
         ...
 
     @abstractmethod
@@ -134,6 +139,101 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def do_not_contact_ids(self, tenant_id: UUID) -> set[UUID]:
+        """Les personnes qui ont demandé qu'on cesse de les contacter.
+
+        Une veille dont on ne peut pas sortir est un fichage. Ce retrait est absorbant et
+        s'impose à **toutes** les surfaces, y compris à celles qui n'appartiennent pas au
+        moteur — un rendez-vous en attente ne survit pas à cette parole."""
+        ...
+
+    @abstractmethod
+    async def mark_contact_started(
+        self, *, signal_id: UUID, tenant_id: UUID, at: datetime
+    ) -> None:
+        """L'effort est enregistré **au départ** — avant que l'application perde la main."""
+        ...
+
+    @abstractmethod
+    async def origin_of(self, signal_id: UUID, tenant_id: UUID):
+        """L'origine du cas — la péremption dure ne vaut que pour le régime d'échéance."""
+        ...
+
+    @abstractmethod
+    async def extinguish_by_id(
+        self, *, signal_id: UUID, tenant_id: UUID, cause: str, at: datetime
+    ) -> None: ...
+
+    # --- Ce que le signalement par un tiers a besoin de relire -----------------------------
+    #
+    # Trois lectures, et **aucune** ne prend le déclarant en argument ni ne le renvoie : elles
+    # portent sur le cas, son propriétaire, son issue. « Qui a signalé qui » n'est reconstituable
+    # par aucune d'elles, et c'est structurel — l'information n'est pas dans la table.
+
+    @abstractmethod
+    async def cases_of_owner(self, *, account_id: UUID, tenant_id: UUID) -> list:
+        """La file d'un responsable : ses cas vivants, le plus urgent d'abord.
+
+        Les cas `HELD` n'y figurent pas — ils sont détectés, pas encore sur ses épaules. Les
+        montrer ferait mentir le plafond au moment même où il protège quelqu'un."""
+        ...
+
+    @abstractmethod
+    async def get_case(self, *, signal_id: UUID, tenant_id: UUID):
+        """Un cas, ou None. Le `tenant_id` est dans la signature, jamais déduit du cas."""
+        ...
+
+    @abstractmethod
+    async def save_case(self, signal) -> None:
+        """Persiste ce que l'agrégat a décidé. Le dépôt ne rejoue aucune règle."""
+        ...
+
+    @abstractmethod
+    async def stale_concerns(
+        self, *, tenant_id: UUID, opened_before: datetime
+    ) -> list[tuple[UUID, UUID | None, datetime]]:
+        """`(signal_id, owner_id, opened_at)` — inquiétudes vivantes sans **aucun** contact.
+
+        Le critère est `first_contact_at IS NULL`, pas la clôture : un engagement tenu tard reste
+        un engagement tenu, et ce qu'on cherche est celui que personne n'a commencé."""
+        ...
+
+    @abstractmethod
+    async def concern_activity(
+        self, *, tenant_id: UUID, since: datetime
+    ) -> list[tuple[UUID | None, bool]]:
+        """`(owner_id, contacté)` par inquiétude ouverte depuis. Le garde-fou lit un **ratio**."""
+        ...
+
+    @abstractmethod
+    async def concern_outcomes(self, *, tenant_id: UUID, since: datetime) -> list[str]:
+        """Les issues des inquiétudes **closes**. Agrégat de calibration, jamais nominatif."""
+        ...
+
+    @abstractmethod
     async def purge_projected(self, tenant_id: UUID) -> None:
         """Efface cas et mémoire avant un rejeu. Tout ici est reconstruit à partir des faits."""
+        ...
+
+
+class ContactAttemptStore(ABC):
+    """Les tentatives de contact. Écrites au départ, résolues au retour — ou jamais."""
+
+    @abstractmethod
+    async def add(self, attempt) -> None: ...
+
+    @abstractmethod
+    async def get(self, attempt_id: UUID): ...
+
+    @abstractmethod
+    async def save(self, attempt) -> None: ...
+
+    @abstractmethod
+    async def count_not_reached(self, signal_id: UUID) -> int:
+        """Combien de fois on a essayé sans joindre — le compteur de la péremption dure."""
+        ...
+
+    @abstractmethod
+    async def pending_for(self, *, account_id: UUID, tenant_id: UUID, since: datetime) -> list:
+        """Ce qu'on demandera à la réouverture, borné dans le temps."""
         ...

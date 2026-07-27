@@ -24,7 +24,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from app.contexts.appointments.domain.repositories import PastorUnavailabilityRepository
+from app.contexts.appointments.domain.repositories import (
+    PastorOverrideRepository,
+    PastorUnavailabilityRepository,
+)
 from app.contexts.appointments.domain.unavailability import is_available
 from app.contexts.watch.application.referent_ports import GroupDirectory, PeopleDirectory
 from app.contexts.watch.application.referent_resolution import ResolveReferent
@@ -36,13 +39,6 @@ class AssignedPastor:
     origin: str  # manual | branch | church
 
 
-class PastorOverrideDirectory:
-    """Les désignations explicites de pasteur. Vide tant qu'aucune n'existe — et c'est normal."""
-
-    async def active_for(self, person_id: UUID, tenant_id: UUID) -> UUID | None:
-        return None
-
-
 class ResolveAssignedPastor:
     def __init__(
         self,
@@ -50,20 +46,26 @@ class ResolveAssignedPastor:
         groups: GroupDirectory,
         people: PeopleDirectory,
         unavailabilities: PastorUnavailabilityRepository,
-        overrides: PastorOverrideDirectory | None = None,
+        overrides: PastorOverrideRepository | None = None,
     ) -> None:
         self._referents = referents
         self._groups = groups
         self._people = people
         self._unavailabilities = unavailabilities
-        self._overrides = overrides or PastorOverrideDirectory()
+        self._overrides = overrides
 
     async def execute(
         self, *, person_id: UUID, tenant_id: UUID, at: datetime
     ) -> AssignedPastor | None:
-        manual = await self._overrides.active_for(person_id, tenant_id)
-        if manual is not None and await self._available(manual, tenant_id, at):
-            return AssignedPastor(manual, "manual")
+        manual = (
+            await self._overrides.active_for(person_id, tenant_id)
+            if self._overrides is not None
+            else None
+        )
+        if manual is not None and await self._available(
+            manual.pastor_account_id, tenant_id, at
+        ):
+            return AssignedPastor(manual.pastor_account_id, "manual")
 
         # Le groupe primaire vient du module Referent : une seule notion de « groupe qui compte ».
         primary = await self._referents.primary_group(

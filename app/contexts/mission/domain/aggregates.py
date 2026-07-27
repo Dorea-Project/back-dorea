@@ -136,6 +136,7 @@ class Seeker(AggregateRoot):
         accompanied_by_account_id: UUID | None = None,
         accompanied_at: datetime | None = None,
         closed_at: datetime | None = None,
+        person_account_id: UUID | None = None,
         integrated_account_id: UUID | None = None,
         integrated_at: datetime | None = None,
     ) -> None:
@@ -152,6 +153,8 @@ class Seeker(AggregateRoot):
         self.accompanied_by_account_id = accompanied_by_account_id
         self.accompanied_at = accompanied_at
         self.closed_at = closed_at
+        # La personne existe **dès l'acceptation** : un contact laissé, c'est quelqu'un.
+        self.person_account_id = person_account_id
         self.integrated_account_id = integrated_account_id
         self.integrated_at = integrated_at
 

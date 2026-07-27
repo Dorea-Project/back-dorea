@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from app.api.deps import DbSession
+from app.contexts.appointments.application.assigned_pastor import ResolveAssignedPastor
 from app.contexts.appointments.application.commands.availability import (
     AddAvailabilityRule,
     DeactivateAvailabilityRule,
@@ -26,13 +27,20 @@ from app.contexts.appointments.application.commands.request import (
 )
 from app.contexts.appointments.application.queries.list_appointments import (
     ListMyAppointments,
+    ListMyPendingRequests,
     ListTenantAgenda,
 )
 from app.contexts.appointments.application.queries.open_slots import ListOpenSlots
+from app.contexts.appointments.application.relay import (
+    RelayUnansweredRequests,
+    RouteAppointment,
+)
 from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
 from app.contexts.appointments.infrastructure.persistence.repository import (
     SqlAppointmentRepository,
     SqlAvailabilityRuleRepository,
+    SqlPastorOverrideRepository,
+    SqlPastorUnavailabilityRepository,
 )
 from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.iam.infrastructure.persistence.repositories import (
@@ -40,7 +48,19 @@ from app.contexts.iam.infrastructure.persistence.repositories import (
 )
 from app.contexts.notifications.interface.dependencies import build_notifier, build_scheduler
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
-from app.contexts.watch.interface.dependencies import build_intake
+from app.contexts.watch.infrastructure.directories import (
+    SqlGroupDirectory,
+    SqlPeopleDirectory,
+)
+from app.contexts.watch.infrastructure.persistence.referent import (
+    SqlCoverageGapStore,
+    SqlWatchParameterRepository,
+)
+from app.contexts.watch.interface.dependencies import (
+    build_intake,
+    build_referents,
+    build_signals,
+)
 
 
 def _now() -> datetime:
@@ -50,6 +70,31 @@ def _now() -> datetime:
 def _access(session) -> GroupAccessPolicy:
     return GroupAccessPolicy(
         SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+    )
+
+
+def _pastors(session) -> ResolveAssignedPastor:
+    """La cascade du pasteur assigné — dérivée, aucun champ stocké sur la personne."""
+    return ResolveAssignedPastor(
+        build_referents(session),
+        SqlGroupDirectory(session),
+        SqlPeopleDirectory(session),
+        SqlPastorUnavailabilityRepository(session),
+        SqlPastorOverrideRepository(session),
+    )
+
+
+def build_relay(session) -> RelayUnansweredRequests:
+    """La passe nocturne : rien de ce qui attend ne reste muet."""
+    return RelayUnansweredRequests(
+        SqlAppointmentRepository(session),
+        _pastors(session),
+        SqlPeopleDirectory(session),
+        SqlWatchParameterRepository(session),
+        SqlCoverageGapStore(session),
+        build_signals(session),
+        build_notifier(session),
+        clock=_now,
     )
 
 
@@ -66,6 +111,7 @@ def get_request_command(session: DbSession) -> RequestAppointment:
         SqlAppointmentRepository(session),
         SqlAlchemyMembershipRepository(session),
         _facts(session),
+        RouteAppointment(_pastors(session)),
         clock=_now,
     )
 
@@ -125,6 +171,10 @@ def get_no_show_command(session: DbSession) -> MarkAppointmentNoShow:
     )
 
 
+def get_my_pending_requests_query(session: DbSession) -> ListMyPendingRequests:
+    return ListMyPendingRequests(SqlAppointmentRepository(session))
+
+
 def get_agenda_query(session: DbSession) -> ListTenantAgenda:
     return ListTenantAgenda(SqlAppointmentRepository(session), _access(session))
 
@@ -172,6 +222,9 @@ ConfirmAppointmentDep = Annotated[ConfirmAppointment, Depends(get_confirm_comman
 DeclineAppointmentDep = Annotated[DeclineAppointment, Depends(get_decline_command)]
 CompleteAppointmentDep = Annotated[CompleteAppointment, Depends(get_complete_command)]
 ListTenantAgendaDep = Annotated[ListTenantAgenda, Depends(get_agenda_query)]
+ListMyPendingRequestsDep = Annotated[
+    ListMyPendingRequests, Depends(get_my_pending_requests_query)
+]
 AddAvailabilityRuleDep = Annotated[AddAvailabilityRule, Depends(get_add_rule_command)]
 DeactivateAvailabilityRuleDep = Annotated[
     DeactivateAvailabilityRule, Depends(get_deactivate_rule_command)

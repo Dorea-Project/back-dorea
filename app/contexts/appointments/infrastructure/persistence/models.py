@@ -36,6 +36,14 @@ class AppointmentModel(Base):
     # **Qui** a annulé. Le demandeur qui recule après avoir levé la main est le signal le plus
     # urgent du produit ; l'église qui ferme un rendez-vous caduc ne dit pas la même chose.
     cancelled_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    # Chez qui la demande est **actuellement**. Distinct de `with_pastor_account_id`, qui est le
+    # pasteur du créneau une fois posé : une demande est routée avant d'être confirmée.
+    routed_to_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    routed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    relay_count: Mapped[int] = mapped_column(Integer, default=0)
+    # **Stocké** : un pasteur qui reçoit une demande sans savoir pourquoi elle lui arrive
+    # l'ignore.
+    relay_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class PastorUnavailabilityModel(Base):
@@ -62,6 +70,22 @@ class PastorUnavailabilityModel(Base):
     declared_by_account_id: Mapped[UUID] = mapped_column(Uuid)
     declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PastorOverrideModel(Base):
+    """« C'est ce pasteur-là qui la reçoit. » Stocké seulement parce que quelqu'un l'a décidé."""
+
+    __tablename__ = "pastor_overrides"
+
+    __table_args__ = (Index("ix_pastor_override_person", "tenant_id", "person_id"),)
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    person_id: Mapped[UUID] = mapped_column(Uuid)
+    pastor_account_id: Mapped[UUID] = mapped_column(Uuid)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_by_account_id: Mapped[UUID] = mapped_column(Uuid)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AvailabilityRuleModel(Base):

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from app.contexts.mission.application.threshold import CrossTheThreshold
 from app.contexts.mission.domain.aggregates import MissionLink, MissionReaction, Seeker
 from app.contexts.mission.domain.enums import SeekerReaction, SeekerStatus
 from app.contexts.mission.domain.errors import (
@@ -61,12 +62,14 @@ class AcceptInvitation:
         links: MissionLinkRepository,
         seekers: SeekerRepository,
         notifier: Notifier | None = None,
+        threshold: CrossTheThreshold | None = None,
         *,
         clock,
     ) -> None:
         self._links = links
         self._seekers = seekers
         self._notifier = notifier
+        self._threshold = threshold
         self._clock = clock
 
     async def execute(
@@ -88,6 +91,14 @@ class AcceptInvitation:
             status=SeekerStatus.ACCEPTED,
             created_at=now,
         )
+        # **Le seuil.** Un contact laissé, c'est quelqu'un : la personne existe en base dès
+        # maintenant, avec son référent. Attendre l'intégration, c'était laisser les plus
+        # fragiles hors de la couverture — et perdre l'histoire de qui les avait amenés.
+        if self._threshold is not None:
+            crossed = await self._threshold.execute(
+                link=link, name=seeker.name, phone=phone, now=now
+            )
+            seeker.person_account_id = crossed.account_id
         await self._seekers.add(seeker)
         # La joie de la main tendue : prévenir l'inviteur (lien personnel) — best-effort.
         if self._notifier is not None and link.inviter_account_id is not None:

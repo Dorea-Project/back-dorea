@@ -7,7 +7,10 @@ from uuid import UUID
 from app._shared.domain.repository import Repository
 from app.contexts.appointments.domain.aggregates import Appointment
 from app.contexts.appointments.domain.availability import AvailabilityRule
-from app.contexts.appointments.domain.unavailability import PastorUnavailability
+from app.contexts.appointments.domain.unavailability import (
+    PastorOverride,
+    PastorUnavailability,
+)
 
 
 class AppointmentRepository(Repository):
@@ -86,3 +89,16 @@ class PastorUnavailabilityRepository(Repository):
     ) -> list[PastorUnavailability]:
         """Absences non annulées d'un pasteur (le filtre par date se fait en mémoire)."""
         ...
+
+
+class PastorOverrideRepository(Repository):
+    """Les désignations explicites de pasteur — stockées seulement parce qu'elles existent."""
+
+    @abstractmethod
+    async def add(self, override: PastorOverride) -> None: ...
+
+    @abstractmethod
+    async def save(self, override: PastorOverride) -> None: ...
+
+    @abstractmethod
+    async def active_for(self, person_id: UUID, tenant_id: UUID) -> PastorOverride | None: ...

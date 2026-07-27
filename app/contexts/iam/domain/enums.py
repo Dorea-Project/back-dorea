@@ -14,6 +14,9 @@ class AccountCreationSource(StrEnum):
     OWNER = "owner"
     WALK_IN_REGISTRATION = "walk_in_registration"  # ex-« accueil » (présentiel)
     SELF_SERVICE = "self_service"
+    # Une capsule acceptée : quelqu'un a laissé son contact en retour d'une invitation.
+    # L'origine compte — c'est elle qui dit « quelqu'un l'a amenée ».
+    MISSION_CAPSULE = "mission_capsule"
     SYSTEM = "system"  # Phase 0 P0.1 — origine du compte système « Dorea Platform »
 
 

@@ -74,6 +74,7 @@ class SignalModel(Base):
         Index("ix_watch_signals_tenant_status", "tenant_id", "status"),
         Index("ix_watch_signals_subject", "tenant_id", "subject_id"),
         Index("ix_watch_signals_owner", "tenant_id", "owner_account_id"),
+        Index("ix_watch_signals_episode", "tenant_id", "episode_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -93,6 +94,21 @@ class SignalModel(Base):
     priority: Mapped[str] = mapped_column(String)
     # Ce qu'on a appris **depuis** l'ouverture — ajouté, jamais substitué à la raison.
     annotations: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Les deux métriques du pilote : le taux d'ignorés (le seul qui **anticipe** l'abandon)
+    # et le délai détection → premier contact.
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_contact_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # L'**épisode** : la chaîne des cas successifs sur une même personne. Il n'existe que pour la
+    # réouverture — sans lui, le troisième cas d'affilée s'affiche comme le premier, et celui qui
+    # a déjà appelé deux fois recommence de zéro. Trois champs, pas une histoire complète.
+    episode_id: Mapped[UUID] = mapped_column(Uuid)
+    occurrence_number: Mapped[int] = mapped_column(Integer, default=1)
+    previous_outcome: Mapped[str | None] = mapped_column(String, nullable=True)
+    previous_closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     gestures_count: Mapped[int] = mapped_column(Integer, default=0)
     outcome: Mapped[str | None] = mapped_column(String, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -139,6 +155,31 @@ class GroupTypePolicyModel(Base):
     # Ordonné par **durabilité du lien**, pas par intensité : une classe s'achève, un
     # ministère dure.
     primacy_rank: Mapped[int] = mapped_column(Integer)
+
+
+class WatchParameterModel(Base):
+    """Un paramètre calibrable. `tenant_id` NULL = la valeur par défaut du produit.
+
+    Même piège que les politiques de type de groupe : `NULL != NULL` en SQL, donc l'index
+    partiel est indispensable pour que le défaut ne puisse pas être inséré deux fois."""
+
+    __tablename__ = "watch_parameters"
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "param", name="uq_watch_parameter"),
+        Index(
+            "uq_watch_parameter_default",
+            "param",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+            sqlite_where=text("tenant_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    param: Mapped[str] = mapped_column(String)
+    value: Mapped[int] = mapped_column(Integer)
 
 
 class CoverageGapModel(Base):
@@ -220,6 +261,30 @@ class ReferentHistoryModel(Base):
     origin: Mapped[str | None] = mapped_column(String, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     cause: Mapped[str] = mapped_column(String)
+
+
+class ContactAttemptModel(Base):
+    """Une tentative de contact — écrite **au départ**, pas au retour.
+
+    On sort vers WhatsApp ou le téléphone et on ne revient pas. Sans cette ligne posée avant de
+    perdre la main, le produit conclurait à un échec de veille là où il y a eu un appel de vingt
+    minutes : le pire des faux négatifs, celui qui invalide un succès réel."""
+
+    __tablename__ = "watch_contact_attempts"
+
+    __table_args__ = (
+        Index("ix_watch_contact_signal", "signal_id"),
+        Index("ix_watch_contact_pending", "tenant_id", "by_account_id", "result"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    signal_id: Mapped[UUID] = mapped_column(Uuid)
+    by_account_id: Mapped[UUID] = mapped_column(Uuid)
+    channel: Mapped[str] = mapped_column(String)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    result: Mapped[str] = mapped_column(String)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CareMemoryModel(Base):

@@ -67,3 +67,41 @@ def is_available(
 ) -> bool:
     """Fonction **pure** : ce pasteur peut-il recevoir à ce moment-là ?"""
     return not any(u.covers(moment) for u in unavailabilities)
+
+
+class PastorOverride(AggregateRoot):
+    """« C'est ce pasteur-là qui la reçoit » — une décision humaine, stockée seulement si elle
+    existe.
+
+    Même mécanique que le référent : aucun `assigned_pastor_id` sur la personne. Sans cet objet
+    la cascade n'aurait pas de premier étage, et la seule façon de corriger un routage serait
+    d'attendre le relais — c'est-à-dire d'attendre que quelqu'un ne réponde pas.
+    """
+
+    def __init__(
+        self,
+        *,
+        id: UUID,
+        tenant_id: UUID,
+        person_id: UUID,
+        pastor_account_id: UUID,
+        started_at: datetime,
+        started_by_account_id: UUID,
+        ended_at: datetime | None = None,
+    ) -> None:
+        super().__init__()
+        self.id = id
+        self.tenant_id = tenant_id
+        self.person_id = person_id
+        self.pastor_account_id = pastor_account_id
+        self.started_at = started_at
+        self.started_by_account_id = started_by_account_id
+        self.ended_at = ended_at
+
+    @property
+    def is_active(self) -> bool:
+        return self.ended_at is None
+
+    def end(self, *, at: datetime) -> None:
+        if self.ended_at is None:
+            self.ended_at = at

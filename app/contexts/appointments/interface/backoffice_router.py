@@ -15,10 +15,12 @@ from app.contexts.appointments.interface.dependencies import (
     ConfirmAppointmentDep,
     DeactivateAvailabilityRuleDep,
     DeclineAppointmentDep,
+    ListMyPendingRequestsDep,
     ListTenantAgendaDep,
     OpenAppointmentDep,
 )
 from app.contexts.appointments.interface.schemas import (
+    AgendaView,
     AppointmentListView,
     AppointmentView,
     AvailabilityRuleBody,
@@ -34,14 +36,32 @@ router = APIRouter()
 
 @router.get(
     "/tenants/{tenant_id}",
-    response_model=AppointmentListView,
-    summary="L'agenda du pasteur : demandes en attente + rendez-vous confirmés",
+    response_model=AgendaView,
+    summary="L'agenda : les créneaux confirmés à organiser — jamais les demandes en attente",
 )
 async def agenda(
     tenant_id: UUID,
     user: CurrentBackofficeUser,
     query: ListTenantAgendaDep,
+) -> AgendaView:
+    """Le secrétariat organise des créneaux. Il ne voit ni les demandes en attente, ni leur
+    motif : c'est ce qui permet de demander sans que « on sait qu'il a demandé » circule."""
+    dtos = await query.execute(actor_account_id=user.account_id, tenant_id=tenant_id)
+    return AgendaView.from_dtos(dtos)
+
+
+@router.get(
+    "/tenants/{tenant_id}/requests",
+    response_model=AppointmentListView,
+    summary="Les demandes qui me sont adressées — ma file, avec leur motif",
+)
+async def my_requests(
+    tenant_id: UUID,
+    user: CurrentBackofficeUser,
+    query: ListMyPendingRequestsDep,
 ) -> AppointmentListView:
+    """Aucune permission d'église n'ouvre cet écran : c'est le **routage** qui décide. Un admin
+    ne voit pas les demandes des autres du seul fait qu'il est admin."""
     dtos = await query.execute(actor_account_id=user.account_id, tenant_id=tenant_id)
     return AppointmentListView.from_dtos(dtos)
 

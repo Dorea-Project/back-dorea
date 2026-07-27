@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.contexts.appointments.application.dtos import (
+    AgendaEntryDTO,
     AppointmentDTO,
     AvailabilityRuleDTO,
     SlotDTO,
@@ -137,6 +138,40 @@ class AppointmentView(BaseModel):
             created_at=d.created_at,
             updated_at=d.updated_at,
         )
+
+
+class AgendaEntryView(BaseModel):
+    """Un créneau à organiser. **Ni sujet, ni note, ni mot de décision** — ils n'existent pas
+    dans ce schéma, donc ils ne peuvent pas fuir par oubli."""
+
+    id: UUID
+    requester_account_id: UUID | None
+    requester_name: str | None
+    with_pastor_account_id: UUID | None
+    category: str
+    scheduled_at: datetime
+    created_at: datetime
+
+    @classmethod
+    def from_dto(cls, d: AgendaEntryDTO) -> AgendaEntryView:
+        return cls(
+            id=d.id,
+            requester_account_id=d.requester_account_id,
+            requester_name=d.requester_name,
+            with_pastor_account_id=d.with_pastor_account_id,
+            category=d.category,
+            scheduled_at=d.scheduled_at,
+            created_at=d.created_at,
+        )
+
+
+class AgendaView(BaseModel):
+    total: int
+    entries: list[AgendaEntryView]
+
+    @classmethod
+    def from_dtos(cls, dtos: list[AgendaEntryDTO]) -> AgendaView:
+        return cls(total=len(dtos), entries=[AgendaEntryView.from_dto(d) for d in dtos])
 
 
 class AppointmentListView(BaseModel):

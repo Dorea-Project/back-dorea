@@ -41,10 +41,15 @@ class FactKind(StrEnum):
     LIFE_EVENT_ANNOUNCED = "life_event_announced"  # annonce à sujet (le rôle est au payload)
     LIFE_EVENT_PRIVATE = "life_event_private"  # événement enregistré sans publication
     SELF_DECLARATION = "self_declaration"  # « rappelez-moi », « priez pour moi », rythme choisi
-    THIRD_PARTY_CONCERN = "third_party_concern"  # « je pense à quelqu'un »
+    # « je pense à quelqu'un » — **un seul** type pour l'intuition du responsable et le
+    # signalement du membre. Ils sont structurellement identiques : quelqu'un qui n'est pas le
+    # sujet signale une inquiétude. La seule différence — le rôle de l'émetteur — se dissout
+    # dans la résolution du propriétaire : si l'émetteur *est* le référent, le cas lui revient ;
+    # sinon il revient au référent, sans que l'émetteur soit nommé. Deux types auraient divergé
+    # dans six mois, et le cas du responsable n'est que le cas général replié sur lui-même.
+    THIRD_PARTY_CONCERN = "third_party_concern"
     GRATITUDE_DEPOSITED = "gratitude_deposited"  # signe de vie positif
     APPOINTMENT_REQUESTED = "appointment_requested"  # + payload : décliné / annulé / non honoré
-    LEADER_INTUITION = "leader_intuition"  # « je le sens loin »
     QUALIFICATION_SET = "qualification_set"  # qualification manuelle d'absence
     OCCURRENCE_ACKNOWLEDGED = "occurrence_acknowledged"  # « pas de rencontre cette semaine »
     GROUP_TEMPERATURE = "group_temperature"  # compagnon collectif — agrégé, jamais individuel

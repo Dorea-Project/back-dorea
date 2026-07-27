@@ -79,6 +79,38 @@ class IneligibleReferentError(WatchError):
     http_status = 422
 
 
+class CaseNotFoundError(WatchError):
+    code = "WATCH_CASE_NOT_FOUND"
+    http_status = 404
+
+
+class NotYourCaseError(WatchError):
+    """Un cas confié à quelqu'un d'autre. Deux responsables sur la même personne, c'est le
+    double appel du même soir que tout le module existe pour éviter."""
+
+    code = "WATCH_NOT_YOUR_CASE"
+    http_status = 403
+
+
+class SelfConcernError(WatchError):
+    """On ne se signale pas soi-même par ce canal — c'est une déclaration, et elle passe devant.
+
+    Router les deux vers le même type ferait entrer sa propre demande d'aide dans le plafond de
+    débit, alors qu'elle en est justement exemptée."""
+
+    code = "WATCH_SELF_CONCERN"
+    http_status = 422
+
+
+class ConcernRefusedError(WatchError):
+    """La personne est retirée de la veille, ou a demandé qu'on cesse de la contacter.
+
+    Cette parole est absorbante : aucune bonne intention ne la reprend."""
+
+    code = "WATCH_CONCERN_REFUSED"
+    http_status = 409
+
+
 class NoInterpreterError(WatchError):
     """Aucun interpreter enregistré pour ce type de fait à cette date.
 

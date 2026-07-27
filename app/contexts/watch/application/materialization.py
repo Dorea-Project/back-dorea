@@ -72,6 +72,7 @@ class Materializer:
                     expires_at=effect.expires_at,
                     source_ref=source_ref,
                     held=True,
+                    owner_account_id=effect.owner_account_id,
                 )
                 held_kinds.append(EffectKind.OPEN_CASE)
 
@@ -134,6 +135,7 @@ class Materializer:
                 expires_at=effect.expires_at,
                 source_ref=source_ref,
                 held=False,
+                owner_account_id=effect.owner_account_id,
             )
             return EffectKind.OPEN_CASE
 

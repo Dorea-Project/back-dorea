@@ -10,7 +10,7 @@ from app.contexts.attendance.domain.repositories import (
     WatchExclusionRepository,
 )
 from app.contexts.watch.application.intake import FactLedger
-from app.contexts.watch.application.ports import SignalStore
+from app.contexts.watch.application.ports import ContactAttemptStore, SignalStore
 from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 from app.contexts.watch.domain.errors import HumanClosureRequiredError
 from app.contexts.watch.domain.facts import Fact
@@ -111,20 +111,44 @@ class FakeSignals(SignalStore):
         )
 
     async def open_case(
-        self, *, subject_id, tenant_id, origin, reason, opened_at, expires_at, source_ref, held
+        self, *, subject_id, tenant_id, origin, reason, opened_at, expires_at, source_ref, held,
+        owner_account_id=None,
     ):
         existing = self._live(subject_id, tenant_id)
         if existing is not None:
             existing.enrich(source_ref=source_ref, expires_at=expires_at)
             return
+        if held:
+            status = SignalStatus.HELD
+        elif owner_account_id is not None:
+            status = SignalStatus.ASSIGNED
+        else:
+            status = SignalStatus.OPEN
+        previous = self._last_resolved(subject_id, tenant_id)
         self.rows.append(
             Signal(
                 id=uuid4(), tenant_id=tenant_id, subject_id=subject_id,
                 origin=CasePriority(origin), reason=reason, opened_at=opened_at,
-                status=SignalStatus.HELD if held else SignalStatus.OPEN,
+                status=status, owner_account_id=owner_account_id,
                 expires_at=expires_at, source_refs=[source_ref],
+                episode_id=previous.episode_id if previous else None,
+                occurrence_number=(previous.occurrence_number + 1) if previous else 1,
+                previous_outcome=previous.outcome if previous else None,
+                previous_closed_at=previous.closed_at if previous else None,
             )
         )
+
+    def _last_resolved(self, subject_id, tenant_id):
+        closed = [
+            s
+            for s in self.rows
+            if s.subject_id == subject_id
+            and s.tenant_id == tenant_id
+            and s.status is SignalStatus.CLOSED
+            and s.outcome is not None
+            and s.closed_at is not None
+        ]
+        return max(closed, key=lambda s: s.closed_at) if closed else None
 
     async def enrich_case(
         self, *, subject_id, tenant_id, source_ref, extend_to,
@@ -157,6 +181,86 @@ class FakeSignals(SignalStore):
             if s.tenant_id == tenant_id and s.is_live
         ]
 
+    async def mark_contact_started(self, *, signal_id, tenant_id, at):
+        signal = next((s for s in self.rows if s.id == signal_id), None)
+        if signal is not None:
+            signal.record_contact_attempt(at=at)
+
+    async def origin_of(self, signal_id, tenant_id):
+        signal = next((s for s in self.rows if s.id == signal_id), None)
+        return signal.origin if signal is not None else None
+
+    async def extinguish_by_id(self, *, signal_id, tenant_id, cause, at):
+        signal = next((s for s in self.rows if s.id == signal_id), None)
+        if signal is None:
+            return
+        parsed = ExtinguishCause(cause)
+        try:
+            signal.close(outcome=outcome_for(parsed), at=at, cause=parsed)
+        except HumanClosureRequiredError:
+            return
+
+    async def do_not_contact_ids(self, tenant_id):
+        from app.contexts.watch.domain.signal import SignalOutcome
+
+        return {
+            s.subject_id
+            for s in self.rows
+            if s.tenant_id == tenant_id and s.outcome is SignalOutcome.DO_NOT_CONTACT
+        }
+
+    async def cases_of_owner(self, *, account_id, tenant_id):
+        from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES, priority_rank
+
+        mine = [
+            s
+            for s in self.rows
+            if s.tenant_id == tenant_id
+            and s.owner_account_id == account_id
+            and s.status in ON_SHOULDERS_STATUSES
+        ]
+        mine.sort(key=lambda s: (priority_rank(s.priority), s.opened_at))
+        return mine
+
+    async def get_case(self, *, signal_id, tenant_id):
+        return next(
+            (s for s in self.rows if s.id == signal_id and s.tenant_id == tenant_id), None
+        )
+
+    async def save_case(self, signal):
+        pass  # agrégat muté en mémoire
+
+    def _concerns(self, tenant_id):
+        return [
+            s
+            for s in self.rows
+            if s.tenant_id == tenant_id and s.origin is CasePriority.CONCERN
+        ]
+
+    async def stale_concerns(self, *, tenant_id, opened_before):
+        return [
+            (s.id, s.owner_account_id, s.opened_at)
+            for s in self._concerns(tenant_id)
+            if s.is_live and s.first_contact_at is None and s.opened_at <= opened_before
+        ]
+
+    async def concern_activity(self, *, tenant_id, since):
+        return [
+            (s.owner_account_id, s.first_contact_at is not None)
+            for s in self._concerns(tenant_id)
+            if s.opened_at >= since
+        ]
+
+    async def concern_outcomes(self, *, tenant_id, since):
+        return [
+            s.outcome.value
+            for s in self._concerns(tenant_id)
+            if s.status is SignalStatus.CLOSED
+            and s.outcome is not None
+            and s.closed_at is not None
+            and s.closed_at >= since
+        ]
+
     async def purge_projected(self, tenant_id):
         self.rows = [s for s in self.rows if s.tenant_id != tenant_id]
         self.memory = [m for m in self.memory if m[0] != tenant_id]
@@ -184,3 +288,36 @@ class FakeExclusions(WatchExclusionRepository):
 
     async def delete_all(self, tenant_id):
         self.rows = [e for e in self.rows if e.tenant_id != tenant_id]
+
+
+class FakeContactAttempts(ContactAttemptStore):
+    def __init__(self) -> None:
+        self.rows = []
+
+    async def add(self, attempt):
+        self.rows.append(attempt)
+
+    async def get(self, attempt_id):
+        return next((a for a in self.rows if a.id == attempt_id), None)
+
+    async def save(self, attempt):
+        pass  # agrégat muté en mémoire
+
+    async def count_not_reached(self, signal_id):
+        from app.contexts.watch.domain.contact import ContactResult
+
+        return sum(
+            1
+            for a in self.rows
+            if a.signal_id == signal_id and a.result is ContactResult.NOT_REACHED
+        )
+
+    async def pending_for(self, *, account_id, tenant_id, since):
+        return [
+            a
+            for a in self.rows
+            if a.by_account_id == account_id
+            and a.tenant_id == tenant_id
+            and a.awaits_answer
+            and a.attempted_at >= since
+        ]

@@ -18,9 +18,11 @@ from app.contexts.watch.application.referent_ports import (
     PrimaryGroupOverrideRepository,
     ReferentHistoryRepository,
     ReferentOverrideRepository,
+    WatchParameterRepository,
 )
 from app.contexts.watch.domain.coverage import CoverageGapRecord
 from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
+from app.contexts.watch.domain.parameters import DEFAULTS, WatchParam
 from app.contexts.watch.domain.referent import (
     GroupTypePolicy,
     PrimaryGroupOverride,
@@ -35,6 +37,7 @@ from app.contexts.watch.infrastructure.persistence.models import (
     PrimaryGroupOverrideModel,
     ReferentHistoryModel,
     ReferentOverrideModel,
+    WatchParameterModel,
 )
 
 
@@ -258,3 +261,28 @@ class SqlReferentHistoryRepository(ReferentHistoryRepository):
             observed_at=_aware(row.observed_at),
             cause=ReferentChangeCause(row.cause),
         )
+
+
+class SqlWatchParameterRepository(WatchParameterRepository):
+    """Lit la valeur de l'église, sinon celle du défaut, sinon la valeur de départ codée.
+
+    Le troisième repli n'est pas une constante déguisée : c'est le filet qui évite qu'une base
+    non initialisée fasse tomber le moteur. Le seed pose les défauts en table."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_int(self, tenant_id: UUID, param: WatchParam) -> int:
+        stmt = select(WatchParameterModel).where(
+            WatchParameterModel.param == param.value,
+            or_(
+                WatchParameterModel.tenant_id.is_(None),
+                WatchParameterModel.tenant_id == tenant_id,
+            ),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        # La ligne de l'église écrase celle du défaut.
+        chosen = next((r for r in rows if r.tenant_id is not None), None) or next(
+            iter(rows), None
+        )
+        return chosen.value if chosen is not None else DEFAULTS[param]

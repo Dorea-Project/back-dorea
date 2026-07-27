@@ -394,3 +394,147 @@ chaque exception affaiblit la règle qui protège du « nettoyage automatique »
 propres métriques : *« % de passations sans réponse à 72h > 10 % → fermer le canal plutôt qu'il
 ne mente »*. Un canal de passation branché sur un moteur qui ne sait pas encore escalader est à
 100 % dès le premier jour.
+
+---
+
+## 10. La boucle de contact — le maillon qu'on sous-estime
+
+**Le problème.** Dorea n'héberge pas le contact : on sort vers WhatsApp ou le téléphone, et
+**on ne revient pas**. Le responsable appelle vingt minutes, passe à autre chose, et l'issue
+n'est jamais enregistrée. Le signal reste ouvert, le taux d'ignorés explose — non parce que
+personne n'a appelé, mais parce que personne n'est revenu le dire.
+
+Le produit conclut alors que la veille ne fonctionne pas, alors que le contact humain a bien eu
+lieu. C'est le pire des faux négatifs : celui qui invalide un succès réel.
+
+Trois parades, indissociables ([contact_loop.py](../app/contexts/watch/application/contact_loop.py)) :
+
+| | Parade |
+|---|---|
+| **P1** | l'intention s'écrit **au départ**, avant que l'app perde la main — `result = pending` est l'état normal |
+| **P2** | rappel à 3 h, réponses **dans la notification** : on répond sans ouvrir l'application |
+| **P3** | à la réouverture, **une seule** invite, et seulement pour ce qui date de moins d'une heure |
+
+P1 seule laisse des tentatives éternellement en attente ; P2 seule n'a rien à rappeler ; P3
+seule arrive trop tard.
+
+**Les deux métriques du pilote** naissent ici : `first_seen_at` (le cas a été *ouvert* — alimente
+le taux d'ignorés, le seul indicateur qui **anticipe** l'abandon) et `first_contact_at` (le délai
+détection → premier contact humain, la métrique reine).
+
+### La péremption dure
+
+Trois tentatives sans réponse sur un régime d'échéance : le cas se ferme, `UNREACHABLE_ARCHIVED`,
+**sans acte humain**. C'est la troisième et dernière clôture système.
+
+Elle existe pour une raison de volume : sans elle, un module d'évangélisation qui fonctionne noie
+son propre inviteur en trois semaines. **La personne reste en base — elle sort de la file, pas du
+fichier.**
+
+Elle ne touche **que** le régime d'échéance : c'est un correctif de volume sur les invités, pas
+une règle générale.
+
+---
+
+## 11. Le seuil de Mission
+
+> *La capsule va partout. La veille s'engage là où un référent existe.*
+
+Voir [Mission_Threshold.md](Mission_Threshold.md). Le point qui concerne le moteur : dès qu'un
+contact est laissé, la personne **existe en base** avec le statut `INVITED`, et son référent est
+l'inviteur — par l'origine `INVITER` de la cascade, sans une ligne de plus dans le résolveur.
+
+Tant que le chercheur vivait dans sa propre table, il était hors du dénominateur de couverture :
+l'indicateur le plus vendable du produit ignorait précisément les plus fragiles.
+
+---
+
+## 12. Le signalement par un tiers
+
+> *L'intuition n'est pas une source de données. C'est un dispositif d'engagement que le
+> responsable se pose à lui-même.*
+
+Voir [Third_Party_Concern.md](Third_Party_Concern.md). Quatre points concernent le moteur.
+
+**Un seul `FactKind`.** `LEADER_INTUITION` a été retiré du vocabulaire : l'intuition du
+responsable et le signalement du membre sont le même geste, et la différence de rôle se dissout
+dans la résolution du propriétaire.
+
+**Une origine nouvelle, `CONCERN`.** Elle porte la parole d'un tiers : plus haut qu'une absence
+calculée, plus bas que celle de l'intéressé, et **soumise au plafond de débit** — contrairement
+au déclaré, qui en est exempté. Sans elle, un responsable débordé sortirait dix cas prioritaires
+du plafond en trente secondes sans avoir appelé personne.
+
+**Le propriétaire s'écrit à l'ouverture.** `OpenCase` porte désormais `owner_account_id`, résolu
+à l'émission puisqu'un interpreter est pur. L'arbitrage le préfère au propriétaire déduit des cas
+existants : sur une personne qui n'en a aucun, la déduction rend `None`, et tout le monde
+partagerait alors le même budget — le plafond ne pèserait sur personne.
+
+**L'escalade change de sujet**, et c'est la seule source du produit où cela arrive : une
+inquiétude sans contact remonte au pasteur **à propos du responsable**, jamais du membre. Le
+pasteur n'a aucune base pour agir sur le membre — il sait seulement que quelqu'un a ressenti
+quelque chose.
+
+---
+
+## 13. L'épisode — ce qu'une réouverture doit savoir
+
+Awa a été absente en janvier ; Jean l'a appelée, elle allait mal, il a fermé le cas le 3 février.
+Elle redécroche en mars. **Sans mémoire, le nouveau cas s'affiche exactement comme le premier** —
+et Jean rappelle en ouvrant par « je vois que tu n'es pas venue », alors qu'il lui a parlé six
+semaines plus tôt. C'est le moment précis où l'outil cesse d'être du soin.
+
+Quatre colonnes, pas une histoire complète :
+
+| Colonne | Ce qu'elle porte |
+|---|---|
+| `episode_id` | la chaîne des cas successifs sur une même personne |
+| `occurrence_number` | la combientième fois |
+| `previous_outcome` / `previous_closed_at` | de quoi écrire la phrase |
+
+> « Nouvelle absence. Cas précédent clos le 3 février — repris contact, situation suivie. »
+
+**Figés à l'ouverture, jamais recalculés par jointure.** Le cas précédent peut être purgé,
+reprojeté, ou fermé autrement plus tard : la phrase lue par le responsable ne doit pas changer
+sous ses yeux.
+
+**Une rétractation ne transmet rien.** Un cas devenu faux n'a rien résolu — lui faire porter une
+issue serait un mensonge, et l'épisode repart à 1.
+
+*Point ouvert : aucune fenêtre de remise à zéro n'est définie. Une réouverture deux ans plus tard
+appartient aujourd'hui au même épisode. À trancher au terrain.*
+
+---
+
+## 14. La surface du responsable
+
+Le moteur est enfin lisible. Huit routes sous `/api/mobile/watch` :
+
+| Route | Ce qu'elle sert |
+|---|---|
+| `GET /tenants/{id}/my-cases` | ma file, le plus urgent d'abord — **les `HELD` n'y sont pas** |
+| `POST …/cases/{id}/see` | j'ai ouvert le cas → `first_seen_at` |
+| `POST …/cases/{id}/close` | issue **choisie**, jamais pré-cochée |
+| `POST …/cases/{id}/contact` | à appeler **avant** WhatsApp ou le téléphone |
+| `GET /tenants/{id}/pending-contacts` | l'invite de réouverture, bornée à l'heure écoulée |
+| `POST /contacts/{id}/answer` | as-tu pu la joindre — **une fois** |
+| `POST /tenants/{id}/concerns` | « je m'en occupe cette semaine » |
+| `GET /nuances` | la liste fermée, à afficher, jamais à saisir |
+
+Deux règles d'autorité, dans le service et non dans la route : **un cas sans propriétaire est
+prenable** — c'est le trou qu'on veut voir se combler ; **un cas confié à quelqu'un d'autre ne
+l'est pas** — deux responsables sur la même personne, c'est le double appel du même soir.
+
+Aucune issue n'est proposée par défaut à la clôture. Une valeur pré-cochée deviendrait le
+rangement automatique, et la calibration ne mesurerait plus que la paresse du formulaire.
+
+---
+
+## 15. La cadence
+
+`scripts/watch_concerns.py`, one-shot, même patron que `relay_appointments` : un cron externe
+l'invoque. Deux passes — l'escalade des engagements non tenus, puis le garde-fou anti-déversoir.
+
+Il n'y a toujours **pas de worker** dans le produit. Trois choses attendent encore leur
+cadence : `SCHEDULE_CHECK` et l'entrée du temps par `CHECK_FIRED`, la réévaluation nocturne des
+cas `HELD`, et l'agrégation des trous de couverture par groupe.

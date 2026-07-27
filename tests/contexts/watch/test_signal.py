@@ -89,9 +89,12 @@ def test_there_is_no_such_thing_as_extinguishing_by_life_sign():
     cellule. La cause n'existe donc pas au vocabulaire : elle ne peut pas être invoquée par
     distraction. Ce que fait un signe de vie est décrit par `EnrichCase(annotation, downgrade)`."""
     assert not hasattr(ExtinguishCause, "LIFE_SIGN")
+    # La liste est courte et **fermée** : le cas n'était pas réel, ou son sujet est hors de
+    # portée. Un signe de vie n'entre dans aucune de ces catégories.
     assert SYSTEM_CLOSURE_CAUSES == {
         ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT,
         ExtinguishCause.DECEASED,
+        ExtinguishCause.UNREACHABLE,
     }
 
 

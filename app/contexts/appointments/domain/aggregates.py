@@ -7,7 +7,7 @@ confidentiel : porté par l'agrégat, visible seulement du demandeur et des gard
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from app._shared.domain.entity import AggregateRoot
@@ -49,6 +49,10 @@ class Appointment(AggregateRoot):
         updated_at: datetime,
         oriented_to_account_id: UUID | None = None,
         cancelled_by_account_id: UUID | None = None,
+        routed_to_account_id: UUID | None = None,
+        routed_at: datetime | None = None,
+        relay_count: int = 0,
+        relay_reason: str | None = None,
     ) -> None:
         super().__init__()
         self.id = id
@@ -71,6 +75,10 @@ class Appointment(AggregateRoot):
         self.oriented_to_account_id = oriented_to_account_id  # servi autrement, pas refusé
         # **Qui** a annulé : le demandeur qui recule n'est pas l'église qui ferme un caduc.
         self.cancelled_by_account_id = cancelled_by_account_id
+        self.routed_to_account_id = routed_to_account_id  # chez qui elle est maintenant
+        self.routed_at = routed_at
+        self.relay_count = relay_count
+        self.relay_reason = relay_reason
 
     @classmethod
     def request(
@@ -305,3 +313,37 @@ class Appointment(AggregateRoot):
             and self.cancelled_by_account_id is not None
             and self.cancelled_by_account_id == self.requester_account_id
         )
+
+
+    # --- Routage -------------------------------------------------------------------------
+
+    def route_to(
+        self, *, account_id: UUID, at: datetime, reason: str | None = None
+    ) -> None:
+        """Adresser la demande à quelqu'un. **Toujours nominatif.**
+
+        On ne libère jamais une demande, on la transfère : une demande sans destinataire est
+        une demande que personne ne traite, et personne ne s'en aperçoit. Le motif est stocké —
+        un pasteur qui reçoit une demande sans savoir pourquoi elle lui arrive l'ignore."""
+        if account_id != self.routed_to_account_id and self.routed_to_account_id is not None:
+            self.relay_count += 1
+        self.routed_to_account_id = account_id
+        self.routed_at = at
+        self.relay_reason = reason
+        self.updated_at = at
+
+    @property
+    def is_awaiting_answer(self) -> bool:
+        """En attente d'une réponse — c'est ce que le relais surveille."""
+        return self.status is AppointmentStatus.REQUESTED
+
+    def waited_since(self, now: datetime) -> timedelta:
+        """Depuis combien de temps elle attend **chez son destinataire actuel**."""
+        return now - (self.routed_at or self.created_at)
+
+    def visible_to(self, account_id: UUID) -> bool:
+        """Qui a le droit de voir cette demande **et son motif**.
+
+        Le demandeur, et le destinataire actuel. Personne d'autre — c'est ce qui permet de
+        demander sans que « on sait qu'il a demandé » circule dans l'église."""
+        return account_id in (self.requester_account_id, self.routed_to_account_id)

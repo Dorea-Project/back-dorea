@@ -97,6 +97,9 @@ class _People(PeopleDirectory):
     async def pastor(self, tenant_id):
         return self._pastor
 
+    async def pastors(self, tenant_id):
+        return [self._pastor] if self._pastor else []
+
 
 class _Gaps(CoverageGapStore):
     def __init__(self):

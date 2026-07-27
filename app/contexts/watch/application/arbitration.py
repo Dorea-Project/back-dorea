@@ -42,7 +42,8 @@ _PRIORITY_ORDER: dict[CasePriority, int] = {
     CasePriority.DECLARED: 0,
     CasePriority.DEADLINE: 1,
     CasePriority.ANNOUNCEMENT: 2,
-    CasePriority.ABSENCE: 3,
+    CasePriority.CONCERN: 3,
+    CasePriority.ABSENCE: 4,
 }
 
 
@@ -101,6 +102,11 @@ def arbitrate(
                     reason=effect.reason,  # conservée pour la trace, jamais réécrite sur le cas
                     origin=effect.origin,
                     extend_to=effect.expires_at,
+                    # Ce qu'on vient d'apprendre s'ajoute à la fiche : sans cette annotation,
+                    # une inquiétude signalée sur quelqu'un qui a déjà un cas ouvert se
+                    # dissoudrait dans une source de plus, et le responsable ne verrait
+                    # jamais que quelqu'un a pensé à cette personne.
+                    annotation=effect.reason if effect.origin is CasePriority.CONCERN else None,
                 )
             )
         else:
@@ -117,7 +123,11 @@ def arbitrate(
         if not isinstance(effect, OpenCase) or effect.origin is CasePriority.DECLARED:
             admitted.append(effect)  # le déclaré ne passe jamais au plafond
             continue
-        owner = state.owner_of(effect.subject_id)
+        # Le propriétaire **résolu à l'émission** l'emporte sur celui qu'on déduirait des cas
+        # déjà ouverts : sur une personne qui n'en a aucun, la déduction rend `None`, et tout le
+        # monde partagerait alors le même budget. Le plafond ne pèserait sur personne — et un
+        # responsable pourrait signaler dix fois en trente secondes sans jamais être retenu.
+        owner = getattr(effect, "owner_account_id", None) or state.owner_of(effect.subject_id)
         already = budget.get(owner, state.open_cases_of_owner(owner))
         if already >= policy.open_cases_cap:
             held.append(effect)  # détecté, non émis, réévalué

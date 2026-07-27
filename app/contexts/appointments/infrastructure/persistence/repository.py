@@ -14,12 +14,17 @@ from app.contexts.appointments.domain.enums import AppointmentCategory, Appointm
 from app.contexts.appointments.domain.repositories import (
     AppointmentRepository,
     AvailabilityRuleRepository,
+    PastorOverrideRepository,
     PastorUnavailabilityRepository,
 )
-from app.contexts.appointments.domain.unavailability import PastorUnavailability
+from app.contexts.appointments.domain.unavailability import (
+    PastorOverride,
+    PastorUnavailability,
+)
 from app.contexts.appointments.infrastructure.persistence.models import (
     AppointmentModel,
     AvailabilityRuleModel,
+    PastorOverrideModel,
     PastorUnavailabilityModel,
 )
 
@@ -45,6 +50,10 @@ def _to_appointment(row: AppointmentModel) -> Appointment:
         decision_note=row.decision_note,
         oriented_to_account_id=row.oriented_to_account_id,
         cancelled_by_account_id=row.cancelled_by_account_id,
+        routed_to_account_id=row.routed_to_account_id,
+        routed_at=row.routed_at,
+        relay_count=row.relay_count or 0,
+        relay_reason=row.relay_reason,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -73,6 +82,10 @@ class SqlAppointmentRepository(AppointmentRepository):
                 decision_note=appointment.decision_note,
                 oriented_to_account_id=appointment.oriented_to_account_id,
                 cancelled_by_account_id=appointment.cancelled_by_account_id,
+                routed_to_account_id=appointment.routed_to_account_id,
+                routed_at=appointment.routed_at,
+                relay_count=appointment.relay_count,
+                relay_reason=appointment.relay_reason,
                 created_at=appointment.created_at,
                 updated_at=appointment.updated_at,
             )
@@ -93,6 +106,10 @@ class SqlAppointmentRepository(AppointmentRepository):
         row.decision_note = appointment.decision_note
         row.oriented_to_account_id = appointment.oriented_to_account_id
         row.cancelled_by_account_id = appointment.cancelled_by_account_id
+        row.routed_to_account_id = appointment.routed_to_account_id
+        row.routed_at = appointment.routed_at
+        row.relay_count = appointment.relay_count
+        row.relay_reason = appointment.relay_reason
         row.updated_at = appointment.updated_at
         await self._session.flush()
 
@@ -247,3 +264,48 @@ class SqlPastorUnavailabilityRepository(PastorUnavailabilityRepository):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_unavailability(r) for r in rows]
+
+
+class SqlPastorOverrideRepository(PastorOverrideRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, override: PastorOverride) -> None:
+        self._session.add(
+            PastorOverrideModel(
+                id=override.id,
+                tenant_id=override.tenant_id,
+                person_id=override.person_id,
+                pastor_account_id=override.pastor_account_id,
+                started_at=override.started_at,
+                started_by_account_id=override.started_by_account_id,
+                ended_at=override.ended_at,
+            )
+        )
+        await self._session.flush()
+
+    async def save(self, override: PastorOverride) -> None:
+        row = await self._session.get(PastorOverrideModel, override.id)
+        if row is None:
+            return
+        row.ended_at = override.ended_at
+        await self._session.flush()
+
+    async def active_for(self, person_id: UUID, tenant_id: UUID) -> PastorOverride | None:
+        stmt = select(PastorOverrideModel).where(
+            PastorOverrideModel.person_id == person_id,
+            PastorOverrideModel.tenant_id == tenant_id,
+            PastorOverrideModel.ended_at.is_(None),
+        )
+        row = (await self._session.execute(stmt)).scalars().first()
+        if row is None:
+            return None
+        return PastorOverride(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            person_id=row.person_id,
+            pastor_account_id=row.pastor_account_id,
+            started_at=row.started_at,
+            started_by_account_id=row.started_by_account_id,
+            ended_at=row.ended_at,
+        )

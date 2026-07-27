@@ -38,6 +38,14 @@ class CasePriority(StrEnum):
     DECLARED = "declared"  # la personne elle-même — hors plafond
     DEADLINE = "deadline"
     ANNOUNCEMENT = "announcement"
+    # Un tiers a signalé une inquiétude. Distincte de `DECLARED` et c'est **le** point où le
+    # document du signalement se contredit s'il est lu vite : son §4 dit « origine déclarée »,
+    # son §6 dit que le plafond de débit s'y applique *contrairement* au déclaré du membre. Les
+    # deux ne peuvent pas tenir sur la même valeur. Celle-ci porte la parole d'un tiers — une
+    # vraie parole, donc plus haut qu'une absence calculée ; mais pas celle de l'intéressé, donc
+    # soumise au plafond. Sans elle, un responsable débordé taperait dix fois en trente secondes
+    # et sortirait dix cas prioritaires du plafond sans avoir appelé personne.
+    CONCERN = "concern"
     ABSENCE = "absence"
 
 
@@ -45,6 +53,10 @@ class ExtinguishCause(StrEnum):
     EXPLAINED_BY_ANNOUNCEMENT = "explained_by_announcement"
     RETURNED = "returned"
     DECEASED = "deceased"
+    # Trois tentatives non abouties sur un régime d'échéance. La personne reste en base ; elle
+    # sort de la file, pas du fichier. Sans cette péremption, un module d'évangélisation qui
+    # fonctionne noie son propre inviteur en trois semaines.
+    UNREACHABLE = "unreachable"
 
 
 # Il n'existe **pas** de cause « signe de vie ». Déposer une reconnaissance prouve qu'on est
@@ -67,6 +79,7 @@ SYSTEM_CLOSURE_CAUSES: frozenset[ExtinguishCause] = frozenset(
     {
         ExtinguishCause.EXPLAINED_BY_ANNOUNCEMENT,
         ExtinguishCause.DECEASED,
+        ExtinguishCause.UNREACHABLE,
     }
 )
 
@@ -81,6 +94,19 @@ class CoverageGap(StrEnum):
     # alors qu'il dit « aucun destinataire n'existe ». C'est le faux silence que le produit
     # existe pour empêcher, retourné contre lui-même.
     NO_RECIPIENT = "no_recipient"
+    # Une demande attend, et aucun pasteur n'est disponible pour la reprendre. Au-delà de deux
+    # relais, ce n'est plus un problème de délai : l'église n'a personne pour recevoir.
+    NO_PASTORAL_RELAY = "no_pastoral_relay"
+    # Une inquiétude signalée, aucun contact depuis. **Porte sur le responsable, pas sur le
+    # membre** — et c'est la seule source du produit où l'escalade change de sujet. Escalader
+    # vers le pasteur *à propos du membre* n'aurait aucun sens : il ne sait rien de lui, il sait
+    # seulement que quelqu'un a ressenti quelque chose. Le problème n'est plus la personne,
+    # c'est l'engagement non tenu — et l'action du pasteur est d'appeler le responsable.
+    ENGAGEMENT_NOT_KEPT = "engagement_not_kept"
+    # Signale beaucoup, contacte peu. Le tell est le **ratio**, jamais le volume : un seuil sur
+    # le volume punirait exactement les meilleurs responsables — dix intuitions et dix contacts,
+    # c'est l'excellence, et il ne faut surtout pas la freiner.
+    LEADER_OVERLOADED = "leader_overloaded"
 
 
 class CoverageScope(StrEnum):
@@ -113,6 +139,9 @@ class OpenCase(_Effect):
     opened_at: datetime
     expires_at: datetime | None = None
     role: str | None = None
+    # À qui ce cas revient, **résolu à l'émission** et non recalculé. NULL reste admis : c'est
+    # une donnée — « personne ne connaît cette personne » est précisément ce qu'il faut voir.
+    owner_account_id: UUID | None = None
 
 
 @dataclass(frozen=True)

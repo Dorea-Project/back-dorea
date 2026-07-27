@@ -31,6 +31,7 @@ from app.contexts.mission.application.commands.integrate import IntegrateSeeker
 from app.contexts.mission.application.ports import ScriptureSource, VerseResolver
 from app.contexts.mission.application.queries.get_card import GetCard
 from app.contexts.mission.application.queries.list_my_seekers import ListMySeekers
+from app.contexts.mission.application.threshold import CrossTheThreshold
 from app.contexts.mission.infrastructure.card_renderer import SvgCardRenderer
 from app.contexts.mission.infrastructure.code_generator import SecureInvitationCodeGenerator
 from app.contexts.mission.infrastructure.directory_adapter import DirectoryAdapter
@@ -44,6 +45,11 @@ from app.contexts.mission.infrastructure.verse_resolver import build_verse_resol
 from app.contexts.notifications.interface.dependencies import build_notifier
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
 from app.contexts.tenant.infrastructure.persistence.tenant_repo import SqlTenantRepository
+from app.contexts.watch.infrastructure.directories import SqlGroupDirectory
+from app.contexts.watch.infrastructure.persistence.referent import (
+    SqlReferentOverrideRepository,
+)
+from app.contexts.watch.interface.dependencies import build_intake
 from app.core.config import get_settings
 
 _codes = SecureInvitationCodeGenerator()  # sans état → instance unique
@@ -108,11 +114,23 @@ def get_react_command(session: DbSession) -> ReactToCard:
     )
 
 
+def _threshold(session) -> CrossTheThreshold:
+    """Le seuil : la personne existe, son référent est posé, le moteur est prévenu."""
+    return CrossTheThreshold(
+        SqlAlchemyAccountRepository(session),
+        SqlMemberEnrollmentStore(session),
+        SqlReferentOverrideRepository(session),
+        SqlGroupDirectory(session),
+        build_intake(session),
+    )
+
+
 def get_accept_command(session: DbSession) -> AcceptInvitation:
     return AcceptInvitation(
         SqlMissionLinkRepository(session),
         SqlSeekerRepository(session),
         build_notifier(session),
+        _threshold(session),
         clock=_now,
     )
 
