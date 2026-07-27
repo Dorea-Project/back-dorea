@@ -20,7 +20,9 @@ from app.contexts.appointments.domain.errors import (
 
 _TERMINAL = (
     AppointmentStatus.DECLINED,
+    AppointmentStatus.ORIENTED,
     AppointmentStatus.CANCELLED,
+    AppointmentStatus.NO_SHOW,
     AppointmentStatus.COMPLETED,
 )
 
@@ -45,6 +47,8 @@ class Appointment(AggregateRoot):
         decision_note: str | None,
         created_at: datetime,
         updated_at: datetime,
+        oriented_to_account_id: UUID | None = None,
+        cancelled_by_account_id: UUID | None = None,
     ) -> None:
         super().__init__()
         self.id = id
@@ -64,6 +68,9 @@ class Appointment(AggregateRoot):
         self.decision_note = decision_note
         self.created_at = created_at
         self.updated_at = updated_at
+        self.oriented_to_account_id = oriented_to_account_id  # servi autrement, pas refusé
+        # **Qui** a annulé : le demandeur qui recule n'est pas l'église qui ferme un caduc.
+        self.cancelled_by_account_id = cancelled_by_account_id
 
     @classmethod
     def request(
@@ -248,12 +255,53 @@ class Appointment(AggregateRoot):
         self.handled_by_account_id = by_account_id
         self.updated_at = now
 
-    def cancel(self, *, now: datetime) -> None:
-        """Le demandeur se rétracte — tant que le rendez-vous n'est pas déjà résolu."""
+    def orient(self, *, to_account_id: UUID, by_account_id: UUID, now: datetime) -> None:
+        """Servir autrement : le pasteur ne peut pas, mais quelqu'un rappelle.
+
+        **Ce n'est pas un refus déguisé.** Le cas de veille reste ouvert et change de
+        propriétaire — la demande n'est pas refusée, elle est servie par une autre main. Sans
+        cette troisième réponse, la seule alternative à un créneau serait un « non » adressé à
+        quelqu'un qui vient de lever la main."""
+        if self.status is not AppointmentStatus.REQUESTED:
+            raise AppointmentClosedError(
+                "On ne réoriente qu'une demande en attente.",
+                details={"appointment_id": str(self.id), "status": self.status.value},
+            )
+        self.status = AppointmentStatus.ORIENTED
+        self.oriented_to_account_id = to_account_id
+        self.handled_by_account_id = by_account_id
+        self.updated_at = now
+
+    def mark_no_show(self, *, by_account_id: UUID, now: datetime) -> None:
+        """Il n'est pas venu, sans prévenir. On l'enregistre au lieu de le perdre."""
+        if self.status is not AppointmentStatus.CONFIRMED:
+            raise AppointmentClosedError(
+                "Seul un rendez-vous confirmé peut n'avoir pas été honoré.",
+                details={"appointment_id": str(self.id), "status": self.status.value},
+            )
+        self.status = AppointmentStatus.NO_SHOW
+        self.handled_by_account_id = by_account_id
+        self.updated_at = now
+
+    def cancel(self, *, now: datetime, by_account_id: UUID | None = None) -> None:
+        """Annulation — **on note qui**, parce que ça change tout.
+
+        Le demandeur qui se rétracte a franchi le pas le plus difficile puis a fait demi-tour :
+        c'est le signal le plus urgent que le système sache produire. L'église qui ferme un
+        rendez-vous caduc ne dit rien de tel."""
         if self.status in _TERMINAL:
             raise AppointmentClosedError(
                 "Ce rendez-vous est déjà résolu.",
                 details={"appointment_id": str(self.id), "status": self.status.value},
             )
         self.status = AppointmentStatus.CANCELLED
+        self.cancelled_by_account_id = by_account_id
         self.updated_at = now
+
+    @property
+    def cancelled_by_requester(self) -> bool:
+        return (
+            self.status is AppointmentStatus.CANCELLED
+            and self.cancelled_by_account_id is not None
+            and self.cancelled_by_account_id == self.requester_account_id
+        )

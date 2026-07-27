@@ -73,6 +73,7 @@ class SourceRegistry:
 
 ANNOUNCEMENTS: SourceId = "announcements"
 ATTENDANCE: SourceId = "attendance"
+APPOINTMENTS: SourceId = "appointments"
 WATCH_SCHEDULER: SourceId = "watch_scheduler"  # le worker de l'engine, qui fait entrer le temps
 
 
@@ -89,6 +90,16 @@ def default_registry() -> SourceRegistry:
         RegisteredSource(
             id=ATTENDANCE,
             kinds=frozenset({FactKind.PRESENCE_RECORDED, FactKind.QUALIFICATION_SET}),
+        )
+    )
+    # Le rendez-vous n'ajoute **aucun** type de fait : `APPOINTMENT_REQUESTED` existait déjà,
+    # et son état voyage dans le payload. C'est la preuve que le contrat tient — le greffon le
+    # plus lourd du produit se pose sans rouvrir le registre.
+    registry.register(
+        RegisteredSource(
+            id=APPOINTMENTS,
+            kinds=frozenset({FactKind.APPOINTMENT_REQUESTED}),
+            required_payload_keys=frozenset({"appointment_id", "state"}),
         )
     )
     registry.register(

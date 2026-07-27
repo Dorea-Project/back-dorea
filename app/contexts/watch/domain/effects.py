@@ -76,6 +76,20 @@ class CoverageGap(StrEnum):
 
     NO_REFERENT = "no_referent"  # personne ne connaît cette personne
     BLIND = "blind"  # aucune rencontre saisie : on ne sait rien
+    # Ni admin, ni pasteur : l'église n'a **personne** à qui adresser un cas. Sans ce défaut,
+    # elle détecterait tout et n'émettrait rien — et son écran vide dirait « tout va bien »
+    # alors qu'il dit « aucun destinataire n'existe ». C'est le faux silence que le produit
+    # existe pour empêcher, retourné contre lui-même.
+    NO_RECIPIENT = "no_recipient"
+
+
+class CoverageScope(StrEnum):
+    """Sur quoi porte un défaut de couverture. Distinct du sujet d'un `Fact` : un défaut peut
+    concerner l'église entière, ce qu'aucun fait ne sait dire."""
+
+    PERSON = "person"
+    GROUP = "group"
+    TENANT = "tenant"
 
 
 class ExclusionCause(StrEnum):
@@ -112,6 +126,7 @@ class EnrichCase(_Effect):
     origin: CasePriority
     extend_to: datetime | None = None
     annotation: str | None = None
+    priority: CasePriority | None = None  # adoptée si plus urgente ; abaissée si `downgrade`
     downgrade: bool = False
 
 

@@ -16,7 +16,9 @@ from app.contexts.appointments.application.commands.manage import (
     CompleteAppointment,
     ConfirmAppointment,
     DeclineAppointment,
+    MarkAppointmentNoShow,
     OpenAppointment,
+    OrientAppointment,
 )
 from app.contexts.appointments.application.commands.request import (
     CancelAppointment,
@@ -27,6 +29,7 @@ from app.contexts.appointments.application.queries.list_appointments import (
     ListTenantAgenda,
 )
 from app.contexts.appointments.application.queries.open_slots import ListOpenSlots
+from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
 from app.contexts.appointments.infrastructure.persistence.repository import (
     SqlAppointmentRepository,
     SqlAvailabilityRuleRepository,
@@ -37,6 +40,7 @@ from app.contexts.iam.infrastructure.persistence.repositories import (
 )
 from app.contexts.notifications.interface.dependencies import build_notifier, build_scheduler
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
+from app.contexts.watch.interface.dependencies import build_intake
 
 
 def _now() -> datetime:
@@ -49,17 +53,25 @@ def _access(session) -> GroupAccessPolicy:
     )
 
 
+def _facts(session) -> EmitAppointmentFacts:
+    """Le rendez-vous est une **source** du moteur : il émet, il ne décide rien."""
+    return EmitAppointmentFacts(build_intake(session), clock=_now)
+
+
 # --- demandeur (mobile) ---
 
 
 def get_request_command(session: DbSession) -> RequestAppointment:
     return RequestAppointment(
-        SqlAppointmentRepository(session), SqlAlchemyMembershipRepository(session), clock=_now
+        SqlAppointmentRepository(session),
+        SqlAlchemyMembershipRepository(session),
+        _facts(session),
+        clock=_now,
     )
 
 
 def get_cancel_command(session: DbSession) -> CancelAppointment:
-    return CancelAppointment(SqlAppointmentRepository(session), clock=_now)
+    return CancelAppointment(SqlAppointmentRepository(session), _facts(session), clock=_now)
 
 
 def get_my_appointments_query(session: DbSession) -> ListMyAppointments:
@@ -89,12 +101,28 @@ def get_confirm_command(session: DbSession) -> ConfirmAppointment:
 
 def get_decline_command(session: DbSession) -> DeclineAppointment:
     return DeclineAppointment(
-        SqlAppointmentRepository(session), _access(session), build_notifier(session), clock=_now
+        SqlAppointmentRepository(session), _access(session), build_notifier(session),
+        _facts(session), clock=_now,
     )
 
 
 def get_complete_command(session: DbSession) -> CompleteAppointment:
-    return CompleteAppointment(SqlAppointmentRepository(session), _access(session), clock=_now)
+    return CompleteAppointment(
+        SqlAppointmentRepository(session), _access(session), _facts(session), clock=_now
+    )
+
+
+def get_orient_command(session: DbSession) -> OrientAppointment:
+    return OrientAppointment(
+        SqlAppointmentRepository(session), _access(session), build_notifier(session),
+        _facts(session), clock=_now,
+    )
+
+
+def get_no_show_command(session: DbSession) -> MarkAppointmentNoShow:
+    return MarkAppointmentNoShow(
+        SqlAppointmentRepository(session), _access(session), _facts(session), clock=_now
+    )
 
 
 def get_agenda_query(session: DbSession) -> ListTenantAgenda:

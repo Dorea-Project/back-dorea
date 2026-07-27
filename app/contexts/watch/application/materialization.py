@@ -143,6 +143,9 @@ class Materializer:
                 tenant_id=fact.tenant_id,
                 source_ref=source_ref,
                 extend_to=effect.extend_to,
+                annotation=effect.annotation,
+                priority=effect.priority.value if effect.priority else None,
+                downgrade=effect.downgrade,
             )
             return EffectKind.ENRICH_CASE
 

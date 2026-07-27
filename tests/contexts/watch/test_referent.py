@@ -15,6 +15,7 @@ from app.contexts.watch.application.designate_referent import (
     EndReferentDesignation,
 )
 from app.contexts.watch.application.referent_ports import (
+    CoverageGapStore,
     GroupDirectory,
     GroupTypePolicyRepository,
     InviterDirectory,
@@ -24,10 +25,12 @@ from app.contexts.watch.application.referent_ports import (
     ReferentOverrideRepository,
 )
 from app.contexts.watch.application.referent_resolution import (
+    MeasureReferentGap,
     ObserveReferentChange,
     ResolveReferent,
     ResolveSignalOwner,
 )
+from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
 from app.contexts.watch.domain.errors import IneligibleReferentError, SelfReferentError
 from app.contexts.watch.domain.referent import (
     GroupTypePolicy,
@@ -61,9 +64,10 @@ class _Policies(GroupTypePolicyRepository):
 
 
 class _Groups(GroupDirectory):
-    def __init__(self, memberships=(), leaders=None):
+    def __init__(self, memberships=(), leaders=None, branch_pastors=None):
         self._m = list(memberships)
         self._leaders = leaders or {}
+        self._pastors = branch_pastors or {}
 
     async def active_memberships(self, account_id, tenant_id):
         return list(self._m)
@@ -71,20 +75,48 @@ class _Groups(GroupDirectory):
     async def active_leader_of(self, group_id, tenant_id):
         return self._leaders.get(group_id)
 
+    async def pastor_of_branch(self, group_id, tenant_id):
+        return self._pastors.get(group_id)
+
 
 class _People(PeopleDirectory):
-    def __init__(self, eligible=(), admin=None, pastor=None):
+    def __init__(self, eligible=(), admin=None, pastor=None, member_since=None):
         self._eligible = set(eligible)
         self._admin, self._pastor = admin, pastor
+        self._member_since = member_since
 
     async def is_eligible(self, account_id, tenant_id):
         return account_id in self._eligible
+
+    async def member_since(self, account_id, tenant_id):
+        return self._member_since
 
     async def church_admin(self, tenant_id):
         return self._admin
 
     async def pastor(self, tenant_id):
         return self._pastor
+
+
+class _Gaps(CoverageGapStore):
+    def __init__(self):
+        self.rows = []
+
+    async def record_once(self, record):
+        already = any(
+            r.tenant_id == record.tenant_id
+            and r.gap is record.gap
+            and r.subject_id == record.subject_id
+            and r.is_open
+            for r in self.rows
+        )
+        if already:
+            return False
+        self.rows.append(record)
+        return True
+
+    async def open_gaps(self, tenant_id):
+        return [r for r in self.rows if r.tenant_id == tenant_id and r.is_open]
 
 
 class _Inviters(InviterDirectory):
@@ -451,6 +483,103 @@ async def test_an_unchanged_link_writes_nothing():
     )
 
     assert len(history.rows) == 1
+
+
+# --- C1 : un trou « jamais eu de référent » doit être datable -----------------------------
+
+
+async def test_a_person_nobody_ever_knew_still_has_a_measurable_gap():
+    """Ce sont les plus exposées : personne ne les a jamais connues.
+
+    Sans historique, elles n'auraient aucune clé de tri et resteraient en bas de l'écran de
+    couverture indéfiniment. Le trou court alors depuis leur adhésion."""
+    person, tenant = uuid4(), uuid4()
+    arrivee = _NOW - timedelta(days=120)
+    history = _History()  # jamais rien observé : personne n'a jamais été son référent
+    resolver = _resolver()  # aucun groupe, aucun inviteur
+
+    gap = await MeasureReferentGap(
+        resolver, history, _People(member_since=arrivee)
+    ).execute(person_id=person, tenant_id=tenant, at=_NOW)
+
+    assert gap == timedelta(days=120)
+
+
+async def test_someone_who_has_a_referent_has_no_gap():
+    person, jean, tenant = uuid4(), uuid4(), uuid4()
+    cellule = _cell()
+    resolver = _resolver(
+        memberships=[cellule], leaders={cellule.group_id: jean}, eligible={jean}
+    )
+
+    gap = await MeasureReferentGap(
+        resolver, _History(), _People({jean}, member_since=_NOW - timedelta(days=400))
+    ).execute(person_id=person, tenant_id=tenant, at=_NOW)
+
+    assert gap is None
+
+
+def test_an_observed_gap_beats_the_enrolment_fallback():
+    """Quand on sait quand le lien s'est rompu, c'est cette date qui compte."""
+    from app.contexts.watch.domain.referent import ReferentHistoryEntry
+
+    rupture = ReferentHistoryEntry(
+        id=uuid4(), tenant_id=uuid4(), person_id=uuid4(),
+        referent_person_id=None, origin=None,
+        observed_at=_NOW - timedelta(days=10),
+        cause=ReferentChangeCause.LEADER_CHANGED,
+    )
+
+    measured = gap_duration(
+        rupture, _NOW, member_since=_NOW - timedelta(days=400)
+    )
+
+    assert measured == timedelta(days=10)
+
+
+# --- C3 : un propriétaire nul doit être observable ----------------------------------------
+
+
+async def test_a_church_with_no_recipient_raises_a_tenant_coverage_gap():
+    """Zéro signal doit vouloir dire « tout va bien », jamais « personne n'est configuré »."""
+    person, tenant = uuid4(), uuid4()
+    gaps = _Gaps()
+    resolver = _resolver()  # aucun référent possible
+    people = _People(eligible=set(), admin=None, pastor=None)  # ni admin, ni pasteur
+
+    owner = await ResolveSignalOwner(resolver, people, gaps).execute(
+        person_id=person, tenant_id=tenant, at=_NOW
+    )
+
+    assert owner is None  # aucun signal individuel : on n'invente pas de destinataire
+    (recorded,) = await gaps.open_gaps(tenant)
+    assert recorded.gap is CoverageGap.NO_RECIPIENT
+    assert recorded.scope is CoverageScope.TENANT
+    assert recorded.subject_id is None  # le défaut porte sur l'église, pas sur la personne
+    assert "ni admin, ni pasteur" in recorded.reason
+
+
+async def test_the_missing_recipient_is_reported_once_not_every_night():
+    """Un défaut qui se répète devient du bruit, et le bruit se désapprend en trois semaines."""
+    tenant, gaps = uuid4(), _Gaps()
+    resolve = ResolveSignalOwner(_resolver(), _People(), gaps)
+
+    for _ in range(4):
+        await resolve.execute(person_id=uuid4(), tenant_id=tenant, at=_NOW)
+
+    assert len(await gaps.open_gaps(tenant)) == 1
+
+
+async def test_a_configured_church_records_no_gap():
+    """Le défaut ne se déclenche que sur l'absence réelle de destinataire."""
+    admin, tenant, gaps = uuid4(), uuid4(), _Gaps()
+
+    owner = await ResolveSignalOwner(
+        _resolver(), _People(eligible=set(), admin=admin), gaps
+    ).execute(person_id=uuid4(), tenant_id=tenant, at=_NOW)
+
+    assert owner is not None and owner.account_id == admin
+    assert await gaps.open_gaps(tenant) == []
 
 
 # --- La désignation est explicite --------------------------------------------------------

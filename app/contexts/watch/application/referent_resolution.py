@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.contexts.watch.application.ports import NeutralizationStore
 from app.contexts.watch.application.referent_ports import (
+    CoverageGapStore,
     GroupDirectory,
     GroupTypePolicyRepository,
     InviterDirectory,
@@ -29,12 +30,15 @@ from app.contexts.watch.application.referent_ports import (
     ReferentHistoryRepository,
     ReferentOverrideRepository,
 )
+from app.contexts.watch.domain.coverage import CoverageGapRecord
+from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
 from app.contexts.watch.domain.referent import (
     MembershipCandidate,
     Referent,
     ReferentChangeCause,
     ReferentHistoryEntry,
     ReferentOrigin,
+    gap_duration,
     pick_primary_group,
 )
 
@@ -141,11 +145,27 @@ class ResolveReferent:
 
 class ResolveSignalOwner:
     """À qui adresser un cas. **Jamais nul** — et le motif d'escalade est renvoyé pour être
-    stocké avec le signal."""
+    stocké avec le signal.
 
-    def __init__(self, referents: ResolveReferent, people: PeopleDirectory) -> None:
+    Quand aucun échelon n'existe, on préfère ne rien émettre qu'inventer un destinataire. Mais
+    ce refus est **consigné en défaut de couverture** : une église sans admin ni pasteur
+    détecterait tout et n'émettrait rien, et son écran vide dirait « tout va bien » alors qu'il
+    dit « personne n'est configuré ». C'est exactement le faux silence que le produit existe
+    pour empêcher.
+    """
+
+    def __init__(
+        self,
+        referents: ResolveReferent,
+        people: PeopleDirectory,
+        gaps: CoverageGapStore | None = None,
+        *,
+        id_factory=uuid4,
+    ) -> None:
         self._referents = referents
         self._people = people
+        self._gaps = gaps
+        self._new_id = id_factory
 
     async def execute(
         self, *, person_id: UUID, tenant_id: UUID, at: datetime
@@ -159,20 +179,63 @@ class ResolveSignalOwner:
         primary = await self._referents.primary_group(
             person_id=person_id, tenant_id=tenant_id
         )
-        admin = await self._people.church_admin(tenant_id)
-        pastor = await self._people.pastor(tenant_id)
-
-        if primary is None:
-            reason = "Cette personne n'appartient à aucun groupe de suivi."
-            fallback = admin or pastor
-        else:
-            reason = "Ce groupe n'a pas de responsable actif."
-            fallback = admin or pastor
+        reason = (
+            "Cette personne n'appartient à aucun groupe de suivi."
+            if primary is None
+            else "Ce groupe n'a pas de responsable actif."
+        )
+        fallback = await self._people.church_admin(tenant_id) or await self._people.pastor(
+            tenant_id
+        )
 
         if fallback is None:
-            # Aucun échelon disponible : mieux vaut ne rien émettre qu'inventer un destinataire.
+            await self._record_no_recipient(tenant_id, at)
             return None
         return SignalOwner(fallback, escalation_reason=reason)
+
+    async def _record_no_recipient(self, tenant_id: UUID, at: datetime) -> None:
+        """Le défaut porte sur l'**église**, pas sur la personne : ce n'est pas elle qui manque."""
+        if self._gaps is None:
+            return
+        await self._gaps.record_once(
+            CoverageGapRecord(
+                id=self._new_id(),
+                tenant_id=tenant_id,
+                scope=CoverageScope.TENANT,
+                gap=CoverageGap.NO_RECIPIENT,
+                reason="Aucun destinataire configuré : ni admin, ni pasteur.",
+                observed_at=at,
+            )
+        )
+
+
+class MeasureReferentGap:
+    """Depuis combien de temps cette personne n'est sous le regard de personne.
+
+    Compose la résolution et l'historique : s'il y a un référent, il n'y a pas de trou ; sinon
+    le trou court depuis la dernière observation — ou, si personne ne l'a **jamais** connue,
+    depuis son adhésion."""
+
+    def __init__(
+        self,
+        referents: ResolveReferent,
+        history: ReferentHistoryRepository,
+        people: PeopleDirectory,
+    ) -> None:
+        self._referents = referents
+        self._history = history
+        self._people = people
+
+    async def execute(self, *, person_id: UUID, tenant_id: UUID, at: datetime):
+        referent = await self._referents.execute(
+            person_id=person_id, tenant_id=tenant_id, at=at
+        )
+        if referent is not None:
+            return None
+
+        entry = await self._history.last_for(person_id, tenant_id)
+        member_since = await self._people.member_since(person_id, tenant_id)
+        return gap_duration(entry, at, member_since=member_since)
 
 
 class ObserveReferentChange:

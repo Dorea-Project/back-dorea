@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from app.contexts.appointments.application.dtos import AppointmentDTO
 from app.contexts.appointments.application.mapping import to_appointment_dto
+from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
 from app.contexts.appointments.domain.aggregates import Appointment
 from app.contexts.appointments.domain.enums import AppointmentCategory
 from app.contexts.appointments.domain.errors import AppointmentNotFoundError
@@ -176,12 +177,14 @@ class DeclineAppointment:
         appointments: AppointmentRepository,
         access: GroupAccessPolicy,
         notifier: Notifier | None = None,
+        facts: EmitAppointmentFacts | None = None,
         *,
         clock,
     ) -> None:
         self._appointments = appointments
         self._access = access
         self._notifier = notifier
+        self._facts = facts
         self._clock = clock
 
     async def execute(
@@ -193,6 +196,9 @@ class DeclineAppointment:
         )
         appointment.decline(by_account_id=actor_account_id, reason=reason, now=self._clock())
         await self._appointments.save(appointment)
+        # Il a demandé, on n'a pas pu : c'est **notre** dette. Le cas reste ouvert.
+        if self._facts is not None:
+            await self._facts.execute(appointment)
         await _notify(
             self._notifier, appointment,
             title="Rendez-vous",
@@ -203,10 +209,16 @@ class DeclineAppointment:
 
 class CompleteAppointment:
     def __init__(
-        self, appointments: AppointmentRepository, access: GroupAccessPolicy, *, clock
+        self,
+        appointments: AppointmentRepository,
+        access: GroupAccessPolicy,
+        facts: EmitAppointmentFacts | None = None,
+        *,
+        clock,
     ) -> None:
         self._appointments = appointments
         self._access = access
+        self._facts = facts
         self._clock = clock
 
     async def execute(
@@ -218,6 +230,9 @@ class CompleteAppointment:
         )
         appointment.complete(by_account_id=actor_account_id, now=self._clock())
         await self._appointments.save(appointment)
+        # Rencontrer n'est pas résoudre : le fait **annote**, il ne ferme aucun cas.
+        if self._facts is not None:
+            await self._facts.execute(appointment)
         return to_appointment_dto(appointment)
 
 
@@ -240,4 +255,86 @@ class CloseAppointment:
         )
         appointment.cancel(now=self._clock())
         await self._appointments.save(appointment)
+        return to_appointment_dto(appointment)
+
+
+class OrientAppointment:
+    """La **troisième réponse** : ni créneau, ni refus.
+
+    « Le pasteur ne peut pas cette semaine, mais {référent} te rappelle demain. » Sans elle, la
+    seule alternative à un rendez-vous serait un « non » adressé à quelqu'un qui vient de lever
+    la main — et un rendez-vous décliné est pire que pas de canal du tout.
+
+    Le cas de veille **reste ouvert** et change de propriétaire : la demande n'est pas refusée,
+    elle est servie autrement.
+    """
+
+    def __init__(
+        self,
+        appointments: AppointmentRepository,
+        access: GroupAccessPolicy,
+        notifier: Notifier | None = None,
+        facts: EmitAppointmentFacts | None = None,
+        *,
+        clock,
+    ) -> None:
+        self._appointments = appointments
+        self._access = access
+        self._notifier = notifier
+        self._facts = facts
+        self._clock = clock
+
+    async def execute(
+        self, *, actor_account_id: UUID, appointment_id: UUID, to_account_id: UUID
+    ) -> AppointmentDTO:
+        appointment = await _load_for_keeper(
+            self._appointments, self._access,
+            actor_account_id=actor_account_id, appointment_id=appointment_id,
+        )
+        appointment.orient(
+            to_account_id=to_account_id,
+            by_account_id=actor_account_id,
+            now=self._clock(),
+        )
+        await self._appointments.save(appointment)
+        if self._facts is not None:
+            await self._facts.execute(appointment)
+        await _notify(
+            self._notifier, appointment,
+            title="Rendez-vous",
+            body="Quelqu'un vous rappelle très vite.",
+        )
+        return to_appointment_dto(appointment)
+
+
+class MarkAppointmentNoShow:
+    """Il n'est pas venu, sans prévenir. On l'enregistre au lieu de le perdre.
+
+    Comme l'annulation par le demandeur, c'est quelqu'un qui a franchi le pas puis fait
+    demi-tour — et le cas remonte en priorité maximale."""
+
+    def __init__(
+        self,
+        appointments: AppointmentRepository,
+        access: GroupAccessPolicy,
+        facts: EmitAppointmentFacts | None = None,
+        *,
+        clock,
+    ) -> None:
+        self._appointments = appointments
+        self._access = access
+        self._facts = facts
+        self._clock = clock
+
+    async def execute(
+        self, *, actor_account_id: UUID, appointment_id: UUID
+    ) -> AppointmentDTO:
+        appointment = await _load_for_keeper(
+            self._appointments, self._access,
+            actor_account_id=actor_account_id, appointment_id=appointment_id,
+        )
+        appointment.mark_no_show(by_account_id=actor_account_id, now=self._clock())
+        await self._appointments.save(appointment)
+        if self._facts is not None:
+            await self._facts.execute(appointment)
         return to_appointment_dto(appointment)

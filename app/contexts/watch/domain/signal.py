@@ -94,6 +94,16 @@ _TRANSITIONS: dict[SignalStatus, frozenset[SignalStatus]] = {
     SignalStatus.RETRACTED: frozenset(),  # terminal
 }
 
+# L'urgence vient de l'**origine du dire**, jamais d'une gravité supposée. Plus le rang est
+# petit, plus c'est urgent — le déclaré passe devant tout.
+_PRIORITY_RANK: dict[CasePriority, int] = {
+    CasePriority.DECLARED: 0,
+    CasePriority.DEADLINE: 1,
+    CasePriority.ANNOUNCEMENT: 2,
+    CasePriority.ABSENCE: 3,
+}
+
+
 LIVE_STATUSES: frozenset[SignalStatus] = frozenset(
     {SignalStatus.HELD, SignalStatus.OPEN, SignalStatus.ASSIGNED, SignalStatus.IN_CONTACT}
 )
@@ -113,6 +123,8 @@ class Signal(AggregateRoot):
         expires_at: datetime | None = None,
         owner_account_id: UUID | None = None,  # NULL admis : c'est une donnée, pas un blocage
         source_refs: list[UUID] | None = None,
+        priority: CasePriority | None = None,  # à défaut, celle de l'origine
+        annotations: list[str] | None = None,
         gestures_count: int = 0,
         outcome: SignalOutcome | None = None,
         closed_at: datetime | None = None,
@@ -130,6 +142,10 @@ class Signal(AggregateRoot):
         self.expires_at = expires_at
         self.owner_account_id = owner_account_id
         self.source_refs = source_refs or []
+        self.priority = priority or origin
+        # Ce qu'on a **appris depuis** l'ouverture. Ajouté, jamais substitué à la raison :
+        # « Absente depuis 4 semaines. » puis « A annulé le rendez-vous qu'elle avait demandé. »
+        self.annotations = annotations or []
         self.gestures_count = gestures_count
         self.outcome = outcome
         self.closed_at = closed_at
@@ -191,11 +207,28 @@ class Signal(AggregateRoot):
         deviendrait un classement des bons et des mauvais."""
         self.gestures_count += 1
 
-    def enrich(self, *, source_ref: UUID, expires_at: datetime | None = None) -> bool:
+    def enrich(
+        self,
+        *,
+        source_ref: UUID,
+        expires_at: datetime | None = None,
+        annotation: str | None = None,
+        priority: CasePriority | None = None,
+        downgrade: bool = False,
+    ) -> bool:
         """Un cas de plus sur la même personne : on **enrichit**, on ne duplique jamais.
 
-        La raison ne bouge pas — on ajoute d'où ça vient, et on repousse l'échéance si la
-        nouvelle va plus loin. Renvoie True si quelque chose a changé."""
+        La raison d'origine ne bouge **jamais** — on ajoute d'où ça vient, ce qu'on a appris, et
+        on repousse l'échéance si la nouvelle va plus loin. C'est ce qui permet au responsable de
+        lire une trajectoire au lieu d'un instantané : « Absente depuis 4 semaines. A annulé le
+        rendez-vous qu'elle avait demandé. »
+
+        La priorité ne monte que si la nouvelle est **plus urgente** — sinon un événement anodin
+        ferait redescendre un cas grave. `downgrade` est la seule façon de l'abaisser, et elle
+        doit être demandée explicitement.
+
+        Renvoie True si quelque chose a changé.
+        """
         changed = False
         if source_ref not in self.source_refs:
             self.source_refs.append(source_ref)
@@ -203,6 +236,15 @@ class Signal(AggregateRoot):
         if expires_at is not None and (self.expires_at is None or expires_at > self.expires_at):
             self.expires_at = expires_at
             changed = True
+        if annotation and annotation not in self.annotations:
+            self.annotations.append(annotation)
+            changed = True
+        if priority is not None:
+            rank = _PRIORITY_RANK
+            more_urgent = rank[priority] < rank[self.priority]
+            if more_urgent or (downgrade and rank[priority] > rank[self.priority]):
+                self.priority = priority
+                changed = True
         return changed
 
     def close(

@@ -126,10 +126,16 @@ class FakeSignals(SignalStore):
             )
         )
 
-    async def enrich_case(self, *, subject_id, tenant_id, source_ref, extend_to):
+    async def enrich_case(
+        self, *, subject_id, tenant_id, source_ref, extend_to,
+        annotation=None, priority=None, downgrade=False,
+    ):
         existing = self._live(subject_id, tenant_id)
         if existing is not None:
-            existing.enrich(source_ref=source_ref, expires_at=extend_to)
+            existing.enrich(
+                source_ref=source_ref, expires_at=extend_to, annotation=annotation,
+                priority=CasePriority(priority) if priority else None, downgrade=downgrade,
+            )
 
     async def extinguish(self, *, subject_id, tenant_id, cause, at):
         signal = self._live(subject_id, tenant_id)

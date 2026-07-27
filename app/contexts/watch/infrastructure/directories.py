@@ -7,6 +7,7 @@ fait que remplacer un responsable change le référent de tout son groupe sans u
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -77,6 +78,44 @@ class SqlGroupDirectory(GroupDirectory):
         return (await self._session.execute(stmt)).scalars().first()
 
 
+    async def pastor_of_branch(self, group_id: UUID, tenant_id: UUID) -> UUID | None:
+        """Remonte le chemin matérialisé jusqu'au premier ancêtre-ou-soi doté d'un pasteur.
+
+        Le `path` porte déjà la lignée : on n'a pas besoin de remonter l'arbre en boucle. On lit
+        du plus proche au plus lointain, pour que le pasteur d'annexe l'emporte sur celui de
+        l'église."""
+        group = await self._session.get(GroupModel, group_id)
+        if group is None:
+            return None
+
+        # `path` a la forme `/{racine}/…/{self}/` — la lignée s'y lit directement.
+        lineage = [UUID(part) for part in (group.path or "").split("/") if part]
+        if group_id not in lineage:
+            lineage.append(group_id)
+
+        for candidate in reversed(lineage):  # du plus proche au plus lointain
+            stmt = (
+                select(MembershipModel.account_id)
+                .join(
+                    RoleAssignmentModel,
+                    RoleAssignmentModel.membership_id == MembershipModel.id,
+                )
+                .where(
+                    RoleAssignmentModel.tenant_id == tenant_id,
+                    RoleAssignmentModel.group_id == candidate,
+                    RoleAssignmentModel.role == RoleCode.PASTOR.value,
+                    RoleAssignmentModel.revoked_at.is_(None),
+                    MembershipModel.status != MembershipStatus.CLOSED.value,
+                )
+                .order_by(RoleAssignmentModel.assigned_at, MembershipModel.account_id)
+                .limit(1)
+            )
+            found = (await self._session.execute(stmt)).scalars().first()
+            if found is not None:
+                return found
+        return None
+
+
 class SqlPeopleDirectory(PeopleDirectory):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -96,6 +135,18 @@ class SqlPeopleDirectory(PeopleDirectory):
             .limit(1)
         )
         return (await self._session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def member_since(self, account_id: UUID, tenant_id: UUID) -> datetime | None:
+        stmt = (
+            select(MembershipModel.created_at)
+            .where(
+                MembershipModel.account_id == account_id,
+                MembershipModel.tenant_id == tenant_id,
+            )
+            .order_by(MembershipModel.created_at)
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalars().first()
 
     async def church_admin(self, tenant_id: UUID) -> UUID | None:
         return await self._holder_of(RoleCode.ADMIN, tenant_id)

@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from uuid import UUID
 
+from app.contexts.watch.domain.coverage import CoverageGapRecord
 from app.contexts.watch.domain.referent import (
     GroupTypePolicy,
     MembershipCandidate,
@@ -33,6 +34,14 @@ class GroupDirectory(ABC):
         sans une seule écriture, tout en laissant leur histoire relationnelle attachée à elles."""
         ...
 
+    @abstractmethod
+    async def pastor_of_branch(self, group_id: UUID, tenant_id: UUID) -> UUID | None:
+        """Le pasteur dont dépend ce groupe, en remontant l'arbre — ou None.
+
+        Même logique de pointeur calculé : changer le pasteur d'une annexe rebascule tout son
+        monde sans une seule écriture."""
+        ...
+
 
 class PeopleDirectory(ABC):
     """L'éligibilité d'un candidat référent."""
@@ -42,6 +51,15 @@ class PeopleDirectory(ABC):
         """Compte actif, appartenance vivante, pas retiré de la veille.
 
         Un référent inéligible ne bloque pas : la cascade continue sous lui."""
+        ...
+
+    @abstractmethod
+    async def member_since(self, account_id: UUID, tenant_id: UUID) -> datetime | None:
+        """Depuis quand cette personne appartient à cette église.
+
+        C'est le repli du trou de couverture : quelqu'un que **personne n'a jamais connu** n'a
+        aucune entrée d'historique, et son trou doit malgré tout avoir une durée — sinon elle
+        n'a pas de clé de tri et reste en bas de l'écran de couverture indéfiniment."""
         ...
 
     @abstractmethod
@@ -88,6 +106,22 @@ class PrimaryGroupOverrideRepository(ABC):
     async def active_for(
         self, person_id: UUID, tenant_id: UUID
     ) -> PrimaryGroupOverride | None: ...
+
+
+class CoverageGapStore(ABC):
+    """Là où remontent les trous du dispositif — pas dans un journal applicatif.
+
+    Un défaut consigné dans les logs n'existe pour personne. Celui-ci doit apparaître sur
+    l'écran de couverture, sinon l'église mal configurée reste silencieuse et son silence
+    passe pour de la santé."""
+
+    @abstractmethod
+    async def record_once(self, record: CoverageGapRecord) -> bool:
+        """Consigne le défaut s'il n'est pas déjà ouvert. Renvoie True s'il a été créé."""
+        ...
+
+    @abstractmethod
+    async def open_gaps(self, tenant_id: UUID) -> list[CoverageGapRecord]: ...
 
 
 class ReferentHistoryRepository(ABC):

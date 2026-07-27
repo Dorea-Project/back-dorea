@@ -99,8 +99,19 @@ class SignalStore(ABC):
 
     @abstractmethod
     async def enrich_case(
-        self, *, subject_id: UUID, tenant_id: UUID, source_ref: UUID, extend_to: datetime | None
-    ) -> None: ...
+        self,
+        *,
+        subject_id: UUID,
+        tenant_id: UUID,
+        source_ref: UUID,
+        extend_to: datetime | None,
+        annotation: str | None = None,
+        priority: str | None = None,
+        downgrade: bool = False,
+    ) -> None:
+        """Ajoute ce qu'on vient d'apprendre. L'annotation s'ajoute à la fiche, la raison
+        d'origine ne bouge jamais, et la priorité ne monte que si c'est plus urgent."""
+        ...
 
     @abstractmethod
     async def extinguish(

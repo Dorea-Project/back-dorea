@@ -222,6 +222,23 @@ renvoyé pour être stocké avec le signal — un pasteur qui reçoit un cas ine
 huit mois ne portent pas la même information. « Sans référent » n'est pas actionnable ; « sans
 référent depuis quatre mois » l'est.
 
+Et un historique **vide** ne veut pas dire « pas de trou » : il veut dire *personne ne l'a jamais
+connue*. Ce sont les plus exposées du fichier. `MeasureReferentGap` retombe alors sur la date
+d'adhésion — sans quoi elles n'auraient aucune clé de tri et resteraient en bas de l'écran de
+couverture indéfiniment.
+
+**Quand l'église n'a aucun destinataire.** Ni admin, ni pasteur : on refuse d'inventer un
+propriétaire, mais ce refus est consigné dans `watch_coverage_gaps` au niveau du **tenant**, une
+seule fois. Sans cela, une église mal configurée détecterait tout, n'émettrait rien, et son
+écran vide dirait « tout va bien » alors qu'il dit « personne n'est configuré » — le faux
+silence que le produit existe pour empêcher, retourné contre lui-même.
+
+**L'unicité des politiques par défaut.** `tenant_id` NULL signifie « politique par défaut », mais
+en SQL `NULL != NULL` : la contrainte ordinaire laissait ré-insérer la même politique globale à
+chaque re-seed. Deux rangs concurrents pour un type rendraient le résolveur non déterministe
+selon l'ordre de lecture, donc le ledger non rejouable. Un **index unique partiel**
+`WHERE tenant_id IS NULL` ferme ça, sans toucher à la nullabilité — qui, elle, est le bon design.
+
 **Désigner est explicite.** Traiter un signal ne crée jamais de référent : un appel ponctuel ne
 fait de personne un lien durable. L'écran de résolution *propose* l'action, elle reste un tap
 séparé. Sans cette proposition le trou remonte indéfiniment ; implicite, il se comble sur le

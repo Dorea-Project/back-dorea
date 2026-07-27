@@ -50,6 +50,8 @@ def _to_signal(row: SignalModel) -> Signal:
         expires_at=_aware(row.expires_at),
         owner_account_id=row.owner_account_id,
         source_refs=[UUID(r) for r in (row.source_refs or [])],
+        priority=CasePriority(row.priority) if row.priority else None,
+        annotations=list(row.annotations or []),
         gestures_count=row.gestures_count,
         outcome=SignalOutcome(row.outcome) if row.outcome else None,
         closed_at=_aware(row.closed_at),
@@ -106,26 +108,59 @@ class SqlSignalStore(SignalStore):
                 expires_at=expires_at,
                 owner_account_id=None,  # `Referent` n'existe pas encore — NULL est la vérité
                 source_refs=[str(source_ref)],
+                priority=CasePriority(origin).value,
+                annotations=[],
                 gestures_count=0,
             )
         )
         await self._session.flush()
 
     async def enrich_case(
-        self, *, subject_id: UUID, tenant_id: UUID, source_ref: UUID, extend_to: datetime | None
+        self,
+        *,
+        subject_id: UUID,
+        tenant_id: UUID,
+        source_ref: UUID,
+        extend_to: datetime | None,
+        annotation: str | None = None,
+        priority: str | None = None,
+        downgrade: bool = False,
     ) -> None:
         existing = await self._live_row(subject_id, tenant_id)
         if existing is None:
             return
-        await self._merge(existing, source_ref=source_ref, extend_to=extend_to)
+        await self._merge(
+            existing,
+            source_ref=source_ref,
+            extend_to=extend_to,
+            annotation=annotation,
+            priority=CasePriority(priority) if priority else None,
+            downgrade=downgrade,
+        )
 
     async def _merge(
-        self, row: SignalModel, *, source_ref: UUID, extend_to: datetime | None
+        self,
+        row: SignalModel,
+        *,
+        source_ref: UUID,
+        extend_to: datetime | None,
+        annotation: str | None = None,
+        priority: CasePriority | None = None,
+        downgrade: bool = False,
     ) -> None:
         signal = _to_signal(row)
-        if signal.enrich(source_ref=source_ref, expires_at=extend_to):
+        changed = signal.enrich(
+            source_ref=source_ref,
+            expires_at=extend_to,
+            annotation=annotation,
+            priority=priority,
+            downgrade=downgrade,
+        )
+        if changed:
             row.source_refs = [str(r) for r in signal.source_refs]
             row.expires_at = signal.expires_at
+            row.annotations = list(signal.annotations)
+            row.priority = signal.priority.value
             await self._session.flush()
 
     async def extinguish(

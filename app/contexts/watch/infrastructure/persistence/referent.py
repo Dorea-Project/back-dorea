@@ -13,11 +13,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.watch.application.referent_ports import (
+    CoverageGapStore,
     GroupTypePolicyRepository,
     PrimaryGroupOverrideRepository,
     ReferentHistoryRepository,
     ReferentOverrideRepository,
 )
+from app.contexts.watch.domain.coverage import CoverageGapRecord
+from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
 from app.contexts.watch.domain.referent import (
     GroupTypePolicy,
     PrimaryGroupOverride,
@@ -27,6 +30,7 @@ from app.contexts.watch.domain.referent import (
     ReferentOverride,
 )
 from app.contexts.watch.infrastructure.persistence.models import (
+    CoverageGapModel,
     GroupTypePolicyModel,
     PrimaryGroupOverrideModel,
     ReferentHistoryModel,
@@ -61,6 +65,60 @@ class SqlGroupTypePolicyRepository(GroupTypePolicyRepository):
                 primacy_rank=row.primacy_rank,
             )
         return policies
+
+
+class SqlCoverageGapStore(CoverageGapStore):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record_once(self, record: CoverageGapRecord) -> bool:
+        """Un défaut qui se répète chaque nuit devient du bruit, et le bruit se désapprend."""
+        stmt = select(CoverageGapModel.id).where(
+            CoverageGapModel.tenant_id == record.tenant_id,
+            CoverageGapModel.gap == record.gap.value,
+            CoverageGapModel.scope == record.scope.value,
+            CoverageGapModel.subject_id.is_(record.subject_id)
+            if record.subject_id is None
+            else CoverageGapModel.subject_id == record.subject_id,
+            CoverageGapModel.resolved_at.is_(None),
+        )
+        if (await self._session.execute(stmt)).scalar_one_or_none() is not None:
+            return False
+
+        self._session.add(
+            CoverageGapModel(
+                id=record.id,
+                tenant_id=record.tenant_id,
+                scope=record.scope.value,
+                subject_id=record.subject_id,
+                gap=record.gap.value,
+                reason=record.reason,
+                observed_at=record.observed_at,
+                resolved_at=record.resolved_at,
+            )
+        )
+        await self._session.flush()
+        return True
+
+    async def open_gaps(self, tenant_id: UUID) -> list[CoverageGapRecord]:
+        stmt = select(CoverageGapModel).where(
+            CoverageGapModel.tenant_id == tenant_id,
+            CoverageGapModel.resolved_at.is_(None),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [
+            CoverageGapRecord(
+                id=r.id,
+                tenant_id=r.tenant_id,
+                scope=CoverageScope(r.scope),
+                gap=CoverageGap(r.gap),
+                reason=r.reason,
+                observed_at=_aware(r.observed_at),
+                subject_id=r.subject_id,
+                resolved_at=_aware(r.resolved_at),
+            )
+            for r in rows
+        ]
 
 
 class SqlReferentOverrideRepository(ReferentOverrideRepository):

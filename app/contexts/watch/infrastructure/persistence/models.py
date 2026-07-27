@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -87,6 +88,11 @@ class SignalModel(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     owner_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     source_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # L'urgence, distincte de l'origine : un cas d'absence qu'un rendez-vous annulé rend
+    # soudain le plus urgent de la file garde son origine et change de priorité.
+    priority: Mapped[str] = mapped_column(String)
+    # Ce qu'on a appris **depuis** l'ouverture — ajouté, jamais substitué à la raison.
+    annotations: Mapped[list[str]] = mapped_column(JSON, default=list)
     gestures_count: Mapped[int] = mapped_column(Integer, default=0)
     outcome: Mapped[str | None] = mapped_column(String, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -108,6 +114,18 @@ class GroupTypePolicyModel(Base):
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "group_type", name="uq_watch_group_type_policy"),
+        # En SQL, `NULL != NULL` dans une contrainte d'unicité : sans cet index partiel, la
+        # politique **par défaut** pourrait être insérée deux fois (re-seed, aller-retour de
+        # migration, script d'init rejoué). `all_for()` renverrait alors deux rangs concurrents
+        # pour un même type, et le résolveur deviendrait non déterministe selon l'ordre de
+        # lecture — ce qui casse la rejouabilité du ledger.
+        Index(
+            "uq_watch_group_type_policy_default",
+            "group_type",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+            sqlite_where=text("tenant_id IS NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -121,6 +139,28 @@ class GroupTypePolicyModel(Base):
     # Ordonné par **durabilité du lien**, pas par intensité : une classe s'achève, un
     # ministère dure.
     primacy_rank: Mapped[int] = mapped_column(Integer)
+
+
+class CoverageGapModel(Base):
+    """Un trou du dispositif. `subject_id` NULL = le défaut porte sur l'**église entière**.
+
+    Consigné ici et pas dans un journal applicatif : un défaut qui n'apparaît pas sur l'écran de
+    couverture n'existe pour personne."""
+
+    __tablename__ = "watch_coverage_gaps"
+
+    __table_args__ = (
+        Index("ix_watch_coverage_gaps_tenant", "tenant_id", "resolved_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    scope: Mapped[str] = mapped_column(String)  # person | group | tenant
+    subject_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    gap: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ReferentOverrideModel(Base):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -31,6 +31,37 @@ class AppointmentModel(Base):
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Servi autrement (pas refusé) : vers qui la demande a été réorientée.
+    oriented_to_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    # **Qui** a annulé. Le demandeur qui recule après avoir levé la main est le signal le plus
+    # urgent du produit ; l'église qui ferme un rendez-vous caduc ne dit pas la même chose.
+    cancelled_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+
+
+class PastorUnavailabilityModel(Base):
+    """Une **absence déclarée** d'un pasteur — à ne pas confondre avec ses créneaux.
+
+    `AvailabilityRuleModel` dit *quand il reçoit* ; ceci dit *quand il n'est pas là*. Les
+    confondre coûte cher : sans cette table, un pasteur en voyage trois semaines ferait attendre
+    **chaque** demande le délai de relais complet avant d'être contourné — alors qu'on savait
+    dès le premier jour qu'il ne répondrait pas. L'absence est prévisible ; l'oubli se constate.
+    """
+
+    __tablename__ = "pastor_unavailabilities"
+
+    __table_args__ = (
+        Index("ix_pastor_unavailability", "tenant_id", "pastor_account_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    pastor_account_id: Mapped[UUID] = mapped_column(Uuid)
+    unavailable_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    unavailable_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)  # court, jamais exigé
+    declared_by_account_id: Mapped[UUID] = mapped_column(Uuid)
+    declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AvailabilityRuleModel(Base):

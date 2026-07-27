@@ -14,10 +14,13 @@ from app.contexts.appointments.domain.enums import AppointmentCategory, Appointm
 from app.contexts.appointments.domain.repositories import (
     AppointmentRepository,
     AvailabilityRuleRepository,
+    PastorUnavailabilityRepository,
 )
+from app.contexts.appointments.domain.unavailability import PastorUnavailability
 from app.contexts.appointments.infrastructure.persistence.models import (
     AppointmentModel,
     AvailabilityRuleModel,
+    PastorUnavailabilityModel,
 )
 
 # L'agenda vivant = ce qui reste à traiter ou à venir (pas les rendez-vous résolus).
@@ -40,6 +43,8 @@ def _to_appointment(row: AppointmentModel) -> Appointment:
         scheduled_at=row.scheduled_at,
         handled_by_account_id=row.handled_by_account_id,
         decision_note=row.decision_note,
+        oriented_to_account_id=row.oriented_to_account_id,
+        cancelled_by_account_id=row.cancelled_by_account_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -66,6 +71,8 @@ class SqlAppointmentRepository(AppointmentRepository):
                 scheduled_at=appointment.scheduled_at,
                 handled_by_account_id=appointment.handled_by_account_id,
                 decision_note=appointment.decision_note,
+                oriented_to_account_id=appointment.oriented_to_account_id,
+                cancelled_by_account_id=appointment.cancelled_by_account_id,
                 created_at=appointment.created_at,
                 updated_at=appointment.updated_at,
             )
@@ -84,6 +91,8 @@ class SqlAppointmentRepository(AppointmentRepository):
         row.scheduled_at = appointment.scheduled_at
         row.handled_by_account_id = appointment.handled_by_account_id
         row.decision_note = appointment.decision_note
+        row.oriented_to_account_id = appointment.oriented_to_account_id
+        row.cancelled_by_account_id = appointment.cancelled_by_account_id
         row.updated_at = appointment.updated_at
         await self._session.flush()
 
@@ -181,3 +190,60 @@ class SqlAvailabilityRuleRepository(AvailabilityRuleRepository):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_rule(r) for r in rows]
+
+
+def _to_unavailability(row: PastorUnavailabilityModel) -> PastorUnavailability:
+    return PastorUnavailability(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        pastor_account_id=row.pastor_account_id,
+        unavailable_from=row.unavailable_from,
+        unavailable_until=row.unavailable_until,
+        declared_by_account_id=row.declared_by_account_id,
+        declared_at=row.declared_at,
+        reason=row.reason,
+        canceled_at=row.canceled_at,
+    )
+
+
+class SqlPastorUnavailabilityRepository(PastorUnavailabilityRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, unavailability: PastorUnavailability) -> None:
+        self._session.add(
+            PastorUnavailabilityModel(
+                id=unavailability.id,
+                tenant_id=unavailability.tenant_id,
+                pastor_account_id=unavailability.pastor_account_id,
+                unavailable_from=unavailability.unavailable_from,
+                unavailable_until=unavailability.unavailable_until,
+                reason=unavailability.reason,
+                declared_by_account_id=unavailability.declared_by_account_id,
+                declared_at=unavailability.declared_at,
+                canceled_at=unavailability.canceled_at,
+            )
+        )
+        await self._session.flush()
+
+    async def get(self, unavailability_id: UUID) -> PastorUnavailability | None:
+        row = await self._session.get(PastorUnavailabilityModel, unavailability_id)
+        return _to_unavailability(row) if row is not None else None
+
+    async def save(self, unavailability: PastorUnavailability) -> None:
+        row = await self._session.get(PastorUnavailabilityModel, unavailability.id)
+        if row is None:
+            return
+        row.canceled_at = unavailability.canceled_at
+        await self._session.flush()
+
+    async def list_active_for(
+        self, pastor_account_id: UUID, tenant_id: UUID
+    ) -> list[PastorUnavailability]:
+        stmt = select(PastorUnavailabilityModel).where(
+            PastorUnavailabilityModel.pastor_account_id == pastor_account_id,
+            PastorUnavailabilityModel.tenant_id == tenant_id,
+            PastorUnavailabilityModel.canceled_at.is_(None),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_unavailability(r) for r in rows]

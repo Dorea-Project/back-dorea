@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from app.contexts.appointments.application.dtos import AppointmentDTO
 from app.contexts.appointments.application.mapping import to_appointment_dto
+from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
 from app.contexts.appointments.domain.aggregates import Appointment
 from app.contexts.appointments.domain.enums import AppointmentCategory
 from app.contexts.appointments.domain.errors import (
@@ -27,11 +28,13 @@ class RequestAppointment:
         self,
         appointments: AppointmentRepository,
         memberships: MembershipRepository,
+        facts: EmitAppointmentFacts | None = None,
         *,
         clock,
     ) -> None:
         self._appointments = appointments
         self._memberships = memberships
+        self._facts = facts
         self._clock = clock
 
     async def execute(
@@ -60,12 +63,23 @@ class RequestAppointment:
             note=note,
         )
         await self._appointments.add(appointment)
+        # Le fait entre **ici**, au geste — pas à la confirmation du créneau. Sinon on perd
+        # l'antériorité, qui est toute la valeur du canal.
+        if self._facts is not None:
+            await self._facts.execute(appointment)
         return to_appointment_dto(appointment)
 
 
 class CancelAppointment:
-    def __init__(self, appointments: AppointmentRepository, *, clock) -> None:
+    def __init__(
+        self,
+        appointments: AppointmentRepository,
+        facts: EmitAppointmentFacts | None = None,
+        *,
+        clock,
+    ) -> None:
         self._appointments = appointments
+        self._facts = facts
         self._clock = clock
 
     async def execute(
@@ -81,6 +95,9 @@ class CancelAppointment:
                 "Seul le demandeur peut annuler sa demande.",
                 details={"appointment_id": str(appointment_id)},
             )
-        appointment.cancel(now=self._clock())
+        appointment.cancel(now=self._clock(), by_account_id=actor_account_id)
         await self._appointments.save(appointment)
+        # Il a demandé, puis a reculé : le signal le plus urgent que le moteur sache produire.
+        if self._facts is not None:
+            await self._facts.execute(appointment)
         return to_appointment_dto(appointment)

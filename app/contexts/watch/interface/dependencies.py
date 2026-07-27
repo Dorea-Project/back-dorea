@@ -18,12 +18,16 @@ from app.contexts.attendance.infrastructure.persistence.absence_repository impor
 from app.contexts.watch.application.designate_referent import DesignateReferent
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
+from app.contexts.watch.application.interpreters.appointment_requested import (
+    AppointmentRequestedV1,
+)
 from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
 )
 from app.contexts.watch.application.interpreters.presence_recorded import PresenceRecordedV1
 from app.contexts.watch.application.projections import RebuildProjections
 from app.contexts.watch.application.referent_resolution import (
+    MeasureReferentGap,
     ResolveReferent,
     ResolveSignalOwner,
 )
@@ -38,6 +42,7 @@ from app.contexts.watch.infrastructure.neutralization_store import (
 )
 from app.contexts.watch.infrastructure.persistence.ledger import SqlFactLedger
 from app.contexts.watch.infrastructure.persistence.referent import (
+    SqlCoverageGapStore,
     SqlGroupTypePolicyRepository,
     SqlPrimaryGroupOverrideRepository,
     SqlReferentHistoryRepository,
@@ -50,6 +55,7 @@ SOURCES = default_registry()
 INTERPRETERS = InterpreterRegistry()
 INTERPRETERS.register(LifeEventAnnouncedV1())
 INTERPRETERS.register(PresenceRecordedV1())
+INTERPRETERS.register(AppointmentRequestedV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -83,8 +89,24 @@ def build_referents(session) -> ResolveReferent:
 
 
 def build_signal_owner(session) -> ResolveSignalOwner:
-    """À qui adresser un cas — **jamais nul**, contrairement au référent."""
-    return ResolveSignalOwner(build_referents(session), SqlPeopleDirectory(session))
+    """À qui adresser un cas — **jamais nul**, contrairement au référent.
+
+    Le store de couverture est branché : une église sans destinataire ne peut pas rester
+    silencieuse sans que ce silence soit lui-même visible."""
+    return ResolveSignalOwner(
+        build_referents(session),
+        SqlPeopleDirectory(session),
+        SqlCoverageGapStore(session),
+        id_factory=uuid4,
+    )
+
+
+def build_referent_gap(session) -> MeasureReferentGap:
+    return MeasureReferentGap(
+        build_referents(session),
+        SqlReferentHistoryRepository(session),
+        SqlPeopleDirectory(session),
+    )
 
 
 def build_designate_referent(session) -> DesignateReferent:

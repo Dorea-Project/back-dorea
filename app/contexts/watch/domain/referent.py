@@ -233,8 +233,21 @@ def pick_primary_group(
     )
 
 
-def gap_duration(entry: ReferentHistoryEntry | None, at: datetime):
-    """Depuis combien de temps cette personne n'est sous le regard de personne, ou None."""
-    if entry is None or not entry.is_gap:
+def gap_duration(
+    entry: ReferentHistoryEntry | None,
+    at: datetime,
+    *,
+    member_since: datetime | None = None,
+):
+    """Depuis combien de temps cette personne n'est sous le regard de personne.
+
+    Un historique vide ne veut pas dire « pas de trou » : il veut dire **« personne ne l'a
+    jamais connue »**. Ce sont les plus exposées du fichier, et sans repli elles n'auraient
+    aucune clé de tri sur l'écran de couverture — donc elles resteraient en bas de la liste
+    indéfiniment. On retombe alors sur la date d'adhésion : le trou court depuis son arrivée.
+    """
+    if entry is not None:
+        return at - entry.observed_at if entry.is_gap else None
+    if member_since is None:
         return None
-    return at - entry.observed_at
+    return at - member_since
