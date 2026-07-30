@@ -27,7 +27,11 @@ from app.contexts.watch.application.interpreters.self_declaration import SelfDec
 from app.contexts.watch.application.materialization import DEFERRED_COUNTS
 from app.contexts.watch.application.projections import RebuildProjections
 from app.contexts.watch.domain.effects import EffectKind
-from app.contexts.watch.domain.errors import ActorRequiredError, InvalidPayloadError
+from app.contexts.watch.domain.errors import (
+    ActorRequiredError,
+    InvalidPayloadError,
+    ReplayWouldEraseHumanActsError,
+)
 from app.contexts.watch.domain.facts import (
     ACTOR_KEY,
     ACTOR_REQUIRED,
@@ -73,6 +77,16 @@ def _rhythm_fact(*, tenant, member, every_days=7):
         subject_kind=SubjectKind.PERSON, subject_id=member,
         payload={"kind": "rhythm", "every_days": every_days},
         consent=None,
+    )
+
+
+def _contact_request_fact(*, tenant, member):
+    """« Appelez-moi » — la parole qui ouvre un cas, celle sur laquelle un humain agira."""
+    return Fact(
+        fact_id=uuid4(), tenant_id=tenant, occurred_at=_NOW, recorded_at=_NOW,
+        source=MISSION, kind=FactKind.SELF_DECLARATION,
+        subject_kind=SubjectKind.PERSON, subject_id=member,
+        payload={"kind": "contact_request"},
     )
 
 
@@ -162,6 +176,62 @@ async def test_a_reprojection_never_refires_a_deadline_that_already_fell():
     assert len(checks.rows) == 1
     assert checks.rows[0]["fired_at"] is not None  # l'histoire est intacte
     assert await checks.pending_count(tenant_id=tenant, now=_NOW + timedelta(days=30)) == 0
+
+
+# --- 1bis. Un rejeu n'efface pas ce que des humains ont fait -----------------------------
+
+
+async def test_a_replay_refuses_to_erase_what_a_responsable_has_done():
+    """Le journal porte des faits ; « j'ai appelé » est un **acte**, et il n'y est pas.
+
+    Rejouer effacerait les issues des responsables, le premier regard, le premier contact, les
+    gestes comptés, la chaîne d'épisode et les consolations déjà remises. Détruire la trace du soin
+    au nom de la réparation est le pire échange possible."""
+    tenant, member = uuid4(), uuid4()
+    checks = FakeChecks()
+    intake, ledger, store, signals, interpreters = _engine(checks=checks)
+    await intake.submit(_consented(_contact_request_fact(tenant=tenant, member=member)))
+
+    case = signals.rows[0]
+    case.record_contact_attempt(at=_NOW + timedelta(days=1))  # quelqu'un a appelé
+
+    with pytest.raises(ReplayWouldEraseHumanActsError) as refusal:
+        await RebuildProjections(
+            ledger, interpreters, store, signals, None, checks
+        ).execute(tenant_id=tenant)
+
+    assert refusal.value.details["contacted"] == 1
+    assert signals.rows  # et rien n'a été effacé : le refus précède la purge
+
+
+async def test_a_replay_proceeds_when_nobody_has_acted_yet():
+    """Une église où personne n'a encore rien fait se rejoue librement — c'est le cas courant."""
+    tenant, member = uuid4(), uuid4()
+    checks = FakeChecks()
+    intake, ledger, store, signals, interpreters = _engine(checks=checks)
+    await intake.submit(_consented(_rhythm_fact(tenant=tenant, member=member)))
+
+    report = await RebuildProjections(
+        ledger, interpreters, store, signals, None, checks
+    ).execute(tenant_id=tenant)
+
+    assert report.facts == 1
+
+
+async def test_forcing_a_replay_is_a_signature_not_a_convenience():
+    """On peut forcer — en sachant ce qu'on perd. Le drapeau existe pour que ce soit un choix."""
+    tenant, member = uuid4(), uuid4()
+    checks = FakeChecks()
+    intake, ledger, store, signals, interpreters = _engine(checks=checks)
+    await intake.submit(_consented(_contact_request_fact(tenant=tenant, member=member)))
+    signals.rows[0].record_contact_attempt(at=_NOW + timedelta(days=1))
+
+    report = await RebuildProjections(
+        ledger, interpreters, store, signals, None, checks
+    ).execute(tenant_id=tenant, force=True)
+
+    assert report.facts == 1
+    assert signals.rows[0].first_contact_at is None  # l'acte est bien perdu : c'était le marché
 
 
 # --- 2. Un effet que rien n'écrit ne peut pas être silencieux ----------------------------

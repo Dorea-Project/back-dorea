@@ -28,6 +28,20 @@ class ActorRequiredError(WatchError):
     http_status = 500
 
 
+class ReplayWouldEraseHumanActsError(WatchError):
+    """Un rejeu du ledger effacerait des gestes que le journal ne contient pas.
+
+    Le ledger porte des **faits** ; « j'ai ouvert ce cas », « j'ai appelé », « je ferme, voilà ce
+    que j'ai trouvé », « cette consolation a été remise » sont des **actes** posés sur la
+    projection. Les reconstruire est impossible : les rejouer reviendrait à les inventer.
+
+    Tant que ces gestes ne sont pas eux-mêmes entrés au ledger, la reprojection est réservée aux
+    églises où personne n'a encore rien fait — ou explicitement forcée, en sachant ce qu'on perd."""
+
+    code = "WATCH_REPLAY_WOULD_ERASE"
+    http_status = 409
+
+
 class SourceNotRegisteredError(WatchError):
     """Un fait venu d'une source que l'engine ne connaît pas. Ajouter ≠ modifier."""
 

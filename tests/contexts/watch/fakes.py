@@ -276,6 +276,21 @@ class FakeSignals(SignalStore):
             and s.closed_at >= since
         ]
 
+    async def human_traces(self, tenant_id):
+        from app.contexts.watch.application.ports import HumanTraces
+
+        mine = [s for s in self.rows if s.tenant_id == tenant_id]
+        return HumanTraces(
+            seen=sum(1 for s in mine if s.first_seen_at is not None),
+            contacted=sum(1 for s in mine if s.first_contact_at is not None),
+            closed=sum(1 for s in mine if s.closed_by_account_id is not None),
+            gestures=sum(1 for s in mine if s.gestures_count > 0),
+            # La doublure stocke la mémoire en tuples : le 6ᵉ champ est `delivered_at`.
+            delivered_memories=sum(
+                1 for m in self.memory if m[0] == tenant_id and m[5] is not None
+            ),
+        )
+
     async def purge_projected(self, tenant_id):
         self.rows = [s for s in self.rows if s.tenant_id != tenant_id]
         self.memory = [m for m in self.memory if m[0] != tenant_id]

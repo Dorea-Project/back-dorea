@@ -13,7 +13,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.watch.application.ports import ContactAttemptStore, SignalStore
+from app.contexts.watch.application.ports import (
+    ContactAttemptStore,
+    HumanTraces,
+    SignalStore,
+)
 from app.contexts.watch.domain.contact import (
     ContactAttempt,
     ContactChannel,
@@ -396,6 +400,34 @@ class SqlSignalStore(SignalStore):
             SignalModel.outcome.is_not(None),
         )
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def human_traces(self, tenant_id: UUID) -> HumanTraces:
+        """Un COUNT par nature d'acte. Cinq scalaires, lus une seule fois avant une purge."""
+        mine = SignalModel.tenant_id == tenant_id
+        counted = await self._session.execute(
+            select(
+                func.count().filter(SignalModel.first_seen_at.is_not(None)),
+                func.count().filter(SignalModel.first_contact_at.is_not(None)),
+                func.count().filter(SignalModel.closed_by_account_id.is_not(None)),
+                func.count().filter(SignalModel.gestures_count > 0),
+            ).where(mine)
+        )
+        seen, contacted, closed, gestures = counted.one()
+        delivered = (
+            await self._session.execute(
+                select(func.count()).where(
+                    CareMemoryModel.tenant_id == tenant_id,
+                    CareMemoryModel.delivered_at.is_not(None),
+                )
+            )
+        ).scalar_one()
+        return HumanTraces(
+            seen=int(seen or 0),
+            contacted=int(contacted or 0),
+            closed=int(closed or 0),
+            gestures=int(gestures or 0),
+            delivered_memories=int(delivered or 0),
+        )
 
     async def purge_projected(self, tenant_id: UUID) -> None:
         await self._session.execute(

@@ -6,8 +6,41 @@ qu'une reprojection soit sûre.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
+
+
+@dataclass(frozen=True)
+class HumanTraces:
+    """Ce qu'un rejeu du ledger **ne peut pas** reconstruire : les actes des humains.
+
+    Le journal ne contient que des faits. « J'ai ouvert ce cas », « j'ai appelé », « je ferme,
+    voilà ce que j'ai trouvé », « cette consolation a été remise » ne sont pas des faits admis à
+    l'intake : ce sont des gestes posés sur la projection. Les compter avant d'effacer, c'est la
+    différence entre une réparation et une perte.
+    """
+
+    seen: int = 0  # cas qu'un propriétaire a ouverts (`first_seen_at`)
+    contacted: int = 0  # cas où un contact a commencé (`first_contact_at`)
+    closed: int = 0  # cas clos par quelqu'un, avec son issue
+    gestures: int = 0  # gestes réels posés et comptés
+    delivered_memories: int = 0  # consolations déjà remises — jamais deux fois
+
+    @property
+    def total(self) -> int:
+        return (
+            self.seen + self.contacted + self.closed + self.gestures + self.delivered_memories
+        )
+
+    def as_details(self) -> dict[str, int]:
+        return {
+            "seen": self.seen,
+            "contacted": self.contacted,
+            "closed": self.closed,
+            "gestures": self.gestures,
+            "delivered_memories": self.delivered_memories,
+        }
 
 
 class NeutralizationStore(ABC):
@@ -225,8 +258,21 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def human_traces(self, tenant_id: UUID) -> HumanTraces:
+        """Ce qu'un rejeu effacerait sans pouvoir le reconstruire — **à compter avant de purger**.
+
+        Tant que les gestes du responsable ne sont pas au ledger, cette question est la seule
+        protection contre une maintenance qui détruit l'histoire qu'elle croit reconstruire."""
+        ...
+
+    @abstractmethod
     async def purge_projected(self, tenant_id: UUID) -> None:
-        """Efface cas et mémoire avant un rejeu. Tout ici est reconstruit à partir des faits."""
+        """Efface cas et mémoire avant un rejeu.
+
+        ⚠️ **Tout n'est pas reconstruit à partir des faits.** Les issues de clôture, le premier
+        regard, le premier contact, les gestes comptés, la chaîne d'épisode et les consolations
+        déjà remises sont des **actes**, absents du journal. Cette méthode les détruit. Le garde-fou
+        est chez l'appelant (`RebuildProjections`), pas ici : un store ne discute pas d'un ordre."""
         ...
 
 

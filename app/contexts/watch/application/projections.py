@@ -4,6 +4,15 @@ C'est ce que le ledger achète. On n'a jamais à rattraper un état incohérent 
 rejoue. Une saisie tardive, une règle corrigée, un interpreter nouveau qui donne enfin du sens à
 des faits vieux de six mois — trois fois la même opération.
 
+**Mais cette promesse ne couvre que ce qui dérive des faits**, et le moteur a grandi. Les gestes
+posés *sur* un cas — l'avoir ouvert, avoir appelé, l'avoir fermé avec une issue, avoir remis une
+consolation — ne sont pas au journal : ce sont des actes, pas des faits admis à l'intake. Un rejeu
+les efface sans pouvoir les reconstruire, et il détruirait ainsi les deux métriques du pilote et la
+chaîne d'épisode qui évite de rappeler quelqu'un en repartant de zéro. D'où le garde-fou
+`_guard_human_acts` : on refuse de rejouer une église où des humains ont agi, sauf `force`
+explicite. Il disparaîtra le jour où ces gestes entreront eux-mêmes au ledger — c'est la bonne
+correction, et elle est un chantier à part.
+
 Deux garanties portées ici :
 
 - **l'ordre total.** Le rejeu suit `seq`, pas les dates. `recorded_at` peut être à égalité, et
@@ -31,6 +40,7 @@ from app.contexts.watch.application.ports import (
     ScheduledCheckStore,
     SignalStore,
 )
+from app.contexts.watch.domain.errors import ReplayWouldEraseHumanActsError
 
 
 @dataclass(frozen=True)
@@ -71,7 +81,12 @@ class RebuildProjections:
         self._materializer = Materializer(store, signals, checks)
         self._policy = policy or ArbitrationPolicy()
 
-    async def execute(self, *, tenant_id: UUID) -> ReplayReport:
+    async def execute(self, *, tenant_id: UUID, force: bool = False) -> ReplayReport:
+        """Rejoue le journal de cette église.
+
+        `force=True` accepte explicitement de **perdre les actes humains** (voir le garde-fou
+        ci-dessous). Ce n'est pas un drapeau de commodité : c'est une signature."""
+        await self._guard_human_acts(tenant_id, force=force)
         await self._store.purge_projected_neutralizations(tenant_id)
         if self._signals is not None:
             await self._signals.purge_projected(tenant_id)
@@ -104,3 +119,27 @@ class RebuildProjections:
                 dropped=report.dropped + len(decided.dropped) + len(undeliverable),
             )
         return report
+
+    async def _guard_human_acts(self, tenant_id: UUID, *, force: bool) -> None:
+        """Refuse de rejouer une église où des humains ont agi.
+
+        Le ledger ne contient que des faits. Les gestes posés **sur** un cas — l'avoir ouvert,
+        avoir appelé, l'avoir fermé avec une issue, avoir remis une consolation — n'y sont pas :
+        un rejeu les efface et ne peut pas les reconstruire. Ce serait détruire, au nom de la
+        réparation, la trace même du soin apporté : les issues du responsable, les deux métriques
+        du pilote, la chaîne d'épisode qui évite de rappeler quelqu'un en repartant de zéro.
+
+        Le jour où ces gestes entreront eux-mêmes au ledger, ce garde-fou n'aura plus d'objet et
+        disparaîtra. D'ici là il est la seule chose qui empêche une commande de maintenance de
+        faire, en une seconde, un dégât qu'aucune sauvegarde de projection ne répare."""
+        if force or self._signals is None:
+            return
+        traces = await self._signals.human_traces(tenant_id)
+        if traces.total == 0:
+            return
+        raise ReplayWouldEraseHumanActsError(
+            "Rejouer effacerait des gestes que le journal ne contient pas : ce que des "
+            "responsables ont vu, tenté, conclu. Faire entrer ces gestes au ledger, ou forcer "
+            "en sachant ce qui est perdu.",
+            details={"tenant_id": str(tenant_id), **traces.as_details()},
+        )
