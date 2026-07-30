@@ -289,6 +289,11 @@ class ContactAttemptModel(Base):
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     result: Mapped[str] = mapped_column(String)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # **Ce que le responsable s'engage a faire ensuite** — le seul champ de texte libre de la
+    # veille, et il porte sur SON geste. Il vit ici, sur la tentative, et nulle part ailleurs :
+    # il n'existe aucune colonne ou ecrire quelque chose *sur* un membre. Un invariant balaie
+    # les modeles pour que ca reste vrai.
+    commitment: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class ScheduledCheckModel(Base):

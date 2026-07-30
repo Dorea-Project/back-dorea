@@ -111,6 +111,10 @@ class StartedContactView(BaseModel):
 
 class AnswerContactBody(BaseModel):
     result: ContactResult
+    # **Ce que je m'engage à faire ensuite** — « je la rappelle jeudi », « je passe déposer le
+    # colis ». Jamais ce que je pense d'elle : la note porte sur mon geste, pas sur la personne,
+    # et c'est le seul champ de texte libre de toute la veille.
+    commitment: str | None = Field(default=None, max_length=280)
 
 
 class PendingAttemptView(BaseModel):

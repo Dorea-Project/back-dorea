@@ -484,6 +484,7 @@ def _to_attempt(row: ContactAttemptModel) -> ContactAttempt:
         attempted_at=_aware(row.attempted_at),
         result=ContactResult(row.result),
         answered_at=_aware(row.answered_at),
+        commitment=row.commitment,
     )
 
 
@@ -516,6 +517,7 @@ class SqlContactAttemptStore(ContactAttemptStore):
             return
         row.result = attempt.result.value
         row.answered_at = attempt.answered_at
+        row.commitment = attempt.commitment
         await self._session.flush()
 
     async def count_not_reached(self, signal_id: UUID) -> int:

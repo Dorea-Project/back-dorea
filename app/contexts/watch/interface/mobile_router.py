@@ -172,5 +172,7 @@ async def answer_contact(
     actor: CurrentActor,
     command: AnswerContactDep,
 ) -> ConcernAckView:
-    await command.execute(attempt_id=attempt_id, result=payload.result)
+    await command.execute(
+        attempt_id=attempt_id, result=payload.result, commitment=payload.commitment
+    )
     return ConcernAckView(message="Merci.")

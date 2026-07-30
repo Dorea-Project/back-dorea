@@ -141,14 +141,18 @@ class AnswerContact:
         self._clock = clock
 
     async def execute(
-        self, *, attempt_id: UUID, result: ContactResult
+        self, *, attempt_id: UUID, result: ContactResult, commitment: str | None = None
     ) -> ContactAttempt | None:
+        """`commitment` : ce que **je** m'engage à faire ensuite — jamais ce que je pense d'elle.
+
+        Le champ est optionnel et le restera : un responsable qui n'écrit rien n'a rien manqué,
+        et la boucle de contact ne doit pas devenir un formulaire."""
         attempt = await self._attempts.get(attempt_id)
         if attempt is None or not attempt.awaits_answer:
             return attempt
 
         now = self._clock()
-        attempt.resolve(result=result, at=now)
+        attempt.resolve(result=result, at=now, commitment=commitment)
         await self._attempts.save(attempt)
 
         if result is ContactResult.NOT_REACHED:
