@@ -42,7 +42,7 @@ from app.contexts.watch.application.ports import (
     ScheduledCheckStore,
     SignalStore,
 )
-from app.contexts.watch.domain.effects import ProposedEffect
+from app.contexts.watch.domain.effects import OpenCase, ProposedEffect
 from app.contexts.watch.domain.errors import (
     ConsentRequiredError,
     FactKindNotAllowedError,
@@ -118,7 +118,7 @@ class Intake:
         if await self._ledger.exists(fact.fact_id):
             return IntakeResult(accepted=False, reason="duplicate")
 
-        state = await self._load_state(fact.tenant_id)
+        state = await self._load_state(fact)
         if fact.is_about_person and state.is_excluded(fact.subject_id):
             # Retirée de la veille : plus rien n'entre sur elle, quelle que soit la source.
             return IntakeResult(accepted=False, reason="subject_excluded")
@@ -136,6 +136,9 @@ class Intake:
             proposed, undeliverable = await self._owners.execute(
                 proposed, tenant_id=fact.tenant_id, at=fact.occurred_at
             )
+        # Puis seulement le budget des destinataires — l'arbitrage ne peut pas compter avant que
+        # l'on sache à qui les cas s'adressent.
+        state = await with_owner_budgets(state, proposed, self._signals, fact.tenant_id)
         decided = arbitrate(proposed, state, policy=self._policy)
         if undeliverable:
             decided = replace(decided, dropped=decided.dropped + undeliverable)
@@ -144,9 +147,9 @@ class Intake:
             accepted=True, fact=fact, arbitration=decided, materialization=written
         )
 
-    async def _load_state(self, tenant_id: UUID) -> WatchStateView:
-        """Charge une fois l'état que les interpreters liront — eux restent purs."""
-        return await load_state(self._store, self._signals, tenant_id)
+    async def _load_state(self, fact: Fact) -> WatchStateView:
+        """Charge l'état **du sujet** que les interpreters liront — eux restent purs."""
+        return await load_state(self._store, self._signals, fact)
 
 
 def person_subject(subject_id: UUID) -> tuple[SubjectKind, UUID]:
@@ -167,12 +170,50 @@ def warn_if_disconnected(source: str, intake: Intake | None) -> None:
 
 
 async def load_state(
+    store: NeutralizationStore, signals: SignalStore | None, fact: Fact
+) -> WatchStateView:
+    """L'état **borné au sujet du fait** — trois lectures ponctuelles, indexées.
+
+    C'est tout ce qu'un interpreter a le droit de demander, et c'est ce qui fait que le coût d'un
+    fait ne dépend plus de la taille de l'église. Une église de cinq mille membres payait cent fois
+    le prix d'une église de cinquante pour écrire la même présence.
+
+    Partagé entre l'intake et la reprojection : ils doivent lire rigoureusement la même chose,
+    sinon le rejeu ne reproduirait pas ce que le direct a produit."""
+    subject_id = fact.subject_id
+    excluded = await store.is_excluded(subject_id, fact.tenant_id)
+    neutralizations = await store.neutralizations_of_subject(subject_id, fact.tenant_id)
+    case = (
+        await signals.case_of_subject(subject_id, fact.tenant_id)
+        if signals is not None
+        else None
+    )
+    return WatchStateView.for_subject(
+        subject_id,
+        excluded=excluded,
+        neutralizations=tuple(
+            NeutralizationView(
+                id=row[0], subject_id=row[1], starts_at=row[2], expected_return_at=row[3]
+            )
+            for row in neutralizations
+        ),
+        case=(
+            OpenCaseView(
+                id=case[0], subject_id=case[1], owner_id=case[2], origin=case[3], is_held=case[4]
+            )
+            if case is not None
+            else None
+        ),
+    )
+
+
+async def load_full_state(
     store: NeutralizationStore, signals: SignalStore | None, tenant_id: UUID
 ) -> WatchStateView:
-    """L'état projeté, chargé **une fois** avant l'interprétation.
+    """L'état de **toute** l'église — la vue matérialisée d'origine.
 
-    Partagé entre l'intake et la reprojection pour qu'ils lisent rigoureusement la même chose —
-    sinon le rejeu ne reproduirait pas ce que le direct a produit."""
+    Le chemin d'un fait ne l'emprunte plus. Elle reste la référence contre laquelle la vue réduite
+    est vérifiée, et sert ce qui lit réellement une église entière."""
     excluded = await store.excluded_subject_ids(tenant_id)
     neutralizations = await store.open_neutralizations(tenant_id)
     cases = await signals.live_cases(tenant_id) if signals is not None else []
@@ -191,3 +232,24 @@ async def load_state(
             for row in cases
         ),
     )
+
+
+async def with_owner_budgets(
+    state: WatchStateView, effects, signals: SignalStore | None, tenant_id: UUID
+) -> WatchStateView:
+    """Précharge le budget des propriétaires que l'arbitrage va interroger.
+
+    **L'ordre est la spécification.** La vue est bornée au sujet du fait ; le plafond de débit, lui,
+    compte les cas du *propriétaire*, qui n'est presque jamais le sujet. Sans ce préchargement — et
+    donc sans que les destinataires soient déjà résolus — le compteur répondrait zéro, le plafond ne
+    retiendrait plus rien, et rien ne le dirait : un responsable pourrait recevoir trente cas dans
+    la soirée sans qu'un seul test ne rougisse."""
+    if signals is None or state.subject_id is None:
+        return state
+    owners = {
+        getattr(e, "owner_account_id", None) for e in effects if isinstance(e, OpenCase)
+    }
+    counts = {
+        owner: await signals.open_cases_count(owner, tenant_id) for owner in owners
+    }
+    return state.with_owner_counts(counts)

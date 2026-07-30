@@ -31,7 +31,11 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.contexts.watch.application.arbitration import ArbitrationPolicy, arbitrate
-from app.contexts.watch.application.intake import FactLedger, load_state
+from app.contexts.watch.application.intake import (
+    FactLedger,
+    load_state,
+    with_owner_budgets,
+)
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.materialization import Materializer
 from app.contexts.watch.application.owner_assignment import ResolveOwners
@@ -102,13 +106,14 @@ class RebuildProjections:
         for fact in facts:
             # L'état est relu à chaque pas : un effet posé par le fait n éclaire le fait n+1,
             # exactement comme en direct.
-            state = await load_state(self._store, self._signals, tenant_id)
+            state = await load_state(self._store, self._signals, fact)
             proposed = self._interpreters.interpret(fact, state)
             undeliverable = ()
             if self._owners is not None:
                 proposed, undeliverable = await self._owners.execute(
                     proposed, tenant_id=tenant_id, at=fact.occurred_at
                 )
+            state = await with_owner_budgets(state, proposed, self._signals, tenant_id)
             decided = arbitrate(proposed, state, policy=self._policy)
             written = await self._materializer.apply(fact, decided.admitted, decided.held)
             report = ReplayReport(

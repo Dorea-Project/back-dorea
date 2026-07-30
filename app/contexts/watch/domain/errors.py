@@ -28,6 +28,18 @@ class ActorRequiredError(WatchError):
     http_status = 500
 
 
+class StateScopeError(WatchError):
+    """Un interpreter a interrogé l'état sur **quelqu'un d'autre** que le sujet de son fait.
+
+    L'état n'est plus chargé à l'échelle de l'église : il est lu pour le sujet du fait, et pour lui
+    seul. Une question posée sur un tiers recevrait donc une réponse vide — et l'interpreter se
+    tromperait en silence, ce qui est le pire des deux mondes. Un interpreter n'a jamais eu de
+    raison légitime de regarder quelqu'un d'autre : la règle devient un type."""
+
+    code = "WATCH_STATE_SCOPE"
+    http_status = 500
+
+
 class ReplayWouldEraseHumanActsError(WatchError):
     """Un rejeu du ledger effacerait des gestes que le journal ne contient pas.
 

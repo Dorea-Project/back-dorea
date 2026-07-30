@@ -89,13 +89,27 @@ class NeutralizationStore(ABC):
         ...
 
     @abstractmethod
-    async def excluded_subject_ids(self, tenant_id: UUID) -> set[UUID]: ...
+    async def excluded_subject_ids(self, tenant_id: UUID) -> set[UUID]:
+        """Toute l'église. Réservé aux écrans et à la calibration — **pas** au chemin d'un fait."""
+        ...
 
     @abstractmethod
     async def open_neutralizations(
         self, tenant_id: UUID
     ) -> list[tuple[UUID, UUID, datetime, datetime]]:
-        """`(id, subject_id, starts_at, expected_return_at)` — alimente la vue des interpreters."""
+        """`(id, subject_id, starts_at, expected_return_at)`, toute l'église. Même réserve."""
+        ...
+
+    @abstractmethod
+    async def is_excluded(self, subject_id: UUID, tenant_id: UUID) -> bool:
+        """La même question, **pour une personne**. C'est celle que pose le chemin d'un fait."""
+        ...
+
+    @abstractmethod
+    async def neutralizations_of_subject(
+        self, subject_id: UUID, tenant_id: UUID
+    ) -> list[tuple[UUID, UUID, datetime, datetime]]:
+        """Ce qui couvre le silence de cette personne-là. Une lecture indexée, pas un balayage."""
         ...
 
     @abstractmethod
@@ -168,7 +182,24 @@ class SignalStore(ABC):
 
     @abstractmethod
     async def live_cases(self, tenant_id: UUID) -> list[tuple[UUID, UUID, UUID | None, str, bool]]:
-        """`(id, subject_id, owner_id, origin, is_held)` — alimente la vue et l'arbitrage."""
+        """`(id, subject_id, owner_id, origin, is_held)`, **toute l'église**.
+
+        Sert les écrans, la reprojection de référence et la calibration. Le chemin d'un fait, lui,
+        ne la lit plus : il pose les deux questions bornées ci-dessous."""
+        ...
+
+    @abstractmethod
+    async def case_of_subject(
+        self, subject_id: UUID, tenant_id: UUID
+    ) -> tuple[UUID, UUID, UUID | None, str, bool] | None:
+        """Le cas en cours de cette personne, s'il y en a un. Une lecture indexée."""
+        ...
+
+    @abstractmethod
+    async def open_cases_count(self, owner_id: UUID | None, tenant_id: UUID) -> int:
+        """Combien de cas **pèsent** sur ce responsable — le plafond de débit, en un COUNT.
+
+        Les retenus n'y sont pas : un cas `HELD` est détecté, pas encore sur ses épaules."""
         ...
 
     @abstractmethod

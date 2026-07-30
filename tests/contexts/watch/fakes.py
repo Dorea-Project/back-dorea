@@ -185,6 +185,23 @@ class FakeSignals(SignalStore):
             if s.tenant_id == tenant_id and s.is_live
         ]
 
+    async def case_of_subject(self, subject_id, tenant_id):
+        s = self._live(subject_id, tenant_id)
+        if s is None:
+            return None
+        return (s.id, s.subject_id, s.owner_account_id, s.origin.value, s.is_held)
+
+    async def open_cases_count(self, owner_id, tenant_id):
+        from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES
+
+        return sum(
+            1
+            for s in self.rows
+            if s.tenant_id == tenant_id
+            and s.owner_account_id == owner_id
+            and s.status in ON_SHOULDERS_STATUSES
+        )
+
     async def mark_contact_started(self, *, signal_id, tenant_id, at):
         signal = next((s for s in self.rows if s.id == signal_id), None)
         if signal is not None:

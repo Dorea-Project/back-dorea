@@ -143,6 +143,16 @@ class AttendanceNeutralizationStore(NeutralizationStore):
         rows = await self._absences.list_open_neutralizations_by_tenant(tenant_id)
         return [(a.id, a.account_id, a.from_date, a.to_date) for a in rows]
 
+    async def is_excluded(self, subject_id: UUID, tenant_id: UUID) -> bool:
+        """Une seule personne, une seule ligne — au lieu de tout l'annuaire des retirés."""
+        return await self._exclusions.get_for(subject_id, tenant_id) is not None
+
+    async def neutralizations_of_subject(
+        self, subject_id: UUID, tenant_id: UUID
+    ) -> list[tuple[UUID, UUID, datetime, datetime]]:
+        rows = await self._absences.list_open_neutralizations(subject_id, tenant_id)
+        return [(a.id, a.account_id, a.from_date, a.to_date) for a in rows]
+
     async def purge_projected_neutralizations(self, tenant_id: UUID) -> None:
         """Efface **uniquement** le projeté : les neutralisations posées par le moteur et les
         exclusions. Ce qu'un membre a déclaré lui-même reste — sa parole n'est pas une projection.

@@ -267,6 +267,32 @@ class SqlSignalStore(SignalStore):
             for r in rows
         ]
 
+    async def case_of_subject(
+        self, subject_id: UUID, tenant_id: UUID
+    ) -> tuple[UUID, UUID, UUID | None, str, bool] | None:
+        """Le cas en cours de cette personne — `ix_watch_signals_subject`, une ligne au plus."""
+        row = await self._live_row(subject_id, tenant_id)
+        if row is None:
+            return None
+        return (
+            row.id,
+            row.subject_id,
+            row.owner_account_id,
+            row.origin,
+            row.status == SignalStatus.HELD.value,
+        )
+
+    async def open_cases_count(self, owner_id: UUID | None, tenant_id: UUID) -> int:
+        """Le plafond de débit en un COUNT — `ix_watch_signals_owner`.
+
+        `HELD` est exclu par `_ON_SHOULDERS` : un cas retenu est détecté, pas encore porté."""
+        stmt = select(func.count()).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.owner_account_id == owner_id,
+            SignalModel.status.in_(_ON_SHOULDERS),
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
     async def do_not_contact_ids(self, tenant_id: UUID) -> set[UUID]:
         """Absorbant : ce retrait vaut pour toutes les surfaces, moteur ou non."""
         stmt = select(SignalModel.subject_id).where(

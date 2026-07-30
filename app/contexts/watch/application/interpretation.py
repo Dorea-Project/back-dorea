@@ -16,14 +16,14 @@ sinon une saisie tardive ressusciterait un interpreter retiré depuis longtemps.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from app.contexts.watch.domain.effects import ProposedEffect
-from app.contexts.watch.domain.errors import NoInterpreterError
+from app.contexts.watch.domain.errors import NoInterpreterError, StateScopeError
 from app.contexts.watch.domain.facts import Fact, FactKind
 
 
@@ -56,34 +56,85 @@ class OpenCaseView:
 class WatchStateView:
     """L'état projeté, tel qu'un interpreter a le droit de le voir : rien qu'à lire.
 
-    Chargé par la couche applicative **avant** l'appel, pour que l'interpreter reste pur."""
+    Chargé par la couche applicative **avant** l'appel, pour que l'interpreter reste pur.
+
+    Deux régimes, une seule interface :
+
+    - **borné au sujet** (`subject_id` renseigné) — le régime de production. Trois lectures
+      ponctuelles et indexées au lieu de trois requêtes à l'échelle de l'église : le coût d'un fait
+      cesse de dépendre du nombre de membres. Toute question posée sur quelqu'un d'autre lève
+      `StateScopeError` — sans quoi elle recevrait une réponse vide et se tromperait en silence ;
+    - **complet** (`subject_id` nul) — la vue matérialisée d'origine, conservée pour les tests
+      d'équivalence et les usages qui lisent réellement toute une église.
+
+    `owner_case_counts` est préchargé **après** la résolution des destinataires : le plafond de
+    débit compte les cas du propriétaire, qui n'est presque jamais le sujet du fait.
+    """
 
     excluded_subject_ids: frozenset[UUID] = frozenset()
     open_neutralizations: tuple[NeutralizationView, ...] = ()
     open_cases: tuple[OpenCaseView, ...] = ()
+    subject_id: UUID | None = None  # None = vue complète
+    owner_case_counts: Mapping[UUID | None, int] | None = None
+
+    @classmethod
+    def for_subject(
+        cls,
+        subject_id: UUID,
+        *,
+        excluded: bool,
+        neutralizations: tuple[NeutralizationView, ...] = (),
+        case: OpenCaseView | None = None,
+    ) -> WatchStateView:
+        """La vue **réduite** : ce qu'on sait de cette personne-là, et rien d'autre."""
+        return cls(
+            excluded_subject_ids=frozenset({subject_id}) if excluded else frozenset(),
+            open_neutralizations=neutralizations,
+            open_cases=(case,) if case is not None else (),
+            subject_id=subject_id,
+        )
+
+    def with_owner_counts(self, counts: Mapping[UUID | None, int]) -> WatchStateView:
+        """La même vue, augmentée du budget des propriétaires que l'arbitrage va interroger."""
+        return replace(self, owner_case_counts=dict(counts))
+
+    def _in_scope(self, subject_id: UUID) -> None:
+        if self.subject_id is not None and subject_id != self.subject_id:
+            raise StateScopeError(
+                "Cet état est borné au sujet de son fait : il ne sait rien de quelqu'un d'autre.",
+                details={"asked": str(subject_id), "scope": str(self.subject_id)},
+            )
 
     def is_excluded(self, subject_id: UUID) -> bool:
+        self._in_scope(subject_id)
         return subject_id in self.excluded_subject_ids
 
     def neutralizations_of(self, subject_id: UUID) -> tuple[NeutralizationView, ...]:
+        self._in_scope(subject_id)
         return tuple(n for n in self.open_neutralizations if n.subject_id == subject_id)
 
     def has_open_case(self, subject_id: UUID) -> bool:
+        self._in_scope(subject_id)
         return any(c.subject_id == subject_id for c in self.open_cases)
 
     def case_of(self, subject_id: UUID) -> OpenCaseView | None:
+        self._in_scope(subject_id)
         return next((c for c in self.open_cases if c.subject_id == subject_id), None)
 
     def owner_of(self, subject_id: UUID) -> UUID | None:
-        """À qui reviendrait un cas sur cette personne. NULL tant que `Referent` n'existe pas —
-        tous les cas sans propriétaire partagent alors le même budget, ce qui est le
-        comportement prudent : on ne fait pas semblant d'avoir réparti."""
+        """À qui reviendrait un cas sur cette personne — celui de son cas en cours, s'il existe."""
         case = self.case_of(subject_id)
         return case.owner_id if case is not None else None
 
     def open_cases_of_owner(self, owner_id: UUID | None) -> int:
         """Combien de cas **émis** pèsent déjà sur ce responsable. Les retenus ne comptent pas :
-        ils ne sont, précisément, pas encore sur ses épaules."""
+        ils ne sont, précisément, pas encore sur ses épaules.
+
+        **Hors portée du garde** : la question porte sur un propriétaire, pas sur un sujet. C'est
+        la seule chose que l'arbitrage a besoin de savoir de quelqu'un d'autre — et un compteur
+        n'apprend rien sur personne."""
+        if self.owner_case_counts is not None:
+            return self.owner_case_counts.get(owner_id, 0)
         return sum(1 for c in self.open_cases if c.owner_id == owner_id and not c.is_held)
 
 
