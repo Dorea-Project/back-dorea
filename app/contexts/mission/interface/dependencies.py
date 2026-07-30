@@ -12,6 +12,7 @@ from app.contexts.groups.infrastructure.persistence.repositories import (
     SqlGroupMembershipRepository,
     SqlGroupRepository,
 )
+from app.contexts.iam.application.commands.admit_person import AdmitPerson
 from app.contexts.iam.infrastructure.persistence.enrollment import SqlMemberEnrollmentStore
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyAccountRepository,
@@ -49,7 +50,8 @@ from app.contexts.watch.infrastructure.directories import SqlGroupDirectory
 from app.contexts.watch.infrastructure.persistence.referent import (
     SqlReferentOverrideRepository,
 )
-from app.contexts.watch.interface.dependencies import build_intake
+from app.contexts.watch.infrastructure.persistence.signals import SqlContactAttemptStore
+from app.contexts.watch.interface.dependencies import build_intake, build_signals
 from app.core.config import get_settings
 
 _codes = SecureInvitationCodeGenerator()  # sans état → instance unique
@@ -117,11 +119,19 @@ def get_react_command(session: DbSession) -> ReactToCard:
 def _threshold(session) -> CrossTheThreshold:
     """Le seuil : la personne existe, son référent est posé, le moteur est prévenu."""
     return CrossTheThreshold(
-        SqlAlchemyAccountRepository(session),
-        SqlMemberEnrollmentStore(session),
+        _admit(session),
         SqlReferentOverrideRepository(session),
         SqlGroupDirectory(session),
         build_intake(session),
+    )
+
+
+def _admit(session) -> AdmitPerson:
+    """L'écrivain **unique** du premier statut d'une personne. `mission` ne le nomme plus."""
+    return AdmitPerson(
+        SqlAlchemyAccountRepository(session),
+        SqlAlchemyMembershipRepository(session),
+        SqlMemberEnrollmentStore(session),
     )
 
 
@@ -145,10 +155,12 @@ def get_card_query(session: DbSession) -> GetCard:
 
 
 def get_my_seekers_query(session: DbSession) -> ListMySeekers:
+    # Une **vue des cas**, jamais une seconde liste : le store de signaux est branché ici.
     return ListMySeekers(
         SqlMissionLinkRepository(session),
         SqlSeekerRepository(session),
         SqlMissionReactionRepository(session),
+        build_signals(session),
     )
 
 
@@ -158,14 +170,24 @@ def get_generate_card() -> GenerateVerseCard:
 
 
 def get_accompany_command(session: DbSession) -> AccompanySeeker:
+    # L'autorisation ne bouge pas ; ce qui change est **où le geste s'écrit** : le `Signal`.
     return AccompanySeeker(
-        SqlSeekerRepository(session), SqlGroupRepository(session), _access(session), clock=_now
+        SqlSeekerRepository(session),
+        SqlGroupRepository(session),
+        _access(session),
+        build_signals(session),
+        attempts=SqlContactAttemptStore(session),
+        clock=_now,
     )
 
 
 def get_close_command(session: DbSession) -> CloseSeeker:
     return CloseSeeker(
-        SqlSeekerRepository(session), SqlGroupRepository(session), _access(session), clock=_now
+        SqlSeekerRepository(session),
+        SqlGroupRepository(session),
+        _access(session),
+        build_signals(session),
+        clock=_now,
     )
 
 
@@ -173,12 +195,11 @@ def get_integrate_command(session: DbSession) -> IntegrateSeeker:
     # Réutilise la machinerie visiteur→membre : identité globale + enrôlement + roster.
     return IntegrateSeeker(
         SqlSeekerRepository(session),
-        SqlAlchemyAccountRepository(session),
-        SqlAlchemyMembershipRepository(session),
-        SqlMemberEnrollmentStore(session),
+        _admit(session),
         SqlGroupRepository(session),
         SqlGroupMembershipRepository(session),
         _access(session),
+        build_signals(session),
         clock=_now,
     )
 

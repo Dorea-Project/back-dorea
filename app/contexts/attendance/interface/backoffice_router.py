@@ -7,7 +7,7 @@ session** backoffice ; autorité **église-entière** (déjà exigée par les re
 
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
 from app.contexts.attendance.interface.dependencies import (
     GetCareListDep,
@@ -15,6 +15,7 @@ from app.contexts.attendance.interface.dependencies import (
     GetGroupTrendDep,
     GetMemberTrajectoryDep,
     GetMultiplicationTreeDep,
+    SuspendChurchDep,
 )
 from app.contexts.attendance.interface.schemas import (
     CareListResponse,
@@ -22,6 +23,8 @@ from app.contexts.attendance.interface.schemas import (
     GroupTrendResponse,
     MemberTrajectoryResponse,
     MultiplicationTreeResponse,
+    SuspendChurchRequest,
+    SuspensionResponse,
 )
 from app.contexts.auth.interface.backoffice_dependencies import CurrentBackofficeUser
 
@@ -107,3 +110,29 @@ async def member_trajectory(
         account_id=account_id,
     )
     return MemberTrajectoryResponse.from_dto(dto)
+
+
+@router.post(
+    "/tenants/{tenant_id}/suspensions",
+    response_model=SuspensionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Suspendre l'église sur une période (Noël, deuil national) — acquitte tous les groupes",
+)
+async def suspend_church(
+    tenant_id: UUID,
+    payload: SuspendChurchRequest,
+    actor: CurrentBackofficeUser,
+    command: SuspendChurchDep,
+) -> SuspensionResponse:
+    """Une décision d'église, prise une fois, plutôt que N acquittements par N responsables.
+
+    La cascade est calculée **à la lecture** : aucune ligne n'est générée par groupe, donc
+    lever la suspension ne laisse aucun résidu à nettoyer."""
+    dto = await command.execute(
+        actor_account_id=actor.account_id,
+        tenant_id=tenant_id,
+        reason=payload.reason,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+    )
+    return SuspensionResponse.from_dto(dto)

@@ -13,6 +13,9 @@ ROLE_AUTHORITY: dict[RoleCode, Permission] = {
     # (Owner), jamais un geste opérationnel délégable à n'importe quel Admin.
     RoleCode.SECRETARY: Permission.MANAGE_STAFF,
     RoleCode.ADMIN: Permission.MANAGE_STAFF,
+    # Le trésorier voit le détail nominatif de l'argent : sa nomination est un acte
+    # d'état-major (Owner), jamais un geste opérationnel délégable à un Admin.
+    RoleCode.TREASURER: Permission.MANAGE_STAFF,
     RoleCode.GROUP_LEADER: Permission.MANAGE_TEAM,
     RoleCode.LEADER_IN_TRAINING: Permission.MANAGE_TEAM,
     RoleCode.WELCOME_TEAM: Permission.MANAGE_TEAM,

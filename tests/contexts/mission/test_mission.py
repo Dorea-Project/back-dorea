@@ -13,12 +13,14 @@ from app.contexts.groups.domain.repositories import (
     GroupMembershipRepository,
     GroupRepository,
 )
+from app.contexts.iam.application.commands.admit_person import AdmitPerson
 from app.contexts.iam.application.ports import MemberEnrollmentStore, OwnershipChecker
 from app.contexts.iam.domain.aggregates import Account, Membership
 from app.contexts.iam.domain.entities import RoleAssignment
 from app.contexts.iam.domain.enums import AccountStatus, MembershipStatus, RoleCode
 from app.contexts.iam.domain.repositories import AccountRepository, MembershipRepository
 from app.contexts.mission.application.commands.accompany import (
+    SEEKER_OUTCOMES,
     AccompanySeeker,
     CloseSeeker,
 )
@@ -38,13 +40,17 @@ from app.contexts.mission.application.ports import (
 from app.contexts.mission.application.queries.get_card import GetCard
 from app.contexts.mission.application.queries.list_my_seekers import ListMySeekers
 from app.contexts.mission.domain.aggregates import MissionLink, Seeker
-from app.contexts.mission.domain.enums import SeekerReaction, SeekerStatus
+from app.contexts.mission.domain.derived_status import derive_seeker_status
+from app.contexts.mission.domain.enums import (
+    SeekerOutcome,
+    SeekerReaction,
+    SeekerStatus,
+)
 from app.contexts.mission.domain.errors import (
     InvalidMissionLinkError,
     MissionLinkInactiveError,
     MissionLinkNotFoundError,
     NotAChurchMemberError,
-    SeekerAlreadyResolvedError,
     SeekerContactRequiredError,
     SeekerNotFoundError,
     SeekerPhoneRequiredError,
@@ -55,6 +61,9 @@ from app.contexts.mission.domain.repositories import (
     SeekerRepository,
 )
 from app.contexts.notifications.application.notifier import Notifier
+from app.contexts.watch.domain.effects import CasePriority
+from app.contexts.watch.domain.signal import Signal, SignalOutcome, SignalStatus
+from tests.contexts.watch.fakes import FakeSignals
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -468,52 +477,89 @@ async def test_my_seekers_lists_my_fruit_with_reaction_signal():
 
 
 def _seeker(
-    tenant, *, account=None, group=None, status=SeekerStatus.ACCEPTED, phone=None
+    tenant, *, account=None, group=None, status=SeekerStatus.ACCEPTED, phone=None,
+    person=None,
 ) -> Seeker:
     return Seeker(
         id=uuid4(), tenant_id=tenant, link_id=uuid4(),
         inviter_account_id=account, inviter_group_id=group,
         name="Koffi", phone=phone, status=status, created_at=_NOW,
+        # La personne existe dès l'acceptation : c'est elle que le cas de veille suit.
+        person_account_id=person if person is not None else uuid4(),
     )
 
 
-def test_seeker_accompany_records_who_and_when():
-    member = uuid4()
+def _with_case(seeker, *, owner=None):
+    """Le chercheur **et** son cas de veille — l'état se lit désormais sur le second."""
+    signals = FakeSignals()
+    signals.rows.append(
+        Signal(
+            id=uuid4(), tenant_id=seeker.tenant_id, subject_id=seeker.person_account_id,
+            origin=CasePriority.DECLARED,
+            reason="A répondu à une invitation et laissé son contact.",
+            opened_at=_NOW,
+            status=SignalStatus.ASSIGNED if owner else SignalStatus.OPEN,
+            owner_account_id=owner,
+        )
+    )
+    return signals
+
+
+def test_the_seeker_cannot_write_its_own_status_anymore():
+    """La double écriture n'est pas déconseillée : elle est **impossible**.
+
+    `accompany` / `close` / `integrate` vivaient sur cet agrégat et faisaient de `SeekerStatus`
+    une seconde machine à états suivant la même personne que le `Signal`. Leur absence est ce
+    qui garantit qu'il n'y en a plus qu'une."""
+    for gone in ("accompany", "close", "integrate"):
+        assert not hasattr(Seeker, gone), gone
+
+
+def test_the_derived_status_reads_the_case_never_a_column():
+    """Le chercheur garde la **provenance** ; l'état vient de ses deux vrais propriétaires."""
     s = _seeker(uuid4(), account=uuid4())
-    s.accompany(by_account_id=member, now=_NOW)
-    assert s.status is SeekerStatus.ACCOMPANIED
-    assert s.accompanied_by_account_id == member and s.accompanied_at == _NOW
+    case = Signal(
+        id=uuid4(), tenant_id=s.tenant_id, subject_id=s.person_account_id,
+        origin=CasePriority.DECLARED, reason="…", opened_at=_NOW,
+    )
+
+    assert derive_seeker_status(s, case) is SeekerStatus.ACCEPTED
+    case.assign(owner_account_id=uuid4())
+    case.record_contact_attempt(at=_NOW)
+    assert derive_seeker_status(s, case) is SeekerStatus.ACCOMPANIED
+    case.close(outcome=SignalOutcome.KNOWN_AND_FOLLOWED, at=_NOW, closed_by_account_id=uuid4())
+    assert derive_seeker_status(s, case) is SeekerStatus.CLOSED
+    s.integrated_account_id = uuid4()
+    assert derive_seeker_status(s, case) is SeekerStatus.INTEGRATED
 
 
-def test_seeker_accompany_on_a_resolved_parcours_raises():
-    s = _seeker(uuid4(), account=uuid4(), status=SeekerStatus.INTEGRATED)
-    with pytest.raises(SeekerAlreadyResolvedError):
-        s.accompany(by_account_id=uuid4(), now=_NOW)
-
-
-def test_seeker_close_is_without_judgment_and_idempotent():
+def test_no_case_at_all_reads_as_closed_never_as_accepted():
+    """Sans cas vivant, le parcours est clos — laisser « accepté » ferait attendre un
+    chercheur que plus personne ne verra jamais."""
     s = _seeker(uuid4(), account=uuid4())
-    s.close(now=_NOW)
-    assert s.status is SeekerStatus.CLOSED and s.closed_at == _NOW
-    s.close(now=_NOW)  # idempotent
-    assert s.status is SeekerStatus.CLOSED
+    assert derive_seeker_status(s, None) is SeekerStatus.CLOSED
 
 
 async def test_inviter_accompanies_their_own_seeker():
     inviter, tenant = uuid4(), uuid4()
     s = _seeker(tenant, account=inviter)
+    signals = _with_case(s)
     cmd = AccompanySeeker(
-        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), clock=lambda: _NOW
+        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), signals,
+        clock=lambda: _NOW,
     )
     dto = await cmd.execute(actor_account_id=inviter, seeker_id=s.id)
     assert dto.status == "accompanied" and dto.accompanied_by == inviter
+    # Le relais **est** un contact engagé : sans cela l'escalade croirait que personne n'a agi.
+    assert signals.rows[0].first_contact_at == _NOW
 
 
 async def test_a_stranger_cannot_accompany_a_personal_seeker():
     inviter, tenant = uuid4(), uuid4()
     s = _seeker(tenant, account=inviter)
     cmd = AccompanySeeker(
-        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), clock=lambda: _NOW
+        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), _with_case(s),
+        clock=lambda: _NOW,
     )
     with pytest.raises(UnauthorizedGroupActionError):
         await cmd.execute(actor_account_id=uuid4(), seeker_id=s.id)
@@ -524,14 +570,17 @@ async def test_group_manager_accompanies_a_group_seeker():
     cell = _cell(tenant)
     s = _seeker(tenant, group=cell.id)
     ms = _FakeMemberships([_member(leader, tenant, (RoleCode.GROUP_LEADER, cell.id))])
-    cmd = AccompanySeeker(_FakeSeekers([s]), _FakeGroups([cell]), _access(ms), clock=lambda: _NOW)
+    cmd = AccompanySeeker(
+        _FakeSeekers([s]), _FakeGroups([cell]), _access(ms), _with_case(s), clock=lambda: _NOW
+    )
     dto = await cmd.execute(actor_account_id=leader, seeker_id=s.id)
     assert dto.status == "accompanied"
 
 
 async def test_accompany_unknown_seeker_is_404():
     cmd = AccompanySeeker(
-        _FakeSeekers(), _FakeGroups(), _access(_FakeMemberships()), clock=lambda: _NOW
+        _FakeSeekers(), _FakeGroups(), _access(_FakeMemberships()), FakeSignals(),
+        clock=lambda: _NOW,
     )
     with pytest.raises(SeekerNotFoundError):
         await cmd.execute(actor_account_id=uuid4(), seeker_id=uuid4())
@@ -540,11 +589,42 @@ async def test_accompany_unknown_seeker_is_404():
 async def test_inviter_closes_a_seeker_without_judgment():
     inviter, tenant = uuid4(), uuid4()
     s = _seeker(tenant, account=inviter)
+    signals = _with_case(s)
     cmd = CloseSeeker(
-        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), clock=lambda: _NOW
+        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), signals,
+        clock=lambda: _NOW,
     )
     dto = await cmd.execute(actor_account_id=inviter, seeker_id=s.id)
     assert dto.status == "closed"
+    # Le défaut reste « n'a pas donné suite » : les clients déjà déployés ne changent pas.
+    assert signals.rows[0].outcome is SignalOutcome.UNREACHABLE_ARCHIVED
+
+
+async def test_known_and_followed_is_a_success_not_an_abandon():
+    """« Elle vient, on la connaît par son nom, elle ne veut pas encore de cellule. »
+
+    Sans cette porte, le module reste un entonnoir de conversion quelle que soit la propreté de
+    l'architecture en dessous."""
+    inviter, tenant = uuid4(), uuid4()
+    s = _seeker(tenant, account=inviter)
+    signals = _with_case(s)
+    cmd = CloseSeeker(
+        _FakeSeekers([s]), _FakeGroups(), _access(_FakeMemberships()), signals,
+        clock=lambda: _NOW,
+    )
+
+    await cmd.execute(
+        actor_account_id=inviter, seeker_id=s.id,
+        outcome=SignalOutcome.KNOWN_AND_FOLLOWED,
+    )
+
+    assert signals.rows[0].outcome is SignalOutcome.KNOWN_AND_FOLLOWED
+    assert signals.rows[0].counts_as_resolved is True
+
+
+def test_the_seeker_outcomes_are_a_subset_of_the_signal_vocabulary():
+    """Deux énumérés aux mêmes valeurs ne doivent jamais pouvoir diverger en silence."""
+    assert {SignalOutcome(o.value) for o in SeekerOutcome} == SEEKER_OUTCOMES
 
 
 # --- Intégrer (M9-4) : le chercheur devient membre (réutilise le tunnel visiteur→membre) ---
@@ -605,24 +685,11 @@ def _account(phone, *, first_name=None) -> Account:
     )
 
 
-def _integrate(seekers, ms, groups, gms, store):
+def _integrate(seekers, ms, groups, gms, store, accounts=None, signals=None):
+    admit = AdmitPerson(accounts or _FakeAccounts(), ms, store)
     return IntegrateSeeker(
-        seekers, _FakeAccounts(), ms, store, groups, gms, _access(ms), clock=lambda: _NOW
+        seekers, admit, groups, gms, _access(ms), signals, clock=lambda: _NOW
     )
-
-
-def test_seeker_integrate_records_the_account_it_became():
-    account = uuid4()
-    s = _seeker(uuid4(), account=uuid4())
-    s.integrate(account_id=account, now=_NOW)
-    assert s.status is SeekerStatus.INTEGRATED
-    assert s.integrated_account_id == account and s.integrated_at == _NOW
-
-
-def test_seeker_integrate_on_a_closed_parcours_raises():
-    s = _seeker(uuid4(), account=uuid4(), status=SeekerStatus.CLOSED)
-    with pytest.raises(SeekerAlreadyResolvedError):
-        s.integrate(account_id=uuid4(), now=_NOW)
 
 
 async def test_integrate_group_seeker_creates_invited_member_and_joins_cell():
@@ -638,7 +705,7 @@ async def test_integrate_group_seeker_creates_invited_member_and_joins_cell():
     assert result.group_id == cell.id and result.seeker_status == "integrated"
     assert len(store.enrolled) == 1  # compte + appartenance créés
     assert len(gms._gm) == 1  # inscrit au roster de la cellule
-    assert s.status is SeekerStatus.INTEGRATED
+    assert s.integrated_account_id is not None
 
 
 async def test_integrate_personal_seeker_needs_church_wide_authority():
@@ -648,7 +715,7 @@ async def test_integrate_personal_seeker_needs_church_wide_authority():
     seekers, gms, store = _FakeSeekers([s]), _FakeGroupMemberships(), _FakeEnrollStore(ms)
     # Owner → autorité église-entière ; pas de cellule cible (pas de roster).
     cmd = IntegrateSeeker(
-        seekers, _FakeAccounts(), ms, store, _FakeGroups(), gms,
+        seekers, AdmitPerson(_FakeAccounts(), ms, store), _FakeGroups(), gms,
         _access(ms, owners={(owner, tenant)}), clock=lambda: _NOW,
     )
     result = await cmd.execute(actor_account_id=owner, seeker_id=s.id)
@@ -664,7 +731,7 @@ async def test_integrate_reuses_a_global_account_by_phone():
     ms = _FakeMemberships([_member(leader, tenant, (RoleCode.GROUP_LEADER, cell.id))])
     seekers, gms, store = _FakeSeekers([s]), _FakeGroupMemberships(), _FakeEnrollStore(ms)
     cmd = IntegrateSeeker(
-        seekers, _FakeAccounts([existing]), ms, store, _FakeGroups([cell]), gms,
+        seekers, AdmitPerson(_FakeAccounts([existing]), ms, store), _FakeGroups([cell]), gms,
         _access(ms), clock=lambda: _NOW,
     )
     result = await cmd.execute(actor_account_id=leader, seeker_id=s.id)

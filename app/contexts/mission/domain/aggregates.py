@@ -19,7 +19,6 @@ from app.contexts.mission.domain.enums import (
 )
 from app.contexts.mission.domain.errors import (
     InvalidMissionLinkError,
-    SeekerAlreadyResolvedError,
 )
 
 
@@ -158,47 +157,14 @@ class Seeker(AggregateRoot):
         self.integrated_account_id = integrated_account_id
         self.integrated_at = integrated_at
 
-    def accompany(self, *, by_account_id: UUID, now: datetime) -> None:
-        """Un membre prend le relais : `accepted`/`accompanied` → `accompanied`.
-
-        Ré-appeler réattribue l'accompagnement (nouveau relais). Un parcours déjà clos
-        (intégré ou clôturé) ne revient pas en arrière."""
-        if self.status in (SeekerStatus.INTEGRATED, SeekerStatus.CLOSED):
-            raise SeekerAlreadyResolvedError(
-                "Ce chercheur a déjà terminé son parcours.",
-                details={"seeker_id": str(self.id), "status": self.status.value},
-            )
-        self.status = SeekerStatus.ACCOMPANIED
-        self.accompanied_by_account_id = by_account_id
-        self.accompanied_at = now
-
-    def close(self, *, now: datetime) -> None:
-        """Le parcours s'arrête, **sans jugement** : `accepted`/`accompanied` → `closed`.
-
-        Idempotent si déjà clôturé. Un chercheur intégré (devenu membre) ne se clôture pas."""
-        if self.status is SeekerStatus.CLOSED:
-            return
-        if self.status is SeekerStatus.INTEGRATED:
-            raise SeekerAlreadyResolvedError(
-                "Un chercheur intégré ne peut pas être clôturé.",
-                details={"seeker_id": str(self.id)},
-            )
-        self.status = SeekerStatus.CLOSED
-        self.closed_at = now
-
-    def integrate(self, *, account_id: UUID, now: datetime) -> None:
-        """Le chercheur **devient membre** : `accepted`/`accompanied` → `integrated`.
-
-        Grave le **compte** qu'il est devenu (le pont vers l'arbre d'attribution). Un parcours
-        déjà résolu (intégré ou clôturé) ne se ré-intègre pas."""
-        if self.status in (SeekerStatus.INTEGRATED, SeekerStatus.CLOSED):
-            raise SeekerAlreadyResolvedError(
-                "Ce chercheur a déjà terminé son parcours.",
-                details={"seeker_id": str(self.id), "status": self.status.value},
-            )
-        self.status = SeekerStatus.INTEGRATED
-        self.integrated_account_id = account_id
-        self.integrated_at = now
+    # **Aucun mutateur de statut.** `accompany`, `close` et `integrate` vivaient ici et
+    # écrivaient `SeekerStatus` — une seconde machine à états suivant la même personne que le
+    # `Signal` de veille. Les deux auraient divergé, et personne n'aurait su laquelle croire.
+    #
+    # Leur absence n'est pas un oubli : c'est ce qui rend la double écriture **impossible**
+    # plutôt que déconseillée. Le geste existe toujours, aux mêmes URL ; il s'écrit désormais
+    # sur le cas. Ce que cet agrégat garde est ce qu'il est seul à savoir — la **provenance** :
+    # quel lien, quel inviteur, quand accepté, et quel compte il est devenu.
 
 
 class MissionReaction(AggregateRoot):

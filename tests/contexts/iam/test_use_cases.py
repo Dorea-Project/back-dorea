@@ -119,11 +119,18 @@ async def test_get_membership_status_pastor_is_read_only_except_his_agenda():
         account_id=account, tenant_id=tenant
     )
 
-    # Lecture seule (spec §5.6) — sauf son agenda (`manage_appointments`) et ses sermons
-    # (`publish_sermon`), ses deux actes d'écriture propres.
+    # Lecture seule sur les **personnes** (spec §5.6). Ses actes d'écriture sont sur ses propres
+    # objets : son agenda, ses sermons, et désormais les collectes qu'il lance. Lancer une
+    # collecte ne rompt pas la règle — il ne verra jamais qui a donné quoi, et c'est précisément
+    # pourquoi `view_contributions` n'est pas là.
     assert set(dto.permissions) == {
-        "view_member_directory", "view_pastoral_alerts", "manage_appointments", "publish_sermon"
+        "view_member_directory",
+        "view_pastoral_alerts",
+        "manage_appointments",
+        "publish_sermon",
+        "launch_collection",
     }
+    assert "view_contributions" not in dto.permissions
 
 
 async def test_get_membership_status_raises_when_absent():

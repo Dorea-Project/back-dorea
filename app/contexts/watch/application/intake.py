@@ -35,7 +35,11 @@ from app.contexts.watch.application.materialization import (
     MaterializationResult,
     Materializer,
 )
-from app.contexts.watch.application.ports import NeutralizationStore, SignalStore
+from app.contexts.watch.application.ports import (
+    NeutralizationStore,
+    ScheduledCheckStore,
+    SignalStore,
+)
 from app.contexts.watch.domain.errors import (
     ConsentRequiredError,
     FactKindNotAllowedError,
@@ -72,6 +76,7 @@ class Intake:
         interpreters: InterpreterRegistry,
         store: NeutralizationStore,
         signals: SignalStore | None = None,
+        checks: ScheduledCheckStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -80,7 +85,7 @@ class Intake:
         self._interpreters = interpreters
         self._store = store
         self._signals = signals
-        self._materializer = Materializer(store, signals)
+        self._materializer = Materializer(store, signals, checks)
         self._policy = policy or ArbitrationPolicy()
 
     async def submit(self, fact: Fact) -> IntakeResult:

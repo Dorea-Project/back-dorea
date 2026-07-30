@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.contexts.mission.application.dtos import MySeekersDTO, SeekerDTO
+from app.contexts.mission.application.commands.accompany import to_seeker_dto
+from app.contexts.mission.application.dtos import MySeekersDTO
 from app.contexts.mission.domain.repositories import (
     MissionLinkRepository,
     MissionReactionRepository,
     SeekerRepository,
 )
+from app.contexts.watch.application.ports import SignalStore
 
 
 class ListMySeekers:
@@ -22,16 +24,27 @@ class ListMySeekers:
         links: MissionLinkRepository,
         seekers: SeekerRepository,
         reactions: MissionReactionRepository,
+        signals: SignalStore | None = None,
     ) -> None:
         self._links = links
         self._seekers = seekers
         self._reactions = reactions
+        self._signals = signals
 
     async def execute(
         self, *, actor_account_id: UUID, tenant_id: UUID
     ) -> MySeekersDTO:
         mine = await self._seekers.list_by_inviter_account(actor_account_id, tenant_id)
         mine.sort(key=lambda s: s.created_at, reverse=True)
+
+        # **Une vue des cas, jamais une seconde liste.** Deux listes sur les mêmes personnes
+        # finissent par se contredire, et l'inviteur ne sait plus laquelle croire. Une seule
+        # requête pour toute la page — la provenance vient du chercheur, l'état vient du cas.
+        cases: dict = {}
+        if self._signals is not None:
+            cases = await self._signals.cases_by_subjects(
+                subject_ids=[s.person_account_id for s in mine], tenant_id=tenant_id
+            )
 
         counts: dict[str, int] = {}
         link = await self._links.get_active_personal(actor_account_id, tenant_id)
@@ -41,16 +54,6 @@ class ListMySeekers:
 
         return MySeekersDTO(
             total=len(mine),
-            seekers=[
-                SeekerDTO(
-                    id=s.id,
-                    name=s.name,
-                    status=s.status.value,
-                    created_at=s.created_at,
-                    accompanied_by=s.accompanied_by_account_id,
-                    accompanied_at=s.accompanied_at,
-                )
-                for s in mine
-            ],
+            seekers=[to_seeker_dto(s, cases.get(s.person_account_id)) for s in mine],
             reaction_counts=counts,
         )

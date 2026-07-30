@@ -6,6 +6,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from app.contexts.iam.application.commands.admit_person import AdmitPerson
 from app.contexts.iam.domain.enums import AccountCreationSource, MembershipStatus
 from app.contexts.iam.domain.repositories import AccountRepository
 from app.contexts.mission.application.threshold import CrossTheThreshold
@@ -53,9 +54,13 @@ class _Accounts(AccountRepository):
 class _Enrollment:
     def __init__(self):
         self.enrolled = []
+        self.added = []
 
     async def enroll(self, *, account, membership, creation_source, actor_account_id):
         self.enrolled.append((account, membership, creation_source))
+
+    async def add_membership(self, *, membership, actor_account_id):
+        self.added.append(membership)
 
 
 class _Overrides:
@@ -115,13 +120,33 @@ def _engine():
     )
 
 
-def _threshold(*, accounts=None, enrollment=None, overrides=None, groups=None, intake=None):
+class _Memberships:
+    """Aucune appartenance existante — le cas courant au seuil."""
+
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    async def get_active(self, account_id, tenant_id):
+        return next(
+            (
+                m
+                for m in self.rows
+                if m.account_id == account_id and m.tenant_id == tenant_id
+            ),
+            None,
+        )
+
+
+def _threshold(
+    *, accounts=None, enrollment=None, overrides=None, groups=None, intake=None,
+    memberships=None,
+):
+    # `mission` ne construit plus d'appartenance : il passe par l'écrivain unique d'IAM.
+    admit = AdmitPerson(
+        accounts or _Accounts(), memberships or _Memberships(), enrollment or _Enrollment()
+    )
     return CrossTheThreshold(
-        accounts or _Accounts(),
-        enrollment or _Enrollment(),
-        overrides or _Overrides(),
-        groups or _Groups(),
-        intake,
+        admit, overrides or _Overrides(), groups or _Groups(), intake
     )
 
 
@@ -166,6 +191,11 @@ async def test_a_known_person_is_never_duplicated():
     assert crossed.account_id == known.id
     assert crossed.reused_existing is True
     assert enrollment.enrolled == []  # aucun second compte
+    # …mais **une appartenance à cette église-ci**. Quelqu'un connu ailleurs qui accepte une
+    # capsule doit appartenir à l'église qui l'a invitée, sinon il est dans le ledger sans être
+    # de nulle part — et la couverture l'ignore, c'est-à-dire précisément le plus fragile.
+    assert len(enrollment.added) == 1
+    assert enrollment.added[0].tenant_id == tenant
 
 
 # --- Le référent : l'inviteur, par la cascade déjà construite -----------------------------

@@ -30,14 +30,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from app.contexts.iam.application.ports import MemberEnrollmentStore
-from app.contexts.iam.domain.aggregates import Account, Membership
-from app.contexts.iam.domain.enums import (
-    AccountCreationSource,
-    AccountStatus,
-    MembershipStatus,
-)
-from app.contexts.iam.domain.repositories import AccountRepository
+from app.contexts.iam.application.commands.admit_person import AdmitPerson
+from app.contexts.iam.domain.enums import AccountCreationSource
 from app.contexts.mission.domain.aggregates import MissionLink
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.referent_ports import (
@@ -70,14 +64,12 @@ class CrossTheThreshold:
 
     def __init__(
         self,
-        accounts: AccountRepository,
-        enrollment: MemberEnrollmentStore,
+        admit: AdmitPerson,
         overrides: ReferentOverrideRepository,
         groups: GroupDirectory,
         intake: Intake | None = None,
     ) -> None:
-        self._accounts = accounts
-        self._enrollment = enrollment
+        self._admit = admit
         self._overrides = overrides
         self._groups = groups
         self._intake = intake
@@ -100,40 +92,21 @@ class CrossTheThreshold:
     async def _person(
         self, *, tenant_id: UUID, name: str, phone: str | None, now: datetime
     ) -> tuple[UUID, bool]:
-        """Réutilise le compte s'il existe — **l'identité ne se duplique pas**.
+        """Confié à IAM — **un seul écrivain du statut de personne**.
 
-        Quelqu'un qui accepte une capsule après être déjà passé par l'église est la même
-        personne : lui fabriquer un second compte effacerait justement l'histoire qu'on veut
-        garder."""
-        if phone:
-            existing = await self._accounts.get_by_phone(phone)
-            if existing is not None:
-                return existing.id, True
-
+        `mission` ne construit plus d'appartenance et ne nomme plus de palier : il dit qu'une
+        personne se présente, IAM décide où elle entre. C'est ce qui empêche trois modules
+        d'inventer chacun leur règle d'entrée."""
         first, _, last = name.strip().partition(" ")
-        account = Account(
-            id=uuid4(),
-            phone_number=phone,
-            status=AccountStatus.ACTIVE,
+        return await self._admit.execute(
+            tenant_id=tenant_id,
+            phone=phone,
             first_name=first,
             last_name=last.strip() or None,
-        )
-        await self._enrollment.enroll(
-            account=account,
-            membership=Membership(
-                id=uuid4(),
-                account_id=account.id,
-                tenant_id=tenant_id,
-                # `INVITED` : le premier maillon de la chaîne de statuts. Ce n'est pas un
-                # sous-membre, c'est quelqu'un au début de son chemin.
-                status=MembershipStatus.INVITED,
-                last_transition_at=now,
-                role_assignments=[],
-            ),
             creation_source=AccountCreationSource.MISSION_CAPSULE,
-            actor_account_id=account.id,  # personne d'autre : c'est son propre geste
+            actor_account_id=None,  # personne d'autre : c'est son propre geste
+            now=now,
         )
-        return account.id, False
 
     async def _set_inviter_as_referent(
         self, link: MissionLink, account_id: UUID, now: datetime

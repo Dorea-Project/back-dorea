@@ -6,9 +6,17 @@ peut l'effacer et la reconstruire sans rien perdre, puisque la vérité est le j
 Sait écrire : la neutralisation et son extinction, le retrait définitif, le **cas** et son
 enrichissement, la mémoire du lien.
 
-Ne sait pas encore : l'échéance (`SCHEDULE_CHECK`, son annulation) et le signal de couverture —
-ils attendent le worker et le `Referent`. Ils ne sont pas perdus : les faits sont au ledger, et
-une reprojection les honorera le jour où l'objet existera.
+Sait aussi écrire l'**échéance** et son annulation. C'est par elle que le temps entre dans la
+veille : quand une échéance tombe, le worker écrit un `CHECK_FIRED` au ledger — il ne modifie
+aucun état lui-même. Un interpreter ne lit donc jamais l'horloge, et rejouer demain rend
+exactement ce que le direct a produit.
+
+**L'annulation est vitale, et elle est ici plutôt que dispersée.** Un retrait définitif ou un
+retour constaté annule ce qui était programmé — sinon on programme des rappels sur des gens
+décédés, l'échec le plus coûteux que ce produit puisse produire.
+
+Ne sait pas encore : le signal de couverture, qui attend son écran. Il n'est pas perdu — les
+faits sont au ledger, et une reprojection l'honorera le jour où l'objet existera.
 """
 
 from __future__ import annotations
@@ -17,16 +25,23 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.contexts.watch.application.ports import NeutralizationStore, SignalStore
+from app.contexts.watch.application.ports import (
+    NeutralizationStore,
+    ScheduledCheckStore,
+    SignalStore,
+)
 from app.contexts.watch.domain.effects import (
+    CancelScheduledChecks,
     EffectKind,
     EnrichCase,
     ExcludeForever,
     Extinguish,
+    ExtinguishCause,
     Neutralise,
     OpenCase,
     ProposedEffect,
     RecordMemory,
+    ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact
 
@@ -39,9 +54,15 @@ class MaterializationResult:
 
 
 class Materializer:
-    def __init__(self, store: NeutralizationStore, signals: SignalStore | None = None) -> None:
+    def __init__(
+        self,
+        store: NeutralizationStore,
+        signals: SignalStore | None = None,
+        checks: ScheduledCheckStore | None = None,
+    ) -> None:
         self._store = store
         self._signals = signals
+        self._checks = checks
 
     async def apply(
         self,
@@ -80,11 +101,43 @@ class Materializer:
             written=tuple(written), deferred=tuple(deferred), held=tuple(held_kinds)
         )
 
+    async def _cancel_checks(self, fact: Fact, subject_id: UUID, *, kind, at) -> None:
+        if self._checks is not None:
+            await self._checks.cancel_for(
+                subject_id=subject_id, tenant_id=fact.tenant_id, kind=kind, at=at
+            )
+
     async def _write(
         self, fact: Fact, effect: ProposedEffect, *, actor: UUID, source_ref: UUID
     ) -> EffectKind | None:
         """Renvoie le type écrit, ou None si cet effet n'est pas encore matérialisable."""
+        if isinstance(effect, ScheduleCheck) and self._checks is not None:
+            await self._checks.schedule(
+                subject_id=effect.subject_id,
+                tenant_id=fact.tenant_id,
+                kind=effect.kind,
+                # La raison voyage avec l'échéance : un rappel qu'on ne sait plus expliquer est
+                # un rappel qu'on ignore.
+                reason=effect.reason,
+                due_at=effect.at,
+                at=fact.occurred_at,
+            )
+            return EffectKind.SCHEDULE_CHECK
+
+        if isinstance(effect, CancelScheduledChecks) and self._checks is not None:
+            await self._checks.cancel_for(
+                subject_id=effect.subject_id,
+                tenant_id=fact.tenant_id,
+                kind=effect.kind,
+                at=fact.occurred_at,
+            )
+            return EffectKind.CANCEL_SCHEDULED_CHECKS
+
         if isinstance(effect, ExcludeForever):
+            # Retrait définitif : **plus rien** ne doit tomber sur cette personne. C'est
+            # l'annulation la plus importante du module — relancer un défunt est l'échec que
+            # tout le reste existe pour empêcher.
+            await self._cancel_checks(fact, effect.subject_id, kind=None, at=effect.at)
             await self._store.exclude_forever(
                 subject_id=effect.subject_id,
                 tenant_id=fact.tenant_id,
@@ -102,6 +155,10 @@ class Materializer:
                 cause=effect.cause.value,
                 at=effect.at,
             )
+            if effect.cause is ExtinguishCause.RETURNED:
+                # La personne est revenue : l'échéance de retour n'a plus d'objet. On n'annule
+                # que celle-là — le cas, lui, reste ouvert (« on peut être présent et endeuillé »).
+                await self._cancel_checks(fact, effect.subject_id, kind="return", at=effect.at)
             if self._signals is not None:
                 # Le cas ne se ferme que si la cause l'autorise **sans acte humain**.
                 await self._signals.extinguish(

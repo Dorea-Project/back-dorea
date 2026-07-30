@@ -106,7 +106,16 @@ class CloseCase(_OwnedCase):
 
     Aucune issue n'est proposée par défaut : le responsable dit ce qui s'est passé, et c'est de
     là que vient la calibration. Une valeur pré-cochée deviendrait le rangement par défaut, et
-    la mesure ne mesurerait plus que la paresse du formulaire."""
+    la mesure ne mesurerait plus que la paresse du formulaire.
+
+    Une clôture absorbante (`DO_NOT_CONTACT`, `DECEASED`) **annule aussi les échéances**. Sans
+    cela, la personne qui vient de demander qu'on cesse recevrait un rappel programmé trois
+    semaines plus tôt — et la parole qu'on s'était engagé à respecter serait démentie par une
+    notification automatique."""
+
+    def __init__(self, signals, checks=None, *, clock) -> None:
+        super().__init__(signals, clock=clock)
+        self._checks = checks
 
     async def execute(
         self,
@@ -121,8 +130,11 @@ class CloseCase(_OwnedCase):
         )
         # L'agrégat refuse tout seul ce qui n'a pas lieu d'être : issue absorbante, transition
         # inexistante, clôture sans humain. On ne rejoue aucune de ces règles ici.
-        case.close(
-            outcome=outcome, at=self._clock(), closed_by_account_id=actor_account_id
-        )
+        now = self._clock()
+        case.close(outcome=outcome, at=now, closed_by_account_id=actor_account_id)
         await self._signals.save_case(case)
+        if case.is_absorbing and self._checks is not None:
+            await self._checks.cancel_for(
+                subject_id=case.subject_id, tenant_id=tenant_id, kind=None, at=now
+            )
         return CaseDTO.of(case)

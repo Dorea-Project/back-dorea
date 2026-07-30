@@ -25,6 +25,11 @@ from app.contexts.attendance.application.dtos import (
     SelfCheckInDTO,
     VisitorDTO,
 )
+from app.contexts.attendance.domain.cadence import (
+    AcknowledgementReason,
+    CadenceFrequency,
+    SuspensionReason,
+)
 from app.contexts.attendance.domain.enums import AbsenceReason, GatheringType
 
 
@@ -438,4 +443,91 @@ class ConvertVisitorResponse(BaseModel):
             group_id=dto.group_id,
             status=dto.status,
             reused_account=dto.reused_account,
+        )
+
+
+# --- Cadence : le rythme attendu, et ce qui l'acquitte -----------------------------------------
+#
+# Le responsable déclare le rythme de son groupe, puis peut dire « pas de rencontre cette
+# semaine » avec un motif. Sans cette seconde surface, la couverture signale des dizaines de
+# groupes aveugles à Noël alors que tout le monde sait pourquoi — le faux positif qui érode la
+# confiance dès le premier mois.
+
+
+class DeclareCadenceRequest(BaseModel):
+    frequency: CadenceFrequency
+    anchor_date: datetime = Field(..., description="Une occurrence de référence")
+    active_from: datetime
+    weekday: int | None = Field(
+        default=None, ge=0, le=6, description="0=lundi — exigé en hebdo/bihebdo"
+    )
+    day_of_month: int | None = Field(
+        default=None,
+        ge=1,
+        le=28,  # 28 : le seul jour qui existe dans tous les mois
+        description="Exigé en cadence mensuelle",
+    )
+    active_until: datetime | None = None
+
+
+class CadenceResponse(BaseModel):
+    id: UUID
+    group_id: UUID
+    frequency: str
+    weekday: int | None
+    day_of_month: int | None
+    anchor_date: datetime
+    active_from: datetime
+    active_until: datetime | None
+
+    @classmethod
+    def from_dto(cls, d) -> CadenceResponse:
+        return cls(
+            id=d.id, group_id=d.group_id, frequency=d.frequency, weekday=d.weekday,
+            day_of_month=d.day_of_month, anchor_date=d.anchor_date,
+            active_from=d.active_from, active_until=d.active_until,
+        )
+
+
+class AcknowledgeOccurrenceRequest(BaseModel):
+    """« Pas de rencontre cette semaine, et voici pourquoi. »
+
+    Motif en **liste fermée** — jamais de texte libre : un champ libre sur une occurrence
+    manquée devient une surface de jugement sur le responsable."""
+
+    occurrence_date: datetime
+    reason: AcknowledgementReason
+
+
+class AcknowledgementResponse(BaseModel):
+    id: UUID
+    group_id: UUID
+    occurrence_date: datetime
+    reason: str
+
+    @classmethod
+    def from_dto(cls, d) -> AcknowledgementResponse:
+        return cls(
+            id=d.id, group_id=d.group_id, occurrence_date=d.occurrence_date, reason=d.reason
+        )
+
+
+class SuspendChurchRequest(BaseModel):
+    reason: SuspensionReason
+    from_date: datetime
+    to_date: datetime
+
+
+class SuspensionResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    reason: str
+    from_date: datetime
+    to_date: datetime
+
+    @classmethod
+    def from_dto(cls, d) -> SuspensionResponse:
+        return cls(
+            id=d.id, tenant_id=d.tenant_id, reason=d.reason,
+            from_date=d.from_date, to_date=d.to_date,
         )

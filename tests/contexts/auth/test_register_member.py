@@ -214,10 +214,15 @@ async def test_me_endpoint_exposes_resolved_permissions_after_claim(ctx):
     assert entry["tenant_id"] == str(tenant_id)
     assert entry["is_owner"] is False
     assert [r["role"] for r in entry["active_roles"]] == ["pastor"]
-    # Pasteur = lecture seule (spec §5.6) — sauf son agenda (`manage_appointments`) et ses sermons
-    # (`publish_sermon`), ses deux actes d'écriture propres.
+    # Pasteur = lecture seule sur les **personnes** (spec §5.6). Ses actes d'écriture portent sur
+    # ses propres objets : agenda, sermons, et les collectes qu'il lance — dont il ne verra
+    # jamais le détail nominatif.
     assert set(entry["permissions"]) == {
-        "view_member_directory", "view_pastoral_alerts", "manage_appointments", "publish_sermon"
+        "view_member_directory",
+        "view_pastoral_alerts",
+        "manage_appointments",
+        "publish_sermon",
+        "launch_collection",
     }
 
 

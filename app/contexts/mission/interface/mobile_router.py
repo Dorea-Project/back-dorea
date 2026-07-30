@@ -20,6 +20,7 @@ from app.contexts.mission.interface.dependencies import (
     RevokeLinkDep,
 )
 from app.contexts.mission.interface.schemas import (
+    CloseSeekerRequest,
     CreateLinkRequest,
     GenerateCardRequest,
     IntegrateRequest,
@@ -29,6 +30,7 @@ from app.contexts.mission.interface.schemas import (
     SeekerResponse,
     VerseCardResponse,
 )
+from app.contexts.watch.domain.signal import SignalOutcome
 
 router = APIRouter()
 
@@ -149,8 +151,16 @@ async def close_seeker(
     seeker_id: UUID,
     actor: CurrentActor,
     command: CloseSeekerDep,
+    payload: CloseSeekerRequest | None = None,
 ) -> SeekerResponse:
-    dto = await command.execute(actor_account_id=actor.account_id, seeker_id=seeker_id)
+    # Corps **optionnel** : sans lui, exactement le comportement d'hier. Les clients déjà
+    # déployés continuent d'appeler cette route sans rien envoyer, et rien ne change pour eux.
+    outcome = (payload or CloseSeekerRequest()).outcome
+    dto = await command.execute(
+        actor_account_id=actor.account_id,
+        seeker_id=seeker_id,
+        outcome=SignalOutcome(outcome.value),
+    )
     return SeekerResponse.from_dto(dto)
 
 

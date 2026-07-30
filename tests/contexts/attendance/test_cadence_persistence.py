@@ -39,6 +39,62 @@ from app.contexts.attendance.domain.repositories import (
 _NOW = datetime(2026, 7, 25, tzinfo=UTC)
 
 
+# --- L'autorisation, désormais dans la commande et non renvoyée à la route -------------------
+
+
+class _AnyTenant:
+    """Égal à n'importe quelle église : ces tests portent sur la règle de cadence, pas sur
+    l'isolation multi-tenant, qui est vérifiée là où elle vit (`load_group_in_tenant`)."""
+
+    def __eq__(self, other):
+        return True
+
+    def __hash__(self):
+        return 0
+
+
+class _OpenGroups:
+    """Le groupe existe et appartient au tenant — ce que `load_group_in_tenant` vérifie."""
+
+    def __init__(self, tenant=None, group=None):
+        self._tenant, self._group = tenant, group
+
+    async def get(self, group_id):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=group_id, tenant_id=self._tenant or _AnyTenant(), path=f"/{group_id}/"
+        )
+
+
+class _AllowAll:
+    """Autorise tout : ces tests portent sur la règle de cadence, pas sur l'accès.
+
+    La parité d'autorisation est vérifiée séparément, dans `test_cadence_authority.py`."""
+
+    async def ensure_can(self, *, actor_account_id, group, permission):
+        return None
+
+    async def ensure_church_wide(self, *, actor_account_id, tenant_id, permission):
+        return None
+
+
+def _declare(cadences, tenant=None):
+    return DeclareCadence(
+        cadences, _OpenGroups(tenant), _AllowAll(), clock=lambda: _NOW
+    )
+
+
+def _acknowledge(acks, tenant=None):
+    return AcknowledgeOccurrence(
+        acks, _OpenGroups(tenant), _AllowAll(), clock=lambda: _NOW
+    )
+
+
+def _suspend(suspensions):
+    return SuspendChurch(suspensions, _AllowAll(), clock=lambda: _NOW)
+
+
 class _FakeCadences(GroupCadenceRepository):
     def __init__(self) -> None:
         self._by_id: dict[UUID, GroupCadence] = {}
@@ -116,7 +172,7 @@ async def test_declare_cadence_creates_a_weekly_rhythm():
     tenant, group, leader = uuid4(), uuid4(), uuid4()
     cadences = _FakeCadences()
     anchor = datetime(2026, 7, 1, 19, 0, tzinfo=UTC)
-    dto = await DeclareCadence(cadences, clock=lambda: _NOW).execute(
+    dto = await _declare(cadences).execute(
         actor_account_id=leader,
         tenant_id=tenant,
         group_id=group,
@@ -133,7 +189,7 @@ async def test_declare_cadence_rejects_a_second_active_cadence():
     tenant, group, leader = uuid4(), uuid4(), uuid4()
     cadences = _FakeCadences()
     anchor = datetime(2026, 7, 1, 19, 0, tzinfo=UTC)
-    cmd = DeclareCadence(cadences, clock=lambda: _NOW)
+    cmd = _declare(cadences)
     await cmd.execute(
         actor_account_id=leader,
         tenant_id=tenant,
@@ -159,7 +215,7 @@ async def test_weekly_cadence_requires_a_weekday():
     cadences = _FakeCadences()
     anchor = datetime(2026, 7, 1, 19, 0, tzinfo=UTC)
     with pytest.raises(InvalidCadenceError):
-        await DeclareCadence(cadences, clock=lambda: _NOW).execute(
+        await _declare(cadences).execute(
             actor_account_id=uuid4(),
             tenant_id=uuid4(),
             group_id=uuid4(),
@@ -173,7 +229,7 @@ async def test_monthly_cadence_requires_a_valid_day_of_month():
     cadences = _FakeCadences()
     anchor = datetime(2026, 7, 1, 19, 0, tzinfo=UTC)
     with pytest.raises(InvalidCadenceError):
-        await DeclareCadence(cadences, clock=lambda: _NOW).execute(
+        await _declare(cadences).execute(
             actor_account_id=uuid4(),
             tenant_id=uuid4(),
             group_id=uuid4(),
@@ -188,7 +244,7 @@ async def test_acknowledging_the_same_occurrence_twice_is_idempotent():
     tenant, group, leader = uuid4(), uuid4(), uuid4()
     acks = _FakeAcks()
     occ = datetime(2026, 7, 15, 19, 0, tzinfo=UTC)
-    cmd = AcknowledgeOccurrence(acks, clock=lambda: _NOW)
+    cmd = _acknowledge(acks)
     first = await cmd.execute(
         actor_account_id=leader,
         tenant_id=tenant,
@@ -209,7 +265,7 @@ async def test_acknowledging_the_same_occurrence_twice_is_idempotent():
 
 async def test_suspend_church_rejects_an_inverted_period():
     with pytest.raises(InvalidSuspensionPeriodError):
-        await SuspendChurch(_FakeSuspensions(), clock=lambda: _NOW).execute(
+        await _suspend(_FakeSuspensions()).execute(
             actor_account_id=uuid4(),
             tenant_id=uuid4(),
             reason=SuspensionReason.HOLIDAY,
@@ -234,7 +290,7 @@ async def test_coverage_counts_the_three_states():
     tenant, group, leader = uuid4(), uuid4(), uuid4()
     anchor = datetime(2026, 7, 1, 19, 0, tzinfo=UTC)  # occurrences: 1, 8, 15, 22 juillet
     cadences = _FakeCadences()
-    await DeclareCadence(cadences, clock=lambda: _NOW).execute(
+    await _declare(cadences).execute(
         actor_account_id=leader,
         tenant_id=tenant,
         group_id=group,
@@ -246,7 +302,7 @@ async def test_coverage_counts_the_three_states():
     # une rencontre tenue le 8 (saisie) ; le 15 acquitté ; 1 et 22 → silencieuses
     gatherings = _FakeGatherings([_StubGathering(group, datetime(2026, 7, 8, 19, 0, tzinfo=UTC))])
     acks = _FakeAcks()
-    await AcknowledgeOccurrence(acks, clock=lambda: _NOW).execute(
+    await _acknowledge(acks).execute(
         actor_account_id=leader,
         tenant_id=tenant,
         group_id=group,

@@ -21,11 +21,17 @@ pas contournable par une astuce technique.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from app.contexts.watch.application.interpretation import WatchStateView
-from app.contexts.watch.domain.effects import CasePriority, OpenCase, ProposedEffect
+from app.contexts.watch.domain.effects import (
+    CancelScheduledChecks,
+    CasePriority,
+    OpenCase,
+    ProposedEffect,
+    ScheduleCheck,
+)
 from app.contexts.watch.domain.facts import Fact, FactKind
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
@@ -55,9 +61,9 @@ class SelfDeclarationV1:
     def interpret(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
         declaration = DeclarationKind(fact.payload["kind"])
 
-        # Choisir son rythme n'ouvre pas un cas : ça pose une échéance. Elle attend le worker.
+        # Choisir son rythme n'ouvre pas un cas : ça règle la cadence des relances.
         if declaration is DeclarationKind.RHYTHM:
-            return []
+            return _rhythm(fact)
 
         reason = _REASONS[declaration]
         note = (fact.payload.get("note") or "").strip()
@@ -72,3 +78,36 @@ class SelfDeclarationV1:
                 opened_at=fact.occurred_at,
             )
         ]
+
+
+# Le rythme qu'un membre choisit pour lui-même. `ON_DEMAND` n'est pas « moins de suivi » : c'est
+# quelqu'un qui dit *« je vous appellerai »*, et le produit doit savoir l'entendre.
+ON_DEMAND = "on_demand"
+RHYTHM_KIND = "rhythm"
+
+
+def _rhythm(fact: Fact) -> Sequence[ProposedEffect]:
+    """« Ne me relancez plus » coupe les échéances ; un rythme choisi en pose une.
+
+    Sans l'annulation, le membre qui reprend la main sur son propre rythme continuerait de
+    recevoir ce qu'il vient précisément de demander d'arrêter."""
+    if fact.payload.get("cadence") == ON_DEMAND:
+        return [
+            CancelScheduledChecks(
+                subject_id=fact.subject_id,
+                reason="A choisi d'être recontacté à sa demande.",
+                kind=RHYTHM_KIND,
+            )
+        ]
+
+    every_days = fact.payload.get("every_days")
+    if not every_days:
+        return []
+    return [
+        ScheduleCheck(
+            subject_id=fact.subject_id,
+            reason=f"Rythme choisi : prendre de ses nouvelles tous les {every_days} jours.",
+            at=fact.occurred_at + timedelta(days=int(every_days)),
+            kind=RHYTHM_KIND,
+        )
+    ]

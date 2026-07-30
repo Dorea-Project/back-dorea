@@ -60,6 +60,7 @@ from app.contexts.tenant.interface.onboarding_router import (
 )
 from app.contexts.tenant.interface.router import router as tenant_router
 from app.contexts.watch.interface.mobile_router import router as mobile_watch_router
+from app.contexts.watch.interface.platform_router import router as platform_watch_router
 
 # --- Surface mobile ---
 api_router = APIRouter()
@@ -117,6 +118,10 @@ backoffice_router.include_router(
 # Dispatcher du fan-out asynchrone (cron externe) — même garde Plateforme.
 backoffice_router.include_router(
     platform_notifications_router, prefix="/platform", tags=["platform:notifications"]
+)
+# Cadence du moteur de veille (cron externe) — escalade + garde-fou anti-déversoir.
+backoffice_router.include_router(
+    platform_watch_router, prefix="/platform", tags=["platform:watch"]
 )
 
 # --- Surface publique (onboarding aspirant Owner, sans auth) ---

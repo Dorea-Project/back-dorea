@@ -32,6 +32,16 @@ class Permission(StrEnum):
     PUBLISH_ANNOUNCEMENT = "publish_announcement"  # M8
     MANAGE_APPOINTMENTS = "manage_appointments"  # garder l'agenda du pasteur (RDV)
     PUBLISH_SERMON = "publish_sermon"  # déposer/approuver/publier un sermon (le pasteur)
+    # --- Collectes : **lancer n'est pas voir** -------------------------------------------
+    #
+    # Si celui qui lance une collecte en voit le détail nominatif, alors le pasteur sait qui
+    # a donné quoi. Il ne l'a pas demandé : l'information arrive parce qu'il a créé la
+    # collecte, et elle s'installe dans une relation pastorale sans que personne ne l'ait
+    # voulu. C'est le scénario le plus corrosif de ce module — d'où trois permissions
+    # distinctes, et jamais deux sur le même rôle par défaut.
+    LAUNCH_COLLECTION = "launch_collection"  # ordonnateur : le pasteur, l'owner
+    VIEW_CONTRIBUTIONS = "view_contributions"  # comptable : le trésorier, lui seul
+    RECORD_CASH = "record_cash"  # saisir les espèces — le seul vrai anonyme
 
 
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
@@ -61,6 +71,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.VIEW_PASTORAL_ALERTS,
             Permission.MANAGE_APPOINTMENTS,
             Permission.PUBLISH_SERMON,
+            # Il lance la collecte. Il n'en verra **jamais** le détail nominatif — seulement le
+            # total et la progression.
+            Permission.LAUNCH_COLLECTION,
         }
     ),
     # Secrétaire : « les affaires du pasteur ». Le pasteur étant en lecture seule, elle est **ses
@@ -103,9 +116,28 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         {Permission.VIEW_MEMBER_DIRECTORY, Permission.MANAGE_MEMBERSHIP}
     ),
     # Superviseur réseau : lecture agrégée (dashboard dénomination).
+    # Trésorier : la comptabilité, pas la curiosité. Il voit le détail nominatif des
+    # contributions **et rien d'autre** — aucun accès pastoral, aucun annuaire.
+    RoleCode.TREASURER: frozenset(
+        {
+            Permission.VIEW_CONTRIBUTIONS,
+            Permission.RECORD_CASH,
+        }
+    ),
     RoleCode.NETWORK_SUPERVISOR: frozenset({Permission.VIEW_MEMBER_DIRECTORY}),
 }
 
 
 def permissions_for(role: RoleCode) -> frozenset[Permission]:
     return ROLE_PERMISSIONS.get(role, frozenset())
+
+
+# L'ordonnateur et le comptable ne se confondent pas. Cette séparation n'est pas une contrainte
+# artificielle : c'est celle que la plupart des églises pratiquent déjà.
+#
+# Le cumul reste **possible** dans une petite église où le pasteur est aussi trésorier — mais par
+# décision explicite et journalisée, jamais par défaut de configuration. C'est exactement ce que
+# cette paire garantit : rien dans la matrice ne l'accorde tout seul.
+SEPARATED_PERMISSIONS: tuple[tuple[Permission, Permission], ...] = (
+    (Permission.LAUNCH_COLLECTION, Permission.VIEW_CONTRIBUTIONS),
+)

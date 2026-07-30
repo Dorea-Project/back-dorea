@@ -31,6 +31,7 @@ from app.contexts.watch.application.contact_loop import (
     StartContact,
 )
 from app.contexts.watch.application.designate_referent import DesignateReferent
+from app.contexts.watch.application.fire_checks import FireDueChecks
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.appointment_requested import (
@@ -61,6 +62,7 @@ from app.contexts.watch.infrastructure.directories import (
 from app.contexts.watch.infrastructure.neutralization_store import (
     AttendanceNeutralizationStore,
 )
+from app.contexts.watch.infrastructure.persistence.checks import SqlScheduledCheckStore
 from app.contexts.watch.infrastructure.persistence.ledger import SqlFactLedger
 from app.contexts.watch.infrastructure.persistence.referent import (
     SqlCoverageGapStore,
@@ -95,10 +97,25 @@ def build_signals(session) -> SqlSignalStore:
     return SqlSignalStore(session)
 
 
+def build_checks(session) -> SqlScheduledCheckStore:
+    return SqlScheduledCheckStore(session)
+
+
 def build_intake(session) -> Intake:
     return Intake(
         SqlFactLedger(session), SOURCES, INTERPRETERS,
-        build_store(session), build_signals(session),
+        build_store(session), build_signals(session), build_checks(session),
+    )
+
+
+def build_fire_checks(session) -> FireDueChecks:
+    """Le temps entre par le ledger — et sous plafond, pour ne pas noyer après une panne."""
+    return FireDueChecks(
+        build_checks(session),
+        build_intake(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
+        id_factory=uuid4,
     )
 
 

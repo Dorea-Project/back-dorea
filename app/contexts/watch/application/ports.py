@@ -184,6 +184,20 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def live_case_of(self, *, subject_id: UUID, tenant_id: UUID):
+        """Le cas vivant d'une personne, ou None. **Il n'y en a jamais deux.**"""
+        ...
+
+    @abstractmethod
+    async def cases_by_subjects(self, *, subject_ids, tenant_id: UUID) -> dict:
+        """`{subject_id: cas vivant}` — une seule requête pour une liste de personnes.
+
+        C'est ce qui permet à une surface d'afficher un état **dérivé du cas** sans maintenir sa
+        propre liste : deux listes sur les mêmes personnes finissent par se contredire, et
+        celui qui les lit ne sait plus laquelle croire."""
+        ...
+
+    @abstractmethod
     async def save_case(self, signal) -> None:
         """Persiste ce que l'agrégat a décidé. Le dépôt ne rejoue aucune règle."""
         ...
@@ -213,6 +227,47 @@ class SignalStore(ABC):
     @abstractmethod
     async def purge_projected(self, tenant_id: UUID) -> None:
         """Efface cas et mémoire avant un rejeu. Tout ici est reconstruit à partir des faits."""
+        ...
+
+
+class ScheduledCheckStore(ABC):
+    """Les échéances du moteur — la seule porte par laquelle le temps entre dans la veille."""
+
+    @abstractmethod
+    async def schedule(
+        self,
+        *,
+        subject_id: UUID,
+        tenant_id: UUID,
+        kind: str,
+        reason: str,
+        due_at: datetime,
+        at: datetime,
+    ) -> None:
+        """Pose une échéance. Idempotent par `(sujet, kind, due_at)` — rejouer ne duplique pas."""
+        ...
+
+    @abstractmethod
+    async def cancel_for(
+        self, *, subject_id: UUID, tenant_id: UUID, kind: str | None, at: datetime
+    ) -> int:
+        """Annule les échéances en attente. `kind=None` = toutes.
+
+        **Vital.** Sans annulation, on programme des rappels sur des gens décédés ou qui ont
+        demandé qu'on cesse — l'échec le plus coûteux que ce produit puisse produire."""
+        ...
+
+    @abstractmethod
+    async def due(self, *, tenant_id: UUID, now: datetime, limit: int) -> list:
+        """Ce qui est dû, **les plus anciennes d'abord**, borné par le garde anti-orage."""
+        ...
+
+    @abstractmethod
+    async def mark_fired(self, *, check_id: UUID, at: datetime) -> None: ...
+
+    @abstractmethod
+    async def pending_count(self, *, tenant_id: UUID, now: datetime) -> int:
+        """Combien restent dues après la passe — ce qu'on doit dire plutôt que taire."""
         ...
 
 

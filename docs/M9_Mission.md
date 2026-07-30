@@ -150,3 +150,61 @@ Migration `fa1b2c3d4e5f` (2 colonnes sur `seekers`, **à appliquer quand Docker 
   des back-links `integrated_account_id` + attribution des liens), les notifications push.
 - Décision anti-vitrine à confirmer : un signal doux au chercheur (« tu n'es pas seul à être
   touché ») vs. rien — aujourd'hui **rien** sur la carte publique.
+
+---
+
+## Raccordement `mission` → `Signal` (2026-07-27)
+
+> **`SeekerStatus` ne se remplace pas, il se scinde.**
+
+Il confondait deux choses qui ont chacune déjà un propriétaire :
+
+| Ce qu'il exprimait | Vrai propriétaire |
+|---|---|
+| `accepted → integrated` — **où en est la personne** | `MembershipStatus` (IAM) |
+| `accompanied → closed` — **où en est le cas** | `Signal` (watch) |
+
+`Seeker` garde ce qu'il est **seul** à savoir : la provenance — quel lien, quel inviteur, quand
+accepté, quel compte il est devenu. Un enregistrement de provenance, pas un cycle de vie.
+
+### Aucune capacité retirée
+
+Les quatre URL sont inchangées. L'implémentation seule a bougé.
+
+| Route | Ce qui s'écrit maintenant |
+|---|---|
+| `POST /seekers/{id}/accompany` | le cas est **assigné**, et le contact commence (`IN_CONTACT`) |
+| `POST /seekers/{id}/close` | `close(outcome)` — défaut `unreachable_archived` |
+| `POST /seekers/{id}/integrate` | **deux effets** : IAM admet la personne, *et* `close(RESTORED)` |
+| `GET /tenants/{id}/my-seekers` | une **vue des cas**, jamais une seconde liste |
+
+Le corps de `close` est **optionnel** : sans lui, exactement le comportement d'hier. Les clients
+déjà déployés ne voient rien changer.
+
+### La porte qui manquait
+
+`known_and_followed` — « elle vient, on la connaît par son nom, elle ne veut pas encore de
+cellule ». C'est une sortie **réussie**, pas un abandon. Sans elle, le module restait un entonnoir
+de conversion quelle que soit la propreté de l'architecture en dessous.
+
+### Pas de double écriture — garanti, pas recommandé
+
+`Seeker.accompany` / `close` / `integrate` ont été **retirés de l'agrégat**. Ce n'est pas une
+suppression de capacité : le geste existe toujours, aux mêmes URL. C'est ce qui rend la double
+écriture *impossible* au lieu de déconseillée — deux machines écrites « le temps de migrer »
+divergent pendant la fenêtre, et une fenêtre de migration s'étire toujours.
+
+La colonne `status` subsiste jusqu'à l'étape E ; plus rien ne l'écrit après la création.
+
+### Un seul écrivain du statut de personne
+
+`AdmitPerson` (IAM) est désormais le **seul** endroit qui donne une première appartenance.
+`mission` ne construit plus de `Membership` et ne nomme plus de palier. La progression, elle,
+reste à `TransitionStatus` — elle existait déjà, et en créer une seconde aurait été exactement le
+« trois modules, trois règles » qu'on voulait éviter.
+
+### Autorisation : à périmètre égal, pas plus large
+
+`tests/contexts/mission/test_authority_parity.py` fige la règle. Le test central : **un pasteur
+propriétaire du cas par escalade n'a aucun droit sur un chercheur personnel** — la propriété du
+cas ne donne rien qu'elle ne donnait pas.

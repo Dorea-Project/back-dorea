@@ -153,5 +153,7 @@ MATERIALIZABLE: frozenset[EffectKind] = frozenset(
         EffectKind.OPEN_CASE,
         EffectKind.ENRICH_CASE,
         EffectKind.RECORD_MEMORY,
+        EffectKind.SCHEDULE_CHECK,
+        EffectKind.CANCEL_SCHEDULED_CHECKS,
     }
 )

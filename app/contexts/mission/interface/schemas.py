@@ -15,7 +15,7 @@ from app.contexts.mission.application.dtos import (
     SeekerDTO,
     VerseCardDTO,
 )
-from app.contexts.mission.domain.enums import SeekerReaction
+from app.contexts.mission.domain.enums import SeekerOutcome, SeekerReaction
 
 
 class CreateLinkRequest(BaseModel):
@@ -134,6 +134,17 @@ class _Seeker(BaseModel):
 
 class SeekerResponse(_Seeker):
     """Un chercheur après une transition (accompagnement / clôture)."""
+
+
+class CloseSeekerRequest(BaseModel):
+    """**Comment** le parcours s'arrête. Optionnel : sans corps, le comportement d'hier.
+
+    `known_and_followed` est la porte qui manquait — « elle vient, on la connaît par son nom,
+    elle ne veut pas encore de cellule ». C'est une sortie **réussie**, pas un abandon. Sans
+    elle, le module reste un entonnoir de conversion quelle que soit la propreté de
+    l'architecture en dessous."""
+
+    outcome: SeekerOutcome = SeekerOutcome.UNREACHABLE_ARCHIVED
 
 
 class IntegrateRequest(BaseModel):

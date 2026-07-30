@@ -20,43 +20,38 @@ from app.contexts.groups.domain.repositories import (
     GroupMembershipRepository,
     GroupRepository,
 )
-from app.contexts.iam.application.ports import MemberEnrollmentStore
-from app.contexts.iam.domain.aggregates import Account, Membership
-from app.contexts.iam.domain.enums import (
-    AccountCreationSource,
-    AccountStatus,
-    MembershipStatus,
-)
+from app.contexts.iam.application.commands.admit_person import ADMISSION_STATUS, AdmitPerson
+from app.contexts.iam.domain.enums import AccountCreationSource
 from app.contexts.iam.domain.permissions import Permission
-from app.contexts.iam.domain.repositories import AccountRepository, MembershipRepository
 from app.contexts.mission.application.dtos import IntegrateSeekerResult
+from app.contexts.mission.domain.enums import SeekerStatus
 from app.contexts.mission.domain.errors import (
     SeekerNotFoundError,
     SeekerPhoneRequiredError,
 )
 from app.contexts.mission.domain.repositories import SeekerRepository
+from app.contexts.watch.application.ports import SignalStore
+from app.contexts.watch.domain.signal import SignalOutcome
 
 
 class IntegrateSeeker:
     def __init__(
         self,
         seekers: SeekerRepository,
-        accounts: AccountRepository,
-        church_memberships: MembershipRepository,
-        enrollment_store: MemberEnrollmentStore,
+        admit: AdmitPerson,
         groups: GroupRepository,
         group_memberships: GroupMembershipRepository,
         access: GroupAccessPolicy,
+        signals: SignalStore | None = None,
         *,
         clock,
     ) -> None:
         self._seekers = seekers
-        self._accounts = accounts
-        self._church_memberships = church_memberships
-        self._enrollment_store = enrollment_store
+        self._admit = admit
         self._groups = groups
         self._group_memberships = group_memberships
         self._access = access
+        self._signals = signals
         self._clock = clock
 
     async def execute(
@@ -101,31 +96,17 @@ class IntegrateSeeker:
             )
 
         now = self._clock()
-        existing = await self._accounts.get_by_phone(phone)
-        if existing is not None:
-            account_id = existing.id
-            reused = True
-            if await self._church_memberships.get_active(account_id, tenant_id) is None:
-                await self._enrollment_store.add_membership(
-                    membership=self._invited(account_id, tenant_id, now),
-                    actor_account_id=actor_account_id,
-                )
-        else:
-            account = Account(
-                id=uuid4(),
-                phone_number=phone,
-                status=AccountStatus.ACTIVE,
-                first_name=first_name or seeker.name,
-                last_name=last_name,
-            )
-            await self._enrollment_store.enroll(
-                account=account,
-                membership=self._invited(account.id, tenant_id, now),
-                creation_source=AccountCreationSource.SELF_SERVICE,  # chercheur digital
-                actor_account_id=actor_account_id,
-            )
-            account_id = account.id
-            reused = False
+        # **Un seul écrivain du statut de personne.** `mission` ne construit plus d'appartenance :
+        # il demande à IAM d'admettre quelqu'un, et IAM décide du palier d'entrée.
+        account_id, reused = await self._admit.execute(
+            tenant_id=tenant_id,
+            phone=phone,
+            first_name=first_name or seeker.name,
+            last_name=last_name,
+            creation_source=AccountCreationSource.SELF_SERVICE,  # chercheur digital
+            actor_account_id=actor_account_id,
+            now=now,
+        )
 
         # Roster : seulement pour un chercheur de groupe (tolérant : jamais de doublon).
         if group is not None and await self._group_memberships.get_active(
@@ -142,24 +123,39 @@ class IntegrateSeeker:
                 )
             )
 
-        seeker.integrate(account_id=account_id, now=now)  # le Seeker reste, marqué intégré
+        # **Deux effets distincts**, et c'est exactement pourquoi une seule machine à états ne
+        # suffisait pas : le statut de la personne a changé (IAM, ci-dessus), *et* le cas de
+        # veille se ferme. `RESTORED` — la main tendue a été saisie, le lien tient.
+        await self._close_case(seeker, actor_account_id, now)
+
+        # Le Seeker garde la **provenance** : quel compte il est devenu, et quand. Ce n'est pas
+        # un statut — c'est le pont vers l'arbre d'attribution, et lui seul le sait.
+        seeker.integrated_account_id = account_id
+        seeker.integrated_at = now
         await self._seekers.save(seeker)
         return IntegrateSeekerResult(
             account_id=account_id,
             tenant_id=tenant_id,
             group_id=group.id if group is not None else None,
-            membership_status=MembershipStatus.INVITED.value,
+            membership_status=ADMISSION_STATUS.value,
             reused_account=reused,
-            seeker_status=seeker.status.value,
+            seeker_status=SeekerStatus.INTEGRATED.value,  # dérivé, plus jamais stocké
         )
 
-    @staticmethod
-    def _invited(account_id: UUID, tenant_id: UUID, now) -> Membership:
-        return Membership(
-            id=uuid4(),
-            account_id=account_id,
-            tenant_id=tenant_id,
-            status=MembershipStatus.INVITED,
-            last_transition_at=now,
-            role_assignments=[],
+    async def _close_case(self, seeker, actor_account_id: UUID, now) -> None:
+        """Le suivi de veille s'arrête ici — il a abouti.
+
+        Sans cette fermeture, la personne intégrée resterait dans la file de son inviteur, et
+        l'escalade finirait par remonter au pasteur un engagement « non tenu » sur quelqu'un qui
+        est devenu membre. Le pire des faux positifs : celui qui punit une réussite."""
+        if self._signals is None or seeker.person_account_id is None:
+            return
+        case = await self._signals.live_case_of(
+            subject_id=seeker.person_account_id, tenant_id=seeker.tenant_id
         )
+        if case is None:
+            return
+        case.close(
+            outcome=SignalOutcome.RESTORED, at=now, closed_by_account_id=actor_account_id
+        )
+        await self._signals.save_case(case)

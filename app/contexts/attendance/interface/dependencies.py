@@ -14,6 +14,11 @@ from app.contexts.attendance.application.commands.declare_absence import (
     CancelAbsence,
     DeclareAbsence,
 )
+from app.contexts.attendance.application.commands.manage_cadence import (
+    AcknowledgeOccurrence,
+    DeclareCadence,
+    SuspendChurch,
+)
 from app.contexts.attendance.application.commands.mark_present import MarkPresent, UnmarkPresent
 from app.contexts.attendance.application.commands.self_check_in import SelfCheckIn
 from app.contexts.attendance.application.ports import SessionCodeGenerator
@@ -39,6 +44,11 @@ from app.contexts.attendance.infrastructure.code_generator import SecureSessionC
 from app.contexts.attendance.infrastructure.persistence.absence_repository import (
     SqlPlannedAbsenceRepository,
     SqlWatchExclusionRepository,
+)
+from app.contexts.attendance.infrastructure.persistence.cadence_repository import (
+    SqlCadenceAcknowledgementRepository,
+    SqlChurchSuspensionRepository,
+    SqlGroupCadenceRepository,
 )
 from app.contexts.attendance.infrastructure.persistence.repositories import (
     SqlAttendanceRecordRepository,
@@ -309,6 +319,38 @@ def get_multiplication_tree_query(
     )
 
 
+def get_declare_cadence_command(session: DbSession) -> DeclareCadence:
+    return DeclareCadence(
+        SqlGroupCadenceRepository(session),
+        SqlGroupRepository(session),
+        get_group_access_policy(session),
+        clock=lambda: datetime.now(UTC),
+    )
+
+
+def get_acknowledge_occurrence_command(session: DbSession) -> AcknowledgeOccurrence:
+    """« Pas de rencontre cette semaine » — la parade au faux positif de Noël."""
+    return AcknowledgeOccurrence(
+        SqlCadenceAcknowledgementRepository(session),
+        SqlGroupRepository(session),
+        get_group_access_policy(session),
+        clock=lambda: datetime.now(UTC),
+    )
+
+
+def get_suspend_church_command(session: DbSession) -> SuspendChurch:
+    return SuspendChurch(
+        SqlChurchSuspensionRepository(session),
+        get_group_access_policy(session),
+        clock=lambda: datetime.now(UTC),
+    )
+
+
+DeclareCadenceDep = Annotated[DeclareCadence, Depends(get_declare_cadence_command)]
+AcknowledgeOccurrenceDep = Annotated[
+    AcknowledgeOccurrence, Depends(get_acknowledge_occurrence_command)
+]
+SuspendChurchDep = Annotated[SuspendChurch, Depends(get_suspend_church_command)]
 CreateGatheringDep = Annotated[CreateGathering, Depends(get_create_gathering_command)]
 SelfCheckInDep = Annotated[SelfCheckIn, Depends(get_self_check_in_command)]
 MarkPresentDep = Annotated[MarkPresent, Depends(get_mark_present_command)]

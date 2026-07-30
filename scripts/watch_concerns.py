@@ -32,6 +32,7 @@ from app.contexts.tenant.infrastructure.persistence.models import TenantModel
 from app.contexts.watch.interface.dependencies import (
     build_dumping_guard,
     build_escalate_concerns,
+    build_fire_checks,
 )
 from app.core.database import async_session_factory
 
@@ -39,17 +40,22 @@ from app.core.database import async_session_factory
 async def main() -> None:
     async with async_session_factory() as session:
         tenants = (await session.execute(select(TenantModel.id))).scalars().all()
+        fire = build_fire_checks(session)
         escalate = build_escalate_concerns(session)
         guard = build_dumping_guard(session)
 
-        escalated = overloaded = 0
+        fired = deferred = escalated = overloaded = 0
         for tenant_id in tenants:
+            report = await fire.execute(tenant_id=tenant_id)
+            fired += report.fired
+            deferred += report.deferred
             escalated += len(await escalate.execute(tenant_id=tenant_id))
             overloaded += len(await guard.execute(tenant_id=tenant_id))
         await session.commit()
 
     print(
-        f"Veille des inquiétudes : {escalated} engagement(s) non tenu(s) remonté(s), "
+        f"Veille : {fired} échéance(s) tirée(s), {deferred} différée(s) par le garde "
+        f"anti-orage, {escalated} engagement(s) non tenu(s) remonté(s), "
         f"{overloaded} responsable(s) probablement débordé(s)."
     )
 

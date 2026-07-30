@@ -9,12 +9,14 @@ from uuid import UUID
 from fastapi import APIRouter, status
 
 from app.contexts.attendance.interface.dependencies import (
+    AcknowledgeOccurrenceDep,
     AddVisitorDep,
     CancelAbsenceDep,
     CloseGatheringDep,
     ConvertVisitorDep,
     CreateGatheringDep,
     DeclareAbsenceDep,
+    DeclareCadenceDep,
     GetCareListDep,
     GetCellHealthDep,
     GetGatheringRosterDep,
@@ -31,13 +33,17 @@ from app.contexts.attendance.interface.dependencies import (
     UnmarkPresentDep,
 )
 from app.contexts.attendance.interface.schemas import (
+    AcknowledgementResponse,
+    AcknowledgeOccurrenceRequest,
     AddVisitorRequest,
+    CadenceResponse,
     CareListResponse,
     CellHealthResponse,
     ConvertVisitorRequest,
     ConvertVisitorResponse,
     CreateGatheringRequest,
     DeclareAbsenceRequest,
+    DeclareCadenceRequest,
     GatheringResponse,
     GroupEffectifResponse,
     GroupPulseResponse,
@@ -405,3 +411,61 @@ async def remove_visitor(
     await command.execute(
         actor_account_id=actor.account_id, gathering_id=gathering_id, visitor_id=visitor_id
     )
+
+
+# --- Cadence : le rythme du groupe, et « pas de rencontre cette semaine » ---------------------
+#
+# Sans cette surface, `ManageCadence` et l'acquittement restaient écrits, testés, migrés — et
+# appelés par personne. Le responsable ne pouvait pas déclarer une occurrence non tenue, et la
+# couverture signalait des groupes aveugles à Noël alors que tout le monde savait pourquoi.
+
+
+@router.post(
+    "/tenants/{tenant_id}/groups/{group_id}/cadence",
+    response_model=CadenceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Déclarer le rythme attendu du groupe (une seule cadence active à la fois)",
+)
+async def declare_cadence(
+    tenant_id: UUID,
+    group_id: UUID,
+    payload: DeclareCadenceRequest,
+    actor: CurrentActor,
+    command: DeclareCadenceDep,
+) -> CadenceResponse:
+    dto = await command.execute(
+        actor_account_id=actor.account_id,
+        tenant_id=tenant_id,
+        group_id=group_id,
+        frequency=payload.frequency,
+        anchor_date=payload.anchor_date,
+        active_from=payload.active_from,
+        weekday=payload.weekday,
+        day_of_month=payload.day_of_month,
+        active_until=payload.active_until,
+    )
+    return CadenceResponse.from_dto(dto)
+
+
+@router.post(
+    "/tenants/{tenant_id}/groups/{group_id}/acknowledgements",
+    response_model=AcknowledgementResponse,
+    summary="« Pas de rencontre cette semaine » — motif connu, occurrence acquittée (idempotent)",
+)
+async def acknowledge_occurrence(
+    tenant_id: UUID,
+    group_id: UUID,
+    payload: AcknowledgeOccurrenceRequest,
+    actor: CurrentActor,
+    command: AcknowledgeOccurrenceDep,
+) -> AcknowledgementResponse:
+    # Idempotent : re-poser le même acquittement renvoie l'existant. Un responsable qui tape
+    # deux fois n'a pas à se demander s'il a créé un doublon.
+    dto = await command.execute(
+        actor_account_id=actor.account_id,
+        tenant_id=tenant_id,
+        group_id=group_id,
+        occurrence_date=payload.occurrence_date,
+        reason=payload.reason,
+    )
+    return AcknowledgementResponse.from_dto(dto)

@@ -287,6 +287,41 @@ class ContactAttemptModel(Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ScheduledCheckModel(Base):
+    """Une **échéance** posée par le moteur. C'est par ici que le temps entre dans la veille.
+
+    Quand elle arrive à terme, le worker écrit un `CHECK_FIRED` **au ledger** — il ne modifie
+    aucun état directement. C'est ce qui garde le rejeu déterministe : un interpreter ne lit
+    jamais l'horloge, donc rejouer demain donne exactement ce que le direct a produit.
+
+    `reason` voyage avec l'échéance et se retrouve dans le fait émis. Sans elle, le responsable
+    reçoit un rappel qu'on ne sait plus expliquer — et un rappel inexplicable est ignoré.
+
+    `fired_at` et `cancelled_at` sont exclusifs : une échéance tombe, ou elle est annulée.
+    L'annulation est **vitale** — sans elle on programme des rappels sur des gens décédés.
+    """
+
+    __tablename__ = "watch_scheduled_checks"
+
+    __table_args__ = (
+        # L'index du worker : ce qui est dû, non tiré, non annulé.
+        Index("ix_watch_checks_due", "tenant_id", "due_at", "fired_at", "cancelled_at"),
+        Index("ix_watch_checks_subject", "tenant_id", "subject_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    subject_id: Mapped[UUID] = mapped_column(Uuid)
+    kind: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class CareMemoryModel(Base):
     """La mémoire du lien — ce qui a été porté, à rendre **une fois** à qui cela console.
 

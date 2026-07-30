@@ -10,7 +10,11 @@ from app.contexts.attendance.domain.repositories import (
     WatchExclusionRepository,
 )
 from app.contexts.watch.application.intake import FactLedger
-from app.contexts.watch.application.ports import ContactAttemptStore, SignalStore
+from app.contexts.watch.application.ports import (
+    ContactAttemptStore,
+    ScheduledCheckStore,
+    SignalStore,
+)
 from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 from app.contexts.watch.domain.errors import HumanClosureRequiredError
 from app.contexts.watch.domain.facts import Fact
@@ -227,6 +231,17 @@ class FakeSignals(SignalStore):
             (s for s in self.rows if s.id == signal_id and s.tenant_id == tenant_id), None
         )
 
+    async def live_case_of(self, *, subject_id, tenant_id):
+        return self._live(subject_id, tenant_id)
+
+    async def cases_by_subjects(self, *, subject_ids, tenant_id):
+        wanted = {s for s in subject_ids if s is not None}
+        return {
+            s.subject_id: s
+            for s in self.rows
+            if s.tenant_id == tenant_id and s.subject_id in wanted and s.is_live
+        }
+
     async def save_case(self, signal):
         pass  # agrégat muté en mémoire
 
@@ -321,3 +336,81 @@ class FakeContactAttempts(ContactAttemptStore):
             and a.awaits_answer
             and a.attempted_at >= since
         ]
+
+
+class FakeChecks(ScheduledCheckStore):
+    """Les échéances en mémoire. Mêmes règles que le SQL : idempotence et exclusivité."""
+
+    def __init__(self) -> None:
+        self.rows = []
+
+    def _pending(self, subject_id, tenant_id):
+        return [
+            c
+            for c in self.rows
+            if c["subject_id"] == subject_id
+            and c["tenant_id"] == tenant_id
+            and c["fired_at"] is None
+            and c["cancelled_at"] is None
+        ]
+
+    async def schedule(self, *, subject_id, tenant_id, kind, reason, due_at, at):
+        already = [
+            c
+            for c in self._pending(subject_id, tenant_id)
+            if c["kind"] == kind and c["due_at"] == due_at
+        ]
+        if already:
+            return  # rejouer le ledger ne duplique pas une échéance
+        self.rows.append(
+            {
+                "id": uuid4(), "tenant_id": tenant_id, "subject_id": subject_id,
+                "kind": kind, "reason": reason, "due_at": due_at,
+                "scheduled_at": at, "fired_at": None, "cancelled_at": None,
+            }
+        )
+
+    async def cancel_for(self, *, subject_id, tenant_id, kind, at):
+        targets = [
+            c for c in self._pending(subject_id, tenant_id) if kind is None or c["kind"] == kind
+        ]
+        for c in targets:
+            c["cancelled_at"] = at
+        return len(targets)
+
+    async def due(self, *, tenant_id, now, limit):
+        from app.contexts.watch.infrastructure.persistence.checks import DueCheck
+
+        ready = sorted(
+            (
+                c
+                for c in self.rows
+                if c["tenant_id"] == tenant_id
+                and c["due_at"] <= now
+                and c["fired_at"] is None
+                and c["cancelled_at"] is None
+            ),
+            key=lambda c: c["due_at"],
+        )
+        return [
+            DueCheck(
+                id=c["id"], tenant_id=c["tenant_id"], subject_id=c["subject_id"],
+                kind=c["kind"], reason=c["reason"], due_at=c["due_at"],
+            )
+            for c in ready[:limit]
+        ]
+
+    async def mark_fired(self, *, check_id, at):
+        for c in self.rows:
+            if c["id"] == check_id:
+                c["fired_at"] = at
+
+    async def pending_count(self, *, tenant_id, now):
+        return sum(
+            1
+            for c in self.rows
+            if c["tenant_id"] == tenant_id
+            and c["due_at"] <= now
+            and c["fired_at"] is None
+            and c["cancelled_at"] is None
+        )

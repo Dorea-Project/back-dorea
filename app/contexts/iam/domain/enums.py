@@ -65,6 +65,9 @@ class RoleCode(StrEnum):
     ADMIN = "admin"
     GROUP_LEADER = "group_leader"
     LEADER_IN_TRAINING = "leader_in_training"  # M4 §5 — « Timothée » (sans autorité)
+    # Le comptable, distinct de l'ordonnateur. Ce n'est pas un rôle inventé pour le
+    # logiciel : toute église en a un, et la séparation lancer/voir se pratique déjà.
+    TREASURER = "treasurer"
     WELCOME_TEAM = "welcome_team"  # ex-« accueil »
     INTEGRATION_TEAM = "integration_team"  # ex-« intégration »
     NETWORK_SUPERVISOR = "network_supervisor"

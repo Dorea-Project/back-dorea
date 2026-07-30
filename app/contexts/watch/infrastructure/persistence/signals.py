@@ -326,6 +326,24 @@ class SqlSignalStore(SignalStore):
             return None
         return _to_signal(row)
 
+    async def live_case_of(self, *, subject_id: UUID, tenant_id: UUID) -> Signal | None:
+        row = await self._live_row(subject_id, tenant_id)
+        return _to_signal(row) if row is not None else None
+
+    async def cases_by_subjects(
+        self, *, subject_ids, tenant_id: UUID
+    ) -> dict[UUID, Signal]:
+        ids = [s for s in subject_ids if s is not None]
+        if not ids:
+            return {}
+        stmt = select(SignalModel).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.subject_id.in_(ids),
+            SignalModel.status.in_(_LIVE),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return {r.subject_id: _to_signal(r) for r in rows}
+
     async def save_case(self, signal: Signal) -> None:
         row = await self._session.get(SignalModel, signal.id)
         if row is None:

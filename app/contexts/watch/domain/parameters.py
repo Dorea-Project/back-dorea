@@ -40,6 +40,12 @@ class WatchParam(StrEnum):
     # Taux de contact **en pourcentage** — un entier, parce que tout le catalogue l'est et
     # qu'un paramètre qui change de type est un paramètre qu'on finit par mal lire.
     CONCERN_CONTACT_RATE_FLOOR_PERCENT = "concern_contact_rate_floor_percent"
+    # **Le garde anti-orage.** Si le cron ne tourne pas pendant trois jours, toutes les échéances
+    # dues partent d'un coup : le responsable ouvre l'application sur cinquante lignes et
+    # n'ouvre plus rien du tout. On en tire un nombre borné par passe, les plus anciennes
+    # d'abord ; le reste **reste dû** et sortira à la passe suivante. Rien n'est perdu, tout est
+    # étalé — la panne de cron devient un retard, pas une avalanche.
+    CHECK_BURST_CAP = "check_burst_cap"
 
 
 DEFAULTS: dict[WatchParam, int] = {
@@ -51,4 +57,5 @@ DEFAULTS: dict[WatchParam, int] = {
     WatchParam.CONCERN_WINDOW_DAYS: 30,
     WatchParam.CONCERN_VOLUME_FLOOR: 5,
     WatchParam.CONCERN_CONTACT_RATE_FLOOR_PERCENT: 30,
+    WatchParam.CHECK_BURST_CAP: 20,
 }
