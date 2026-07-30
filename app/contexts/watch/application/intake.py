@@ -18,6 +18,7 @@ avec le `Signal`.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -59,7 +60,13 @@ class FactLedger:
 
     async def exists(self, fact_id: UUID) -> bool: ...
 
-    async def stream(self, tenant_id: UUID) -> list[Fact]: ...
+    def stream(self, tenant_id: UUID) -> AsyncIterator[Fact]:
+        """Le journal d'une église, **dans l'ordre de `seq`**, en flux.
+
+        Un flux et non une liste : le rejeu d'une grande église ne doit pas commencer par charger
+        son journal entier en mémoire. Et l'ordre est celui de la base, pas d'un tri refait après
+        coup — c'est le même ordre total qui fonde l'invariant de déterminisme."""
+        ...
 
 
 @dataclass(frozen=True)

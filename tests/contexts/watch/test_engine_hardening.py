@@ -234,6 +234,30 @@ async def test_forcing_a_replay_is_a_signature_not_a_convenience():
     assert signals.rows[0].first_contact_at is None  # l'acte est bien perdu : c'était le marché
 
 
+async def test_the_replay_follows_the_written_order_not_the_dates():
+    """Le rejeu suit `seq`, l'ordre **total** — pas `occurred_at`, qui peut remonter le temps.
+
+    Le flux vient trié de la base et n'est plus retrié en mémoire : trier suppose d'avoir tout
+    chargé, ce que le flux existe précisément pour éviter. Il faut donc que l'ordre du flux soit
+    le bon, et une saisie tardive est le cas qui le prouve."""
+    tenant, member = uuid4(), uuid4()
+    checks = FakeChecks()
+    intake, ledger, *_ = _engine(checks=checks)
+
+    # Le second fait est enregistré après, mais daté d'avant : les dates mentent, `seq` non.
+    await intake.submit(_consented(_rhythm_fact(tenant=tenant, member=member, every_days=7)))
+    late = replace(
+        _consented(_rhythm_fact(tenant=tenant, member=member, every_days=3)),
+        occurred_at=_NOW - timedelta(days=10),
+    )
+    await intake.submit(late)
+
+    seen = [f.seq async for f in ledger.stream(tenant)]
+
+    assert seen == sorted(seen)
+    assert [f.occurred_at for f in ledger.rows] != sorted(f.occurred_at for f in ledger.rows)
+
+
 # --- 2. Un effet que rien n'écrit ne peut pas être silencieux ----------------------------
 
 

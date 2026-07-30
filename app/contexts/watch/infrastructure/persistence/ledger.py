@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC
 from uuid import UUID
 
@@ -94,12 +95,21 @@ class SqlFactLedger(FactLedger):
         stmt = select(FactLedgerModel.seq).where(FactLedgerModel.fact_id == fact_id).limit(1)
         return (await self._session.execute(stmt)).scalar_one_or_none() is not None
 
-    async def stream(self, tenant_id: UUID) -> list[Fact]:
-        """Le journal d'une église, dans l'ordre où il a été écrit."""
+    async def stream(self, tenant_id: UUID) -> AsyncIterator[Fact]:
+        """Le journal d'une église, dans l'ordre où il a été écrit — **un flux**, pas une liste.
+
+        Un curseur serveur : deux cent mille faits ne montent pas en mémoire pour être rejoués.
+        L'ordre est celui de `seq`, le seul ordre total dont on dispose — les dates ne suffisent
+        pas (`recorded_at` peut être à égalité, `occurred_at` peut remonter le temps), et sans
+        ordre total l'invariant de déterminisme n'est pas testable.
+
+        Le tri est donc fait par la base, une fois, au lieu d'être refait en mémoire après coup."""
         stmt = (
             select(FactLedgerModel)
             .where(FactLedgerModel.tenant_id == tenant_id)
             .order_by(FactLedgerModel.seq)
+            .execution_options(yield_per=500)
         )
-        rows = (await self._session.execute(stmt)).scalars().all()
-        return [_to_fact(r) for r in rows]
+        result = await self._session.stream_scalars(stmt)
+        async for row in result:
+            yield _to_fact(row)

@@ -99,11 +99,10 @@ class RebuildProjections:
             # les reposer ferait retomber deux fois le même silence sur la même personne.
             await self._checks.purge_projected(tenant_id)
 
-        facts = await self._ledger.stream(tenant_id)
-        facts.sort(key=lambda f: f.seq if f.seq is not None else 0)
-
         report = ReplayReport()
-        for fact in facts:
+        # Le flux vient déjà trié par `seq` — l'ordre total, celui de l'écriture. On ne le refait
+        # pas en mémoire : trier suppose d'avoir tout chargé, ce que le flux existe pour éviter.
+        async for fact in self._ledger.stream(tenant_id):
             # L'état est relu à chaque pas : un effet posé par le fait n éclaire le fait n+1,
             # exactement comme en direct.
             state = await load_state(self._store, self._signals, fact)

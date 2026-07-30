@@ -35,8 +35,13 @@ class FakeLedger(FactLedger):
     async def exists(self, fact_id: UUID) -> bool:
         return any(f.fact_id == fact_id for f in self.rows)
 
-    async def stream(self, tenant_id: UUID) -> list[Fact]:
-        return [f for f in self.rows if f.tenant_id == tenant_id]
+    async def stream(self, tenant_id: UUID):
+        """Un flux trié par `seq`, comme le vrai — le rejeu ne retrie jamais après coup."""
+        for fact in sorted(
+            (f for f in self.rows if f.tenant_id == tenant_id),
+            key=lambda f: f.seq if f.seq is not None else 0,
+        ):
+            yield fact
 
 
 class FakeAbsences(PlannedAbsenceRepository):
