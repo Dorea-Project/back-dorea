@@ -62,6 +62,7 @@ from app.contexts.watch.application.referent_resolution import (
     ResolveReferent,
     ResolveSignalOwner,
 )
+from app.contexts.watch.application.release_held import ReleaseHeldCases
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -247,6 +248,15 @@ def build_dumping_guard(session) -> GuardAgainstDumping:
         SqlWatchParameterRepository(session),
         clock=lambda: datetime.now(UTC),
         id_factory=uuid4,
+    )
+
+
+def build_release_held(session) -> ReleaseHeldCases:
+    """La relève des retenus — elle n'invente rien, elle émet ce qui avait été détecté."""
+    return ReleaseHeldCases(
+        build_signals(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
     )
 
 

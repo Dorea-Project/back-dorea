@@ -89,7 +89,12 @@ _OUTCOME_OF_CAUSE: dict[ExtinguishCause, SignalOutcome] = {
 
 # Les transitions qui existent. Tout le reste est refusé — pas validé, refusé.
 _TRANSITIONS: dict[SignalStatus, frozenset[SignalStatus]] = {
-    SignalStatus.HELD: frozenset({SignalStatus.OPEN, SignalStatus.RETRACTED}),
+    # `HELD → ASSIGNED` existe depuis que tout cas naît avec un destinataire : un cas retenu qu'on
+    # relâche n'a pas à repasser par `OPEN`, où il attendrait qu'on le lui attribue une seconde
+    # fois. `OPEN` reste la place d'un cas relâché dont le propriétaire aurait disparu entre-temps.
+    SignalStatus.HELD: frozenset(
+        {SignalStatus.OPEN, SignalStatus.ASSIGNED, SignalStatus.RETRACTED}
+    ),
     SignalStatus.OPEN: frozenset(
         {SignalStatus.ASSIGNED, SignalStatus.CLOSED, SignalStatus.RETRACTED}
     ),
@@ -278,8 +283,14 @@ class Signal(AggregateRoot):
         self.status = target
 
     def release(self) -> None:
-        """Le plafond s'est desserré : le cas retenu devient visible."""
-        self._move_to(SignalStatus.OPEN)
+        """Le plafond s'est desserré : le cas retenu devient visible.
+
+        Il va directement chez son destinataire — il en a un depuis son ouverture. Le faire passer
+        par `OPEN` le rendrait « prenable » par n'importe quel responsable de la portée, ce qui est
+        exactement la porte qu'on a fermée en rendant le propriétaire obligatoire."""
+        self._move_to(
+            SignalStatus.ASSIGNED if self.owner_account_id is not None else SignalStatus.OPEN
+        )
 
     def see(self, *, at: datetime) -> None:
         """Le propriétaire a **ouvert** le cas. Un cas jamais ouvert est le vrai signal d'alarme

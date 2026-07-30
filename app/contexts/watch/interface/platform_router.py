@@ -9,6 +9,8 @@ vivaient que dans un script. Un service qu'aucune surface n'atteint ne tourne nu
    pasteur, *à propos du responsable*. La seule remontée du produit où l'escalade change de sujet.
 3. **Le garde-fou** — celui qui signale beaucoup et contacte peu se décharge. Le tell est le
    **ratio**, jamais le volume.
+4. **La relève des retenus** — ce que le plafond avait retenu sort quand la place se libère.
+   « Retenu ≠ perdu » n'est vrai que si quelque chose les relâche.
 
 L'ordre compte : les échéances d'abord, pour que l'escalade voie l'état du jour et non celui
 d'hier.
@@ -31,6 +33,7 @@ from app.contexts.watch.interface.dependencies import (
     build_dumping_guard,
     build_escalate_concerns,
     build_fire_checks,
+    build_release_held,
 )
 
 router = APIRouter(dependencies=[Depends(require_platform_token)])
@@ -49,6 +52,10 @@ class WatchRunResult(BaseModel):
     deferred: int
     escalated: int  # engagements non tenus remontés au pasteur
     overloaded: int  # responsables probablement débordés
+    released: int  # cas retenus par le plafond que la place libérée laisse enfin sortir
+    # Ce qui reste retenu. Un arriéré permanent n'est pas un problème de plafond : c'est une
+    # détection trop bavarde, et c'est le seuil qu'on remonte alors, jamais le plafond.
+    still_held: int
 
 
 @router.post(
@@ -65,16 +72,23 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
     )
     fire = build_fire_checks(session)
     escalate, guard = build_escalate_concerns(session), build_dumping_guard(session)
+    release = build_release_held(session)
 
-    fired = deferred = escalated = overloaded = 0
+    fired = deferred = escalated = overloaded = released = still_held = 0
     for each in tenants:
         report = await fire.execute(tenant_id=each)
         fired += report.fired
         deferred += report.deferred
         escalated += len(await escalate.execute(tenant_id=each))
         overloaded += len(await guard.execute(tenant_id=each))
+        # En dernier : les échéances de la passe ont pu ouvrir des cas, et les clôtures de la
+        # journée ont pu libérer de la place. On relâche d'après l'état du jour, pas celui d'hier.
+        freed = await release.execute(tenant_id=each)
+        released += freed.released
+        still_held += freed.still_held
 
     return WatchRunResult(
         tenants=len(tenants), fired=fired, deferred=deferred,
         escalated=escalated, overloaded=overloaded,
+        released=released, still_held=still_held,
     )

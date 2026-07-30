@@ -298,6 +298,9 @@ class FakeSignals(SignalStore):
             and s.closed_at >= since
         ]
 
+    async def held_cases(self, *, tenant_id):
+        return [s for s in self.rows if s.tenant_id == tenant_id and s.is_held]
+
     async def human_traces(self, tenant_id):
         from app.contexts.watch.application.ports import HumanTraces
 

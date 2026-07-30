@@ -291,6 +291,14 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def held_cases(self, *, tenant_id: UUID) -> list:
+        """Les cas **détectés et retenus** par le plafond, en agrégats mutables.
+
+        Ils sont réévalués chaque nuit : « retenu ≠ perdu » n'est vrai que si quelque chose les
+        relâche."""
+        ...
+
+    @abstractmethod
     async def human_traces(self, tenant_id: UUID) -> HumanTraces:
         """Ce qu'un rejeu effacerait sans pouvoir le reconstruire — **à compter avant de purger**.
 

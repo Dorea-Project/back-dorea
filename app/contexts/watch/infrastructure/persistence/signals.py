@@ -374,6 +374,15 @@ class SqlSignalStore(SignalStore):
         rows = (await self._session.execute(stmt)).scalars().all()
         return {r.subject_id: _to_signal(r) for r in rows}
 
+    async def held_cases(self, *, tenant_id: UUID) -> list[Signal]:
+        """Les cas retenus par le plafond — `ix_watch_signals_tenant_status`."""
+        stmt = select(SignalModel).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.status == SignalStatus.HELD.value,
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_signal(r) for r in rows]
+
     async def save_case(self, signal: Signal) -> None:
         row = await self._session.get(SignalModel, signal.id)
         if row is None:
