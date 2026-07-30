@@ -15,9 +15,13 @@ from uuid import uuid4
 from fastapi import Depends
 
 from app.api.deps import DbSession
+from app.contexts.attendance.application.absence_rhythm import CadenceAbsenceRhythm
 from app.contexts.attendance.infrastructure.persistence.absence_repository import (
     SqlPlannedAbsenceRepository,
     SqlWatchExclusionRepository,
+)
+from app.contexts.attendance.infrastructure.persistence.cadence_repository import (
+    SqlGroupCadenceRepository,
 )
 from app.contexts.notifications.interface.dependencies import build_scheduler
 from app.contexts.watch.application.concern_watchdog import (
@@ -41,7 +45,10 @@ from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
 from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
 )
-from app.contexts.watch.application.interpreters.presence_recorded import PresenceRecordedV1
+from app.contexts.watch.application.interpreters.presence_recorded import (
+    PresenceRecordedV1,
+    PresenceRecordedV2,
+)
 from app.contexts.watch.application.interpreters.self_declaration import SelfDeclarationV1
 from app.contexts.watch.application.interpreters.third_party_concern import (
     ThirdPartyConcernV1,
@@ -56,6 +63,9 @@ from app.contexts.watch.application.referent_resolution import (
     ResolveSignalOwner,
 )
 from app.contexts.watch.domain.registry import default_registry
+from app.contexts.watch.infrastructure.attendance_context import (
+    AttendanceCheckContext,
+)
 from app.contexts.watch.infrastructure.directories import (
     SqlGroupDirectory,
     SqlInviterDirectory,
@@ -84,6 +94,9 @@ SOURCES = default_registry()
 INTERPRETERS = InterpreterRegistry()
 INTERPRETERS.register(LifeEventAnnouncedV1())
 INTERPRETERS.register(PresenceRecordedV1())
+# La V2 arme la detection d'absence. Les faits entres avant sa date d'effet gardent la
+# V1 : le passe ne change jamais de sens.
+INTERPRETERS.register(PresenceRecordedV2())
 INTERPRETERS.register(AppointmentRequestedV1())
 INTERPRETERS.register(SelfDeclarationV1())
 INTERPRETERS.register(ThirdPartyConcernV1())
@@ -123,12 +136,27 @@ def build_owner_assignment(session) -> ResolveOwners:
     return ResolveOwners(build_signal_owner(session), SqlPeopleDirectory(session))
 
 
+def build_absence_rhythm(session) -> CadenceAbsenceRhythm:
+    """Le rythme du groupe : c'est lui qui dit quand regarder, jamais un nombre de jours en dur."""
+    return CadenceAbsenceRhythm(
+        SqlGroupCadenceRepository(session), SqlWatchParameterRepository(session)
+    )
+
+
+def build_check_context(session) -> AttendanceCheckContext:
+    """Ce que le monde sait au moment du tir — joint au fait, donc rejouable."""
+    return AttendanceCheckContext(
+        session, SqlWatchParameterRepository(session), build_absence_rhythm(session)
+    )
+
+
 def build_fire_checks(session) -> FireDueChecks:
     """Le temps entre par le ledger — et sous plafond, pour ne pas noyer après une panne."""
     return FireDueChecks(
         build_checks(session),
         build_intake(session),
         SqlWatchParameterRepository(session),
+        build_check_context(session),
         clock=lambda: datetime.now(UTC),
     )
 

@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from app.api.deps import DbSession
+from app.contexts.attendance.application.absence_rhythm import CadenceAbsenceRhythm
 from app.contexts.attendance.application.commands.add_visitor import AddVisitor, RemoveVisitor
 from app.contexts.attendance.application.commands.close_gathering import CloseGathering
 from app.contexts.attendance.application.commands.convert_visitor import ConvertVisitor
@@ -71,6 +72,9 @@ from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyMembershipRepository,
 )
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
+from app.contexts.watch.infrastructure.persistence.referent import (
+    SqlWatchParameterRepository,
+)
 from app.contexts.watch.interface.dependencies import build_intake
 
 
@@ -107,14 +111,22 @@ def get_self_check_in_command(session: DbSession) -> SelfCheckIn:
         SqlGatheringRepository(session),
         SqlAttendanceRecordRepository(session),
         SqlGroupMembershipRepository(session),
-        DetectReturn(build_intake(session)),
+        _returns(session),
         clock=lambda: datetime.now(UTC),
     )
 
 
 def _returns(session) -> DetectReturn:
-    """La présence est une **source** du moteur : elle émet un fait, elle ne décide rien."""
-    return DetectReturn(build_intake(session))
+    """La présence est une **source** du moteur : elle émet un fait, elle ne décide rien.
+
+    Le rythme du groupe voyage avec ce fait : c'est lui qui dira quand regarder à nouveau si cette
+    personne a disparu. Sans lui, la présence constate un retour et n'arme rien."""
+    return DetectReturn(
+        build_intake(session),
+        CadenceAbsenceRhythm(
+            SqlGroupCadenceRepository(session), SqlWatchParameterRepository(session)
+        ),
+    )
 
 
 def get_mark_present_command(access: GroupAccessPolicyDep, session: DbSession) -> MarkPresent:

@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from app.contexts.watch.application.check_context import CheckContext
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.ports import ScheduledCheckStore
 from app.contexts.watch.application.referent_ports import WatchParameterRepository
@@ -58,12 +59,15 @@ class FireDueChecks:
         checks: ScheduledCheckStore,
         intake: Intake,
         params: WatchParameterRepository,
+        context: CheckContext | None = None,
         *,
         clock,
     ) -> None:
         self._checks = checks
         self._intake = intake
         self._params = params
+        # Ce que le monde sait au moment du tir — joint au fait, jamais relu plus tard.
+        self._context = context
         self._clock = clock
 
     async def execute(self, *, tenant_id: UUID) -> FiredChecks:
@@ -77,6 +81,9 @@ class FireDueChecks:
             # fenêtre où le fait était au ledger sans que l'échéance soit close — la passe
             # suivante l'aurait retirée.
             await self._checks.mark_fired(check_id=check.id, at=now)
+            observed = (
+                await self._context.for_check(check) if self._context is not None else {}
+            )
             await self._intake.submit(
                 Fact(
                     # **Dérivé de l'échéance**, jamais tiré au hasard : c'est ce qui rend le
@@ -97,6 +104,10 @@ class FireDueChecks:
                         # Ce que la pose savait voyage jusqu'au tir : le groupe, la cadence, la
                         # date de la dernière parole. L'interpreter reste pur.
                         **dict(check.payload),
+                        # Et ce que le monde dit **aujourd'hui** : combien de rencontres se sont
+                        # réellement tenues, à partir de quel seuil. Écrit dans le fait, donc
+                        # rejouable — un rejeu relit ce jour-là au lieu de recompter.
+                        **dict(observed),
                         "check_id": str(check.id),
                         "kind": check.kind,
                         # La raison de la programmation voyage jusqu'au fait : sans elle, le

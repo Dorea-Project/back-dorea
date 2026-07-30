@@ -19,14 +19,19 @@ from datetime import UTC, datetime
 
 from app.contexts.watch.application.interpretation import WatchStateView
 from app.contexts.watch.domain.effects import (
+    CancelScheduledChecks,
     Extinguish,
     ExtinguishCause,
     ProposedEffect,
     RecordMemory,
+    ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact, FactKind
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
+
+# Le régime d'échéance de la détection d'absence. Nommé ici, à côté de qui le pose.
+ABSENCE_WATCH_KIND = "absence_watch"
 
 
 class PresenceRecordedV1:
@@ -59,5 +64,54 @@ class PresenceRecordedV1:
                 reason=f"Revenu(e) le {came_back_on}.",
                 at=fact.occurred_at,
                 item="return_confirmed",
+            ),
+        ]
+
+
+class PresenceRecordedV2(PresenceRecordedV1):
+    """V2 — la présence **repousse** le regard, en plus de constater le retour.
+
+    C'est ici que naît la détection d'absence, et elle naît d'une **parole** : on ne constate
+    jamais un silence, on pose un rendez-vous au moment où quelqu'un est là, et c'est ce
+    rendez-vous qui, en tombant, regardera ce qui s'est passé depuis.
+
+    **Tant qu'Awa vient, rien ne tombe jamais.** Chaque présence annule l'échéance précédente et en
+    pose une nouvelle. L'annulation n'est pas une optimisation : sans elle, une personne revenue en
+    février recevrait quand même le regard programmé en janvier.
+
+    La date vient du fait — calculée par la Présence d'après le rythme du groupe, figée à
+    l'émission. L'interpreter, lui, ne lit ni l'horloge ni la cadence : c'est ce qui rend le rejeu
+    identique au direct, même si le groupe change de rythme entre-temps.
+    """
+
+    version = 2
+    effective_from = datetime(2026, 7, 30, tzinfo=UTC)
+
+    def interpret(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
+        effects = list(super().interpret(fact, state))
+
+        due = fact.payload.get("check_absence_at")
+        group_id = fact.payload.get("group_id")
+        if not due or not group_id:
+            # Une rencontre sans groupe, ou un groupe sans cadence déclarée : il n'y a pas
+            # d'occurrence attendue, donc rien à manquer. On ne pose pas d'échéance sur une
+            # intuition — le silence de quelqu'un dont personne n'attend rien n'est pas un signal.
+            return effects
+
+        return [
+            *effects,
+            # D'abord annuler : une seule échéance d'absence à la fois par personne.
+            CancelScheduledChecks(
+                subject_id=fact.subject_id,
+                reason="Elle était là — le regard précédent n'a plus lieu d'être.",
+                kind=ABSENCE_WATCH_KIND,
+            ),
+            ScheduleCheck(
+                subject_id=fact.subject_id,
+                reason="Regarder si cette personne a reparu depuis.",
+                at=datetime.fromisoformat(str(due)),
+                kind=ABSENCE_WATCH_KIND,
+                # Ce que le tir aura besoin de savoir : depuis quand, et dans quel groupe.
+                payload={"group_id": str(group_id), "since": fact.occurred_at.isoformat()},
             ),
         ]

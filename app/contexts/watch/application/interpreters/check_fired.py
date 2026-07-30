@@ -66,6 +66,8 @@ class CheckFiredV1:
 
         if check_kind == CheckKind.RHYTHM:
             return self._rhythm(fact, reason)
+        if check_kind == CheckKind.ABSENCE_WATCH:
+            return self._absence(fact, state)
         if check_kind == CheckKind.RETURN:
             return [
                 OpenCase(
@@ -79,6 +81,66 @@ class CheckFiredV1:
                 )
             ]
         return []
+
+    def _absence(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
+        """*« Awa, trois rencontres, sans nouvelles. »* — la phrase que le produit existe pour dire.
+
+        Trois refus, et ils comptent autant que l'ouverture :
+
+        - **une neutralisation en cours ne produit rien.** Un deuil, un voyage, une maladie
+          déclarée : le silence a une explication, et rappeler quelqu'un pour lui demander pourquoi
+          il n'est pas venu à l'enterrement de son père est l'échec le plus cher du produit ;
+        - **sous le seuil, on repose le regard**, on n'ouvre pas. Deux rencontres manquées, c'est
+          la vie ;
+        - **sans occurrence tenue, rien.** Si le groupe ne s'est pas réuni, personne n'a rien
+          manqué — c'est la protection qu'apporte le comptage des rencontres **réellement tenues**
+          plutôt que des semaines écoulées.
+        """
+        neutralized = [
+            n for n in state.neutralizations_of(fact.subject_id)
+            if n.starts_at <= fact.occurred_at <= n.expected_return_at
+        ]
+        occurrences = int(fact.payload.get("occurrences") or 0)
+        threshold = int(fact.payload.get("threshold") or 0)
+        next_at = fact.payload.get("next_check_at")
+
+        if neutralized or not threshold or occurrences < threshold:
+            return self._look_again(fact, next_at)
+
+        label = (fact.payload.get("group_label") or "").strip()
+        where = f" de {label}" if label else ""
+        return [
+            OpenCase(
+                subject_id=fact.subject_id,
+                # La phrase est écrite ici, une fois, et voyage telle quelle jusqu'à l'écran : un
+                # responsable lit une personne et un nombre de rencontres, pas un code d'état.
+                reason=f"Sans nouvelles — {occurrences} rencontres{where}.",
+                origin=CasePriority.ABSENCE,
+                opened_at=fact.occurred_at,
+            )
+        ]
+
+    def _look_again(self, fact: Fact, next_at) -> Sequence[ProposedEffect]:
+        """Rien à dire aujourd'hui — mais on ne cesse pas de regarder pour autant.
+
+        Sans cette re-pose, une personne sous le seuil sortirait définitivement du regard : la
+        première échéance tombée serait la dernière, et le silence qui s'installe ensuite ne serait
+        constaté par personne."""
+        if not next_at:
+            return []
+        return [
+            ScheduleCheck(
+                subject_id=fact.subject_id,
+                reason="Regarder si cette personne a reparu depuis.",
+                at=datetime.fromisoformat(str(next_at)),
+                kind=CheckKind.ABSENCE_WATCH.value,
+                payload={
+                    k: v
+                    for k, v in fact.payload.items()
+                    if k in ("group_id", "since")
+                },
+            )
+        ]
 
     def _rhythm(self, fact: Fact, reason: str) -> Sequence[ProposedEffect]:
         """Le rythme choisi par la personne : on ouvre, **et on repose la suivante**.

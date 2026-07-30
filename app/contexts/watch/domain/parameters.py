@@ -46,6 +46,15 @@ class WatchParam(StrEnum):
     # d'abord ; le reste **reste dû** et sortira à la passe suivante. Rien n'est perdu, tout est
     # étalé — la panne de cron devient un retard, pas une avalanche.
     CHECK_BURST_CAP = "check_burst_cap"
+    # **Le seuil de la détection d'absence**, en occurrences **tenues** du groupe — jamais en
+    # jours. Trois semaines de silence dans une cellule hebdomadaire et un trimestre dans une
+    # commission mensuelle ne disent pas la même chose ; compter les rencontres réellement tenues
+    # est la seule mesure qui veuille dire quelque chose dans les deux cas. Et une semaine sans
+    # rencontre ne compte pour personne : il n'y a pas d'occurrence à manquer.
+    ABSENCE_OCCURRENCES_THRESHOLD = "absence_occurrences_threshold"
+    # La marge après la rencontre attendue avant de regarder. Sans elle, l'échéance tombe pendant
+    # que le responsable est encore en train de saisir sa feuille de présence.
+    ABSENCE_CHECK_GRACE_DAYS = "absence_check_grace_days"
 
 
 DEFAULTS: dict[WatchParam, int] = {
@@ -58,4 +67,6 @@ DEFAULTS: dict[WatchParam, int] = {
     WatchParam.CONCERN_VOLUME_FLOOR: 5,
     WatchParam.CONCERN_CONTACT_RATE_FLOOR_PERCENT: 30,
     WatchParam.CHECK_BURST_CAP: 20,
+    WatchParam.ABSENCE_OCCURRENCES_THRESHOLD: 3,
+    WatchParam.ABSENCE_CHECK_GRACE_DAYS: 2,
 }

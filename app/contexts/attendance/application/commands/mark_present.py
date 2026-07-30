@@ -84,6 +84,9 @@ class MarkPresent:
                 occurred_at=gathering.scheduled_at,
                 gathering_id=gathering.id,
                 recorded_at=self._clock(),
+                # Le groupe de la rencontre : c'est son rythme qui dira quand regarder
+                # à nouveau si cette personne a disparu.
+                group_id=gathering.group_id,
             )
 
 

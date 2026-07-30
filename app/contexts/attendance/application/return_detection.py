@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from app.contexts.attendance.application.absence_rhythm import AbsenceRhythm
 from app.contexts.watch.application.intake import Intake, warn_if_disconnected
 from app.contexts.watch.domain.facts import Fact, FactKind, SubjectKind
 from app.contexts.watch.domain.registry import ATTENDANCE
@@ -33,9 +34,10 @@ def fact_id_for(gathering_id: UUID, account_id: UUID) -> UUID:
 class DetectReturn:
     """Signale au moteur qu'une personne était là. Best-effort : jamais bloquant pour M6."""
 
-    def __init__(self, intake: Intake | None) -> None:
+    def __init__(self, intake: Intake | None, rhythm: AbsenceRhythm | None = None) -> None:
         warn_if_disconnected("attendance", intake)
         self._intake = intake
+        self._rhythm = rhythm
 
     async def on_positive_presence(
         self,
@@ -45,9 +47,23 @@ class DetectReturn:
         occurred_at: datetime,
         gathering_id: UUID,
         recorded_at: datetime,
+        group_id: UUID | None = None,
     ) -> None:
         if self._intake is None:
             return
+        payload: dict[str, object] = {"gathering_id": str(gathering_id)}
+        # **La date à laquelle il faudra regarder à nouveau voyage avec la présence.** C'est ce
+        # qui permet au moteur de constater un silence sans jamais l'enregistrer comme un fait :
+        # on pose un rendez-vous au moment d'une parole, et c'est lui qui, en tombant, regardera
+        # ce qui s'est passé depuis. Calculée ici, figée dans le fait — un interpreter ne lit ni
+        # l'horloge, ni la cadence, et le rejeu rend donc exactement ce que le direct a rendu.
+        if group_id is not None and self._rhythm is not None:
+            due = await self._rhythm.next_check_at(
+                group_id=group_id, tenant_id=tenant_id, since=occurred_at
+            )
+            if due is not None:
+                payload["group_id"] = str(group_id)
+                payload["check_absence_at"] = due.isoformat()
         await self._intake.submit(
             Fact(
                 fact_id=fact_id_for(gathering_id, account_id),
@@ -58,6 +74,6 @@ class DetectReturn:
                 kind=FactKind.PRESENCE_RECORDED,
                 subject_kind=SubjectKind.PERSON,
                 subject_id=account_id,
-                payload={"gathering_id": str(gathering_id)},
+                payload=payload,
             )
         )
