@@ -109,5 +109,9 @@ def _rhythm(fact: Fact) -> Sequence[ProposedEffect]:
             reason=f"Rythme choisi : prendre de ses nouvelles tous les {every_days} jours.",
             at=fact.occurred_at + timedelta(days=int(every_days)),
             kind=RHYTHM_KIND,
+            # La cadence voyage avec l'échéance : quand elle tombera, l'interpreter du tir saura
+            # reposer la suivante sans relire quoi que ce soit. Un rythme qu'on honore une fois
+            # puis qu'on oublie est pire que pas de rythme du tout.
+            payload={"every_days": int(every_days)},
         )
     ]

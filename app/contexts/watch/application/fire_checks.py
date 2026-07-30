@@ -22,7 +22,7 @@ les 180 restantes ressemble à une passe qui a tout traité.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.ports import ScheduledCheckStore
@@ -30,6 +30,16 @@ from app.contexts.watch.application.referent_ports import WatchParameterReposito
 from app.contexts.watch.domain.facts import Fact, FactKind, SubjectKind
 from app.contexts.watch.domain.parameters import WatchParam
 from app.contexts.watch.domain.registry import WATCH_SCHEDULER
+
+_FACT_NAMESPACE = uuid5(NAMESPACE_URL, "dorea:watch:check_fired")
+
+
+def fact_id_for(check_id: UUID) -> UUID:
+    """Identité **dérivée** de l'échéance : une échéance ne peut tomber qu'une fois.
+
+    C'est le contrôle de doublon de l'intake qui devient la protection contre les crons qui se
+    chevauchent — pas une convention d'exploitation qu'on espère respectée."""
+    return uuid5(_FACT_NAMESPACE, str(check_id))
 
 
 @dataclass(frozen=True)
@@ -50,13 +60,11 @@ class FireDueChecks:
         params: WatchParameterRepository,
         *,
         clock,
-        id_factory=uuid4,
     ) -> None:
         self._checks = checks
         self._intake = intake
         self._params = params
         self._clock = clock
-        self._new_id = id_factory
 
     async def execute(self, *, tenant_id: UUID) -> FiredChecks:
         now = self._clock()
@@ -64,9 +72,18 @@ class FireDueChecks:
         due = await self._checks.due(tenant_id=tenant_id, now=now, limit=cap)
 
         for check in due:
+            # Marquée tirée **avant** d'entrer : la ligne est déjà verrouillée par `due()`, et si
+            # l'intake échoue, la transaction entière retombe. L'ordre inverse laissait une
+            # fenêtre où le fait était au ledger sans que l'échéance soit close — la passe
+            # suivante l'aurait retirée.
+            await self._checks.mark_fired(check_id=check.id, at=now)
             await self._intake.submit(
                 Fact(
-                    fact_id=self._new_id(),
+                    # **Dérivé de l'échéance**, jamais tiré au hasard : c'est ce qui rend le
+                    # contrôle de doublon de l'intake capable d'attraper quelque chose. Avec un
+                    # identifiant neuf à chaque passe, deux crons qui se chevauchent écrivaient
+                    # deux fois la même échéance et relançaient deux fois la même personne.
+                    fact_id=fact_id_for(check.id),
                     tenant_id=tenant_id,
                     # `occurred_at` est la date d'**échéance**, pas celle de la passe : une
                     # panne de cron de trois jours ne doit pas décaler l'histoire de trois jours.
@@ -77,6 +94,9 @@ class FireDueChecks:
                     subject_kind=SubjectKind.PERSON,
                     subject_id=check.subject_id,
                     payload={
+                        # Ce que la pose savait voyage jusqu'au tir : le groupe, la cadence, la
+                        # date de la dernière parole. L'interpreter reste pur.
+                        **dict(check.payload),
                         "check_id": str(check.id),
                         "kind": check.kind,
                         # La raison de la programmation voyage jusqu'au fait : sans elle, le
@@ -85,7 +105,6 @@ class FireDueChecks:
                     },
                 )
             )
-            await self._checks.mark_fired(check_id=check.id, at=now)
 
         remaining = await self._checks.pending_count(tenant_id=tenant_id, now=now)
         return FiredChecks(fired=len(due), deferred=remaining)

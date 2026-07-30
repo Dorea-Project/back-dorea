@@ -11,10 +11,17 @@ C'est l'arbitrage (étage 03) qui décide lesquelles deviennent visibles, et la 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
+from typing import Any
 from uuid import UUID
+
+# Un payload vide et **immuable** : un effet est gelé, sa valeur par défaut ne peut pas être un
+# dict que quelqu'un modifierait par mégarde pour tous les autres.
+_NO_PAYLOAD: Mapping[str, Any] = MappingProxyType({})
 
 
 class EffectKind(StrEnum):
@@ -208,10 +215,16 @@ class RecordMemory(_Effect):
 @dataclass(frozen=True)
 class ScheduleCheck(_Effect):
     """Une échéance. Quand elle tombera, le worker écrira un `CHECK_FIRED` au ledger — c'est
-    ainsi que le temps entre dans le moteur sans casser la rejouabilité."""
+    ainsi que le temps entre dans le moteur sans casser la rejouabilité.
+
+    `payload` voyage avec l'échéance et se retrouve dans le fait émis. C'est ce qui permet à
+    l'interpreter du tir de rester **pur** : tout ce dont il aura besoin dans trois semaines — le
+    groupe concerné, la cadence choisie, la date de la dernière parole — est écrit maintenant, au
+    moment où on le sait, plutôt que relu plus tard dans un état qui aura bougé."""
 
     at: datetime
     kind: str
+    payload: Mapping[str, Any] = _NO_PAYLOAD
 
 
 @dataclass(frozen=True)

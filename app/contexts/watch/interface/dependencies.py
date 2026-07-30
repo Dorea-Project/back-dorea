@@ -37,6 +37,7 @@ from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.appointment_requested import (
     AppointmentRequestedV1,
 )
+from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
 from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
 )
@@ -86,6 +87,9 @@ INTERPRETERS.register(PresenceRecordedV1())
 INTERPRETERS.register(AppointmentRequestedV1())
 INTERPRETERS.register(SelfDeclarationV1())
 INTERPRETERS.register(ThirdPartyConcernV1())
+# Sans lui, le worker écrit des échéances tombées au ledger et il ne se passe rien : le temps
+# entre dans le moteur et n'y produit aucun effet.
+INTERPRETERS.register(CheckFiredV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -126,7 +130,6 @@ def build_fire_checks(session) -> FireDueChecks:
         build_intake(session),
         SqlWatchParameterRepository(session),
         clock=lambda: datetime.now(UTC),
-        id_factory=uuid4,
     )
 
 

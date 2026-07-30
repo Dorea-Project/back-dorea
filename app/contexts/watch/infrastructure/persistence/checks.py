@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from types import MappingProxyType
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, update
@@ -15,7 +18,7 @@ from app.contexts.watch.infrastructure.persistence.models import ScheduledCheckM
 
 @dataclass(frozen=True)
 class DueCheck:
-    """Une échéance arrivée à terme. `reason` voyage jusqu'au fait émis."""
+    """Une échéance arrivée à terme. `reason` et `payload` voyagent jusqu'au fait émis."""
 
     id: UUID
     tenant_id: UUID
@@ -23,6 +26,7 @@ class DueCheck:
     kind: str
     reason: str
     due_at: datetime
+    payload: Mapping[str, Any] = MappingProxyType({})
 
 
 def _aware(dt):
@@ -44,6 +48,7 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
         reason: str,
         due_at: datetime,
         at: datetime,
+        payload: Mapping[str, Any] | None = None,
     ) -> None:
         # Idempotence : rejouer le ledger ne doit pas empiler trois fois la même échéance.
         #
@@ -69,6 +74,7 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
                 subject_id=subject_id,
                 kind=kind,
                 reason=reason,
+                payload=dict(payload or {}),
                 due_at=due_at,
                 scheduled_at=at,
             )
@@ -108,6 +114,11 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
             .order_by(ScheduledCheckModel.due_at)
             .limit(limit)
         )
+        # Deux passes de cron qui se chevauchent ne doivent pas tirer la même échéance : la
+        # seconde saute les lignes déjà prises plutôt que d'attendre — elle a d'autres échéances
+        # à traiter, et une relance en double est reçue comme un harcèlement.
+        if self._session.bind is not None and self._session.bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update(skip_locked=True)
         rows = (await self._session.execute(stmt)).scalars().all()
         return [
             DueCheck(
@@ -117,6 +128,7 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
                 kind=r.kind,
                 reason=r.reason,
                 due_at=_aware(r.due_at),
+                payload=dict(r.payload or {}),
             )
             for r in rows
         ]

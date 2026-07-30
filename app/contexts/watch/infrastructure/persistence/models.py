@@ -318,6 +318,11 @@ class ScheduledCheckModel(Base):
     subject_id: Mapped[UUID] = mapped_column(Uuid)
     kind: Mapped[str] = mapped_column(String)
     reason: Mapped[str] = mapped_column(String)
+    # Ce que l'interpreter du tir lira quand l'échéance tombera : le groupe concerné, la cadence
+    # choisie, la date de la dernière parole. Écrit au moment où on le sait — sans lui, il faudrait
+    # relire trois semaines plus tard un état qui aura bougé, et le rejeu ne rendrait plus la même
+    # chose que le direct.
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

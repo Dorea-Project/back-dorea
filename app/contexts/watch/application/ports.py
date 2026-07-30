@@ -6,8 +6,10 @@ qu'une reprojection soit sûre.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 
@@ -320,8 +322,12 @@ class ScheduledCheckStore(ABC):
         reason: str,
         due_at: datetime,
         at: datetime,
+        payload: Mapping[str, Any] | None = None,
     ) -> None:
-        """Pose une échéance. Idempotent par `(sujet, kind, due_at)` — rejouer ne duplique pas."""
+        """Pose une échéance. Idempotent par `(sujet, kind, due_at)` — rejouer ne duplique pas.
+
+        `payload` est ce que l'interpreter du tir lira dans trois semaines : écrit **maintenant**,
+        au moment où on le sait, plutôt que relu plus tard dans un état qui aura bougé."""
         ...
 
     @abstractmethod

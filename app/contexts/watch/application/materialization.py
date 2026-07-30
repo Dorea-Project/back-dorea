@@ -123,8 +123,10 @@ class Materializer:
                 tenant_id=fact.tenant_id,
                 kind=effect.kind,
                 # La raison voyage avec l'échéance : un rappel qu'on ne sait plus expliquer est
-                # un rappel qu'on ignore.
+                # un rappel qu'on ignore. Le payload voyage aussi : c'est ce que l'interpreter du
+                # tir lira, écrit maintenant plutôt que relu dans un état qui aura bougé.
                 reason=effect.reason,
+                payload=dict(effect.payload),
                 due_at=effect.at,
                 at=fact.occurred_at,
             )

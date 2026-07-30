@@ -391,7 +391,9 @@ class FakeChecks(ScheduledCheckStore):
             and c["cancelled_at"] is None
         ]
 
-    async def schedule(self, *, subject_id, tenant_id, kind, reason, due_at, at):
+    async def schedule(
+        self, *, subject_id, tenant_id, kind, reason, due_at, at, payload=None
+    ):
         # Tous les états, tirées comprises : rejouer ne repose pas une échéance déjà tombée.
         already = [
             c
@@ -406,8 +408,9 @@ class FakeChecks(ScheduledCheckStore):
         self.rows.append(
             {
                 "id": uuid4(), "tenant_id": tenant_id, "subject_id": subject_id,
-                "kind": kind, "reason": reason, "due_at": due_at,
-                "scheduled_at": at, "fired_at": None, "cancelled_at": None,
+                "kind": kind, "reason": reason, "payload": dict(payload or {}),
+                "due_at": due_at, "scheduled_at": at,
+                "fired_at": None, "cancelled_at": None,
             }
         )
 
@@ -437,6 +440,7 @@ class FakeChecks(ScheduledCheckStore):
             DueCheck(
                 id=c["id"], tenant_id=c["tenant_id"], subject_id=c["subject_id"],
                 kind=c["kind"], reason=c["reason"], due_at=c["due_at"],
+                payload=dict(c.get("payload") or {}),
             )
             for c in ready[:limit]
         ]
