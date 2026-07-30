@@ -64,8 +64,12 @@ class FactLedgerModel(Base):
 class SignalModel(Base):
     """Un **cas ouvert**. Entièrement une projection du ledger : effaçable et reconstructible.
 
-    `owner_account_id` est nullable et c'est **une donnée**, pas un manque : « personne ne
-    connaît cette personne » est précisément ce qu'il faut voir.
+    `owner_account_id` est **NOT NULL** depuis le 30/07/2026, et c'est une règle de sûreté avant
+    d'être une contrainte de schéma. Le référent peut être nul — « personne ne connaît cette
+    personne » est une donnée. Le destinataire d'un cas, jamais : un cas sans destinataire est un
+    cas que personne ne traite, et surtout un cas que n'importe quel responsable de la portée
+    pouvait s'attribuer, donc lire. La cascade se termine sur le propriétaire de l'église pour que
+    la colonne tienne sans qu'aucune inquiétude ne se perde.
     """
 
     __tablename__ = "watch_signals"
@@ -87,7 +91,7 @@ class SignalModel(Base):
     reason: Mapped[str] = mapped_column(String)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    owner_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    owner_account_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     source_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
     # L'urgence, distincte de l'origine : un cas d'absence qu'un rendez-vous annulé rend
     # soudain le plus urgent de la file garde son origine et change de priorité.

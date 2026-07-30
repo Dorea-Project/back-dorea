@@ -74,6 +74,26 @@ class PeopleDirectory(ABC):
         """Tous les pasteurs actifs — les candidats au relais, dans un ordre déterministe."""
         ...
 
+    @abstractmethod
+    async def agenda_keeper(self, tenant_id: UUID) -> UUID | None:
+        """Qui tient l'agenda du pasteur — détenteur de `MANAGE_APPOINTMENTS` église-entière.
+
+        Une demande de rendez-vous déclinée est une dette de **l'agenda**, pas du référent : le
+        référent n'a rien décliné. Sans cette question, le cas retombait sur le responsable de
+        cellule, qui lisait au passage que son membre avait demandé à voir un pasteur — la fuite
+        que le chantier ferme."""
+        ...
+
+    @abstractmethod
+    async def tenant_owner(self, tenant_id: UUID) -> UUID | None:
+        """Le propriétaire de l'église — le **dernier échelon**, jamais le premier.
+
+        Il existe toujours (une église sans propriétaire n'existe pas), et c'est ce qui permet à
+        `owner_account_id` d'être NOT NULL sans qu'aucune inquiétude ne soit jamais perdue faute
+        de configuration. Le trou reste consigné : recevoir un cas parce que personne d'autre
+        n'est configuré n'est pas la même chose que le recevoir parce qu'on est le bon."""
+        ...
+
 
 class InviterDirectory(ABC):
     """Qui a fait entrer cette personne — pertinent pour visiteurs et sympathisants."""

@@ -147,11 +147,14 @@ class ResolveSignalOwner:
     """À qui adresser un cas. **Jamais nul** — et le motif d'escalade est renvoyé pour être
     stocké avec le signal.
 
-    Quand aucun échelon n'existe, on préfère ne rien émettre qu'inventer un destinataire. Mais
-    ce refus est **consigné en défaut de couverture** : une église sans admin ni pasteur
-    détecterait tout et n'émettrait rien, et son écran vide dirait « tout va bien » alors qu'il
-    dit « personne n'est configuré ». C'est exactement le faux silence que le produit existe
-    pour empêcher.
+    La cascade se termine sur le **propriétaire de l'église** (décision du 30/07/2026). Il
+    existe toujours ; c'est ce qui permet à `owner_account_id` d'être NOT NULL sans qu'une
+    inquiétude puisse se perdre parce que l'église n'a configuré personne — et perdre une
+    inquiétude serait exactement le faux silence que le produit existe pour empêcher.
+
+    Ce dernier échelon est **consigné en défaut de couverture**. Sans cette trace, une église
+    sans admin ni pasteur enverrait tout à son propriétaire et son écran dirait « tout va
+    bien » alors qu'il dit « personne n'est configuré ».
     """
 
     def __init__(
@@ -184,14 +187,28 @@ class ResolveSignalOwner:
             if primary is None
             else "Ce groupe n'a pas de responsable actif."
         )
-        fallback = await self._people.church_admin(tenant_id) or await self._people.pastor(
+        configured = await self._people.church_admin(tenant_id) or await self._people.pastor(
             tenant_id
         )
+        if configured is not None:
+            return SignalOwner(configured, escalation_reason=reason)
 
-        if fallback is None:
-            await self._record_no_recipient(tenant_id, at)
+        # Dernier échelon : le propriétaire de l'église. Il existe toujours, et c'est ce qui
+        # permet à `owner_account_id` d'être NOT NULL sans qu'aucune inquiétude ne se perde faute
+        # de configuration. Le défaut est **quand même** consigné — recevoir un cas parce que
+        # personne d'autre n'existe n'est pas la même chose que le recevoir parce qu'on est le
+        # bon, et l'église mal configurée ne doit pas passer pour bien tenue.
+        await self._record_no_recipient(tenant_id, at)
+        owner = await self._people.tenant_owner(tenant_id)
+        if owner is None:
             return None
-        return SignalOwner(fallback, escalation_reason=reason)
+        return SignalOwner(
+            owner,
+            escalation_reason=(
+                "Aucun responsable, admin ni pasteur configuré : le cas revient au "
+                "propriétaire de l'église."
+            ),
+        )
 
     async def _record_no_recipient(self, tenant_id: UUID, at: datetime) -> None:
         """Le défaut porte sur l'**église**, pas sur la personne : ce n'est pas elle qui manque."""

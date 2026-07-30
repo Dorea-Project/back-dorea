@@ -25,6 +25,7 @@ from app.contexts.watch.application.arbitration import ArbitrationPolicy, arbitr
 from app.contexts.watch.application.intake import FactLedger, load_state
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.materialization import Materializer
+from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import NeutralizationStore, SignalStore
 
 
@@ -44,6 +45,7 @@ class RebuildProjections:
         interpreters: InterpreterRegistry,
         store: NeutralizationStore,
         signals: SignalStore | None = None,
+        owners: ResolveOwners | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -51,6 +53,10 @@ class RebuildProjections:
         self._interpreters = interpreters
         self._store = store
         self._signals = signals
+        # Le même étage 02bis qu'en direct. Sans lui, le rejeu réécrirait des propriétaires nuls
+        # sur une colonne NOT NULL : la reprojection, qu'on lance précisément quand quelque chose
+        # est déjà cassé, échouerait là où elle doit réparer.
+        self._owners = owners
         self._materializer = Materializer(store, signals)
         self._policy = policy or ArbitrationPolicy()
 
@@ -68,6 +74,11 @@ class RebuildProjections:
             # exactement comme en direct.
             state = await load_state(self._store, self._signals, tenant_id)
             proposed = self._interpreters.interpret(fact, state)
+            undeliverable = ()
+            if self._owners is not None:
+                proposed, undeliverable = await self._owners.execute(
+                    proposed, tenant_id=tenant_id, at=fact.occurred_at
+                )
             decided = arbitrate(proposed, state, policy=self._policy)
             written = await self._materializer.apply(fact, decided.admitted, decided.held)
             report = ReplayReport(
@@ -75,6 +86,6 @@ class RebuildProjections:
                 written=report.written + len(written.written),
                 deferred=report.deferred + len(written.deferred),
                 held=report.held + len(written.held),
-                dropped=report.dropped + len(decided.dropped),
+                dropped=report.dropped + len(decided.dropped) + len(undeliverable),
             )
         return report

@@ -19,18 +19,30 @@ from app.contexts.groups.infrastructure.persistence.models import (
     GroupModel,
 )
 from app.contexts.iam.domain.enums import AccountStatus, MembershipStatus, RoleCode
+from app.contexts.iam.domain.permissions import Permission, permissions_for
 from app.contexts.iam.infrastructure.persistence.models import (
     AccountModel,
     MembershipModel,
     RoleAssignmentModel,
 )
 from app.contexts.mission.infrastructure.persistence.models import SeekerModel
+from app.contexts.tenant.domain.enums import OwnershipStatus
+from app.contexts.tenant.infrastructure.persistence.models import OwnershipModel
 from app.contexts.watch.application.referent_ports import (
     GroupDirectory,
     InviterDirectory,
     PeopleDirectory,
 )
 from app.contexts.watch.domain.referent import MembershipCandidate
+
+# L'ordre du soin pour l'agenda : la secrétaire tient le carnet, le pasteur est le rendez-vous,
+# l'admin gouverne. Filtré par la matrice RBAC — un rôle qui perdrait la permission sort d'ici
+# tout seul, et on ne découvre pas la dérive six mois plus tard sur un cas mal adressé.
+_AGENDA_KEEPER_ROLES: tuple[RoleCode, ...] = tuple(
+    role
+    for role in (RoleCode.SECRETARY, RoleCode.PASTOR, RoleCode.ADMIN)
+    if Permission.MANAGE_APPOINTMENTS in permissions_for(role)
+)
 
 
 class SqlGroupDirectory(GroupDirectory):
@@ -169,7 +181,36 @@ class SqlPeopleDirectory(PeopleDirectory):
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
-    async def _holder_of(self, role: RoleCode, tenant_id: UUID) -> UUID | None:
+    async def agenda_keeper(self, tenant_id: UUID) -> UUID | None:
+        """Le premier détenteur de `MANAGE_APPOINTMENTS` **église-entière**, dans l'ordre du soin.
+
+        La secrétaire d'abord — c'est elle qui tient l'agenda, et une demande déclinée est sa
+        dette avant d'être celle de personne. Puis le pasteur, puis l'admin.
+
+        L'ordre est filtré par la matrice RBAC : un rôle qui perdrait `MANAGE_APPOINTMENTS`
+        disparaît d'ici sans qu'on y pense. Et la portée est **non scopée** : un responsable
+        d'annexe ne tient pas l'agenda de l'église."""
+        for role in _AGENDA_KEEPER_ROLES:
+            found = await self._holder_of(role, tenant_id, church_wide=True)
+            if found is not None:
+                return found
+        return None
+
+    async def tenant_owner(self, tenant_id: UUID) -> UUID | None:
+        """Le siège Owner actif — un seul par église (index partiel M0)."""
+        stmt = (
+            select(OwnershipModel.account_id)
+            .where(
+                OwnershipModel.tenant_id == tenant_id,
+                OwnershipModel.status == OwnershipStatus.ACTIVE.value,
+            )
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalars().first()
+
+    async def _holder_of(
+        self, role: RoleCode, tenant_id: UUID, *, church_wide: bool = False
+    ) -> UUID | None:
         stmt = (
             select(MembershipModel.account_id)
             .join(RoleAssignmentModel, RoleAssignmentModel.membership_id == MembershipModel.id)
@@ -182,6 +223,8 @@ class SqlPeopleDirectory(PeopleDirectory):
             .order_by(RoleAssignmentModel.assigned_at, MembershipModel.account_id)
             .limit(1)
         )
+        if church_wide:
+            stmt = stmt.where(RoleAssignmentModel.group_id.is_(None))
         return (await self._session.execute(stmt)).scalars().first()
 
 

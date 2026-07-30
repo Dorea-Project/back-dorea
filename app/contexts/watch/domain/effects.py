@@ -109,6 +109,20 @@ class CoverageGap(StrEnum):
     LEADER_OVERLOADED = "leader_overloaded"
 
 
+class OwnerKind(StrEnum):
+    """À **quel titre** quelqu'un doit recevoir ce cas — une intention, jamais une identité.
+
+    Un interpreter est pur : il ne peut interroger ni l'annuaire, ni les rôles. Mais il est le
+    seul à savoir *pourquoi* un cas revient à telle place — une demande déclinée est une dette de
+    l'agenda, pas du référent. Il renvoie donc le titre, et la couche applicative le résout avant
+    l'arbitrage. Même patron que le motif d'escalade, déjà renvoyé pour être stocké.
+    """
+
+    REFERENT = "referent"  # le défaut : celui qui connaît cette personne
+    AGENDA_KEEPER = "agenda_keeper"  # celui qui tient l'agenda du pasteur
+    PASTOR = "pastor"  # celui à qui la main avait été tendue
+
+
 class CoverageScope(StrEnum):
     """Sur quoi porte un défaut de couverture. Distinct du sujet d'un `Fact` : un défaut peut
     concerner l'église entière, ce qu'aucun fait ne sait dire."""
@@ -139,9 +153,14 @@ class OpenCase(_Effect):
     opened_at: datetime
     expires_at: datetime | None = None
     role: str | None = None
-    # À qui ce cas revient, **résolu à l'émission** et non recalculé. NULL reste admis : c'est
-    # une donnée — « personne ne connaît cette personne » est précisément ce qu'il faut voir.
+    # À qui ce cas revient, **résolu à l'émission** et non recalculé. NULL ici n'est pas une
+    # donnée : c'est une question encore ouverte, que l'étage 02bis referme avant l'arbitrage.
+    # Un cas sans destinataire est un cas que personne ne traite — et, pire, un cas que
+    # n'importe quel responsable de la portée pourrait s'attribuer, donc lire.
     owner_account_id: UUID | None = None
+    # À défaut d'identité, le **titre** auquel le destinataire doit être cherché. C'est tout ce
+    # qu'un interpreter pur peut dire de sa place.
+    owner_kind: OwnerKind = OwnerKind.REFERENT
 
 
 @dataclass(frozen=True)

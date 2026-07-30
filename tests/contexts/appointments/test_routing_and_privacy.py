@@ -84,6 +84,12 @@ class _People(PeopleDirectory):
     async def pastors(self, tenant_id):
         return list(self._pastors)
 
+    async def agenda_keeper(self, tenant_id):
+        return None
+
+    async def tenant_owner(self, tenant_id):
+        return None
+
 
 class _Params(WatchParameterRepository):
     def __init__(self, overrides=None):

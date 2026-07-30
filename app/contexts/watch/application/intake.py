@@ -17,7 +17,7 @@ avec le `Signal`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from app.contexts.watch.application.arbitration import (
@@ -35,11 +35,13 @@ from app.contexts.watch.application.materialization import (
     MaterializationResult,
     Materializer,
 )
+from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import (
     NeutralizationStore,
     ScheduledCheckStore,
     SignalStore,
 )
+from app.contexts.watch.domain.effects import ProposedEffect
 from app.contexts.watch.domain.errors import (
     ConsentRequiredError,
     FactKindNotAllowedError,
@@ -77,6 +79,7 @@ class Intake:
         store: NeutralizationStore,
         signals: SignalStore | None = None,
         checks: ScheduledCheckStore | None = None,
+        owners: ResolveOwners | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -85,6 +88,10 @@ class Intake:
         self._interpreters = interpreters
         self._store = store
         self._signals = signals
+        # Sans résolveur, une ouverture garde le propriétaire que la source a joint et rien de
+        # plus : c'est le régime des tests d'unité purs, jamais celui de la production — où la
+        # colonne est NOT NULL et refuserait l'écriture.
+        self._owners = owners
         self._materializer = Materializer(store, signals, checks)
         self._policy = policy or ArbitrationPolicy()
 
@@ -120,7 +127,17 @@ class Intake:
 
     async def _run(self, fact: Fact, state: WatchStateView) -> IntakeResult:
         proposed = self._interpreters.interpret(fact, state)
+        # Étage 02bis — le destinataire, résolu **avant** l'arbitrage : c'est lui qui compte le
+        # plafond par propriétaire, et après la fusion il est trop tard pour savoir à qui
+        # l'ouverture aurait été adressée.
+        undeliverable: tuple[tuple[ProposedEffect, str], ...] = ()
+        if self._owners is not None:
+            proposed, undeliverable = await self._owners.execute(
+                proposed, tenant_id=fact.tenant_id, at=fact.occurred_at
+            )
         decided = arbitrate(proposed, state, policy=self._policy)
+        if undeliverable:
+            decided = replace(decided, dropped=decided.dropped + undeliverable)
         written = await self._materializer.apply(fact, decided.admitted, decided.held)
         return IntakeResult(
             accepted=True, fact=fact, arbitration=decided, materialization=written

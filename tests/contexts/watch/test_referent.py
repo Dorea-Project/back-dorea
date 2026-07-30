@@ -80,10 +80,20 @@ class _Groups(GroupDirectory):
 
 
 class _People(PeopleDirectory):
-    def __init__(self, eligible=(), admin=None, pastor=None, member_since=None):
+    def __init__(
+        self,
+        eligible=(),
+        admin=None,
+        pastor=None,
+        member_since=None,
+        agenda_keeper=None,
+        owner=None,
+    ):
         self._eligible = set(eligible)
         self._admin, self._pastor = admin, pastor
         self._member_since = member_since
+        self._agenda_keeper = agenda_keeper
+        self._owner = owner
 
     async def is_eligible(self, account_id, tenant_id):
         return account_id in self._eligible
@@ -99,6 +109,12 @@ class _People(PeopleDirectory):
 
     async def pastors(self, tenant_id):
         return [self._pastor] if self._pastor else []
+
+    async def agenda_keeper(self, tenant_id):
+        return self._agenda_keeper
+
+    async def tenant_owner(self, tenant_id):
+        return self._owner
 
 
 class _Gaps(CoverageGapStore):

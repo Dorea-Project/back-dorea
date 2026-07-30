@@ -46,6 +46,7 @@ from app.contexts.watch.application.interpreters.third_party_concern import (
     ThirdPartyConcernV1,
 )
 from app.contexts.watch.application.my_cases import CloseCase, ListMyCases, SeeCase
+from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.projections import RebuildProjections
 from app.contexts.watch.application.raise_concern import RaiseConcern
 from app.contexts.watch.application.referent_resolution import (
@@ -102,10 +103,20 @@ def build_checks(session) -> SqlScheduledCheckStore:
 
 
 def build_intake(session) -> Intake:
+    """La pipeline complète — **avec** l'étage 02bis.
+
+    Sans le résolveur de destinataire, une ouverture de cas arriverait en base avec un
+    `owner_account_id` nul sur une colonne NOT NULL : l'écriture échouerait, et un fait légitime
+    serait perdu au moment où il compte."""
     return Intake(
         SqlFactLedger(session), SOURCES, INTERPRETERS,
         build_store(session), build_signals(session), build_checks(session),
+        build_owner_assignment(session),
     )
+
+
+def build_owner_assignment(session) -> ResolveOwners:
+    return ResolveOwners(build_signal_owner(session), SqlPeopleDirectory(session))
 
 
 def build_fire_checks(session) -> FireDueChecks:
@@ -165,8 +176,10 @@ def build_designate_referent(session) -> DesignateReferent:
 
 
 def build_rebuild(session) -> RebuildProjections:
+    """Le rejeu porte le **même** étage 02bis que le direct — sinon il réécrirait des nuls."""
     return RebuildProjections(
-        SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session)
+        SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session),
+        build_owner_assignment(session),
     )
 
 

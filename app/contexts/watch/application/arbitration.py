@@ -102,11 +102,16 @@ def arbitrate(
                     reason=effect.reason,  # conservée pour la trace, jamais réécrite sur le cas
                     origin=effect.origin,
                     extend_to=effect.expires_at,
-                    # Ce qu'on vient d'apprendre s'ajoute à la fiche : sans cette annotation,
-                    # une inquiétude signalée sur quelqu'un qui a déjà un cas ouvert se
-                    # dissoudrait dans une source de plus, et le responsable ne verrait
-                    # jamais que quelqu'un a pensé à cette personne.
-                    annotation=effect.reason if effect.origin is CasePriority.CONCERN else None,
+                    # Ce qu'on vient d'apprendre s'ajoute à la fiche, **quelle que soit
+                    # l'origine**. Sans cette annotation, un événement qui aurait ouvert un cas
+                    # se dissout en une source de plus dès que la personne en a déjà un : le
+                    # responsable ne verrait jamais que quelqu'un a pensé à elle, ni qu'elle a
+                    # annulé le rendez-vous qu'elle avait demandé.
+                    annotation=effect.reason,
+                    # Et l'urgence de ce qui arrive est portée. `Signal.enrich` ne la retient que
+                    # si elle est **plus** urgente que celle du cas : un événement anodin ne peut
+                    # pas faire redescendre un cas grave, mais une main qui se retire remonte.
+                    priority=effect.origin,
                 )
             )
         else:

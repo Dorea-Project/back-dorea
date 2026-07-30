@@ -13,6 +13,12 @@ personne sur qui porter. Le rendez-vous existe quand même, il vit dans l'agenda
 
 **Le sujet écrit par le membre ne suit jamais.** Seule la note, s'il en a écrit une en sachant
 qu'elle serait transmise, voyage avec le fait.
+
+**La demande n'ouvre aucun cas** (décision du 30/07/2026). Le devoir de répondre à quelqu'un qui a
+levé la main est déjà tenu par `scripts/relay_appointments.py` et `WatchParam.RELAY_DELAY_HOURS` :
+un cas de plus, c'était deux mécanismes pour une seule obligation, dont un qui laissait lire au
+responsable de cellule que son membre voulait voir un pasteur. Le **fait reste au ledger** — on ne
+perd ni l'antériorité, ni la narration d'épisode, ni le déterminisme du rejeu.
 """
 
 from __future__ import annotations
@@ -83,6 +89,15 @@ class EmitAppointmentFacts:
             "state": state.value,
             "actor_account_id": str(appointment.requester_account_id),
         }
+        # **Le destinataire du cas voyage avec le fait.** C'est ce qui permet à l'interpreter de
+        # rester pur tout en adressant le cas exactement : le pasteur à qui *cette* main était
+        # tendue, et celui qui a réellement décliné — pas un détenteur de rôle choisi par une
+        # cascade, et surtout pas le responsable de cellule, qui n'a rien demandé et n'a rien
+        # décliné.
+        if appointment.with_pastor_account_id is not None:
+            payload["pastor_account_id"] = str(appointment.with_pastor_account_id)
+        if appointment.handled_by_account_id is not None:
+            payload["handled_by_account_id"] = str(appointment.handled_by_account_id)
         if appointment.note:
             payload["note"] = appointment.note
         if state is AppointmentState.DECLINED and appointment.decision_note:
