@@ -15,8 +15,10 @@ exactement ce que le direct a produit.
 retour constaté annule ce qui était programmé — sinon on programme des rappels sur des gens
 décédés, l'échec le plus coûteux que ce produit puisse produire.
 
-Ne sait pas encore : le signal de couverture, qui attend son écran. Il n'est pas perdu — les
-faits sont au ledger, et une reprojection l'honorera le jour où l'objet existera.
+Sait enfin écrire le **signal de couverture** : un défaut de dispositif va dans
+`watch_coverage_gaps`, là où il se lira. Un défaut consigné dans un journal applicatif n'existe
+pour personne — et l'église mal configurée resterait silencieuse, son écran vide disant « tout va
+bien » alors qu'il dit « personne n'est là pour voir ».
 """
 
 from __future__ import annotations
@@ -24,15 +26,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.contexts.watch.application.ports import (
     NeutralizationStore,
     ScheduledCheckStore,
     SignalStore,
 )
+from app.contexts.watch.application.referent_ports import CoverageGapStore
+from app.contexts.watch.domain.coverage import CoverageGapRecord
 from app.contexts.watch.domain.effects import (
     CancelScheduledChecks,
+    CoverageScope,
+    CoverageSignal,
     EffectKind,
     EnrichCase,
     ExcludeForever,
@@ -60,10 +66,17 @@ class Materializer:
         store: NeutralizationStore,
         signals: SignalStore | None = None,
         checks: ScheduledCheckStore | None = None,
+        gaps: CoverageGapStore | None = None,
+        *,
+        id_factory=uuid4,
     ) -> None:
         self._store = store
         self._signals = signals
         self._checks = checks
+        # Le magasin des défauts de dispositif. Sans lui, `CoverageSignal` restait « proposé et
+        # jamais écrit » — et depuis le lot 2a, ce silence-là est au moins bruyant.
+        self._gaps = gaps
+        self._new_id = id_factory
 
     async def apply(
         self,
@@ -215,6 +228,23 @@ class Materializer:
                 downgrade=effect.downgrade,
             )
             return EffectKind.ENRICH_CASE
+
+        if isinstance(effect, CoverageSignal) and self._gaps is not None:
+            # Un défaut de dispositif, consigné là où il se lira — jamais dans un journal
+            # applicatif. `record_once` déduplique : un rappel qui revient chaque nuit devient du
+            # bruit, et le bruit se désapprend en trois semaines.
+            await self._gaps.record_once(
+                CoverageGapRecord(
+                    id=self._new_id(),
+                    tenant_id=fact.tenant_id,
+                    scope=CoverageScope.PERSON,
+                    subject_id=effect.subject_id,
+                    gap=effect.gap,
+                    reason=effect.reason,
+                    observed_at=effect.at,
+                )
+            )
+            return EffectKind.COVERAGE_SIGNAL
 
         if isinstance(effect, RecordMemory) and self._signals is not None:
             await self._signals.record_memory(

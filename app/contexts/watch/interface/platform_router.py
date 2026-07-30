@@ -11,6 +11,8 @@ vivaient que dans un script. Un service qu'aucune surface n'atteint ne tourne nu
    **ratio**, jamais le volume.
 4. **La relève des retenus** — ce que le plafond avait retenu sort quand la place se libère.
    « Retenu ≠ perdu » n'est vrai que si quelque chose les relâche.
+5. **Les groupes aveugles** — celui qui ne saisit aucune rencontre ne détecte personne, et son
+   silence ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
 
 L'ordre compte : les échéances d'abord, pour que l'escalade voie l'état du jour et non celui
 d'hier.
@@ -30,6 +32,7 @@ from app.api.deps import DbSession
 from app.contexts.tenant.infrastructure.persistence.models import TenantModel
 from app.contexts.tenant.interface.dependencies import require_platform_token
 from app.contexts.watch.interface.dependencies import (
+    build_blind_groups,
     build_dumping_guard,
     build_escalate_concerns,
     build_fire_checks,
@@ -53,6 +56,9 @@ class WatchRunResult(BaseModel):
     escalated: int  # engagements non tenus remontés au pasteur
     overloaded: int  # responsables probablement débordés
     released: int  # cas retenus par le plafond que la place libérée laisse enfin sortir
+    # Groupes dont aucune rencontre n'est saisie : ils ne détectent personne, et leur écran vide
+    # ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
+    blind_groups: int
     # Ce qui reste retenu. Un arriéré permanent n'est pas un problème de plafond : c'est une
     # détection trop bavarde, et c'est le seuil qu'on remonte alors, jamais le plafond.
     still_held: int
@@ -72,9 +78,9 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
     )
     fire = build_fire_checks(session)
     escalate, guard = build_escalate_concerns(session), build_dumping_guard(session)
-    release = build_release_held(session)
+    release, blind = build_release_held(session), build_blind_groups(session)
 
-    fired = deferred = escalated = overloaded = released = still_held = 0
+    fired = deferred = escalated = overloaded = released = still_held = blind_groups = 0
     for each in tenants:
         report = await fire.execute(tenant_id=each)
         fired += report.fired
@@ -86,9 +92,10 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
         freed = await release.execute(tenant_id=each)
         released += freed.released
         still_held += freed.still_held
+        blind_groups += (await blind.execute(tenant_id=each)).recorded
 
     return WatchRunResult(
         tenants=len(tenants), fired=fired, deferred=deferred,
         escalated=escalated, overloaded=overloaded,
-        released=released, still_held=still_held,
+        released=released, still_held=still_held, blind_groups=blind_groups,
     )

@@ -93,6 +93,9 @@ MISSION: SourceId = "mission"
 WATCH_UI: SourceId = "watch_ui"
 COMPANION: SourceId = "companion"
 WATCH_SCHEDULER: SourceId = "watch_scheduler"  # le worker de l'engine, qui fait entrer le temps
+# Les Groupes : ils ne disent qu'une chose, l'entrée de quelqu'un dans un groupe. C'est ce qui
+# permet de regarder celui qui n'est jamais venu — sinon seule une présence arme le regard.
+GROUPS: SourceId = "groups"
 
 
 def default_registry() -> SourceRegistry:
@@ -139,6 +142,15 @@ def default_registry() -> SourceRegistry:
         registry.register(
             RegisteredSource(id=surface, kinds=frozenset({FactKind.THIRD_PARTY_CONCERN}))
         )
+    # L'entrée dans un groupe : `group_id` est obligatoire, puisque c'est le rythme de ce
+    # groupe-là qui dira quand regarder. Sans lui, le fait n'aurait rien à armer.
+    registry.register(
+        RegisteredSource(
+            id=GROUPS,
+            kinds=frozenset({FactKind.JOINED_GROUP}),
+            required_payload_keys=frozenset({"group_id"}),
+        )
+    )
     registry.register(
         RegisteredSource(
             id=WATCH_SCHEDULER,

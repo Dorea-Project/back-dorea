@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from app.contexts.groups.application.dtos import GroupMemberDTO
 from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.groups.application.group_lookup import load_group_in_tenant
+from app.contexts.groups.application.watch_facts import EmitJoinedGroupFact
 from app.contexts.groups.domain.errors import (
     DuplicateGroupMembershipError,
     RequiresChurchMembershipError,
@@ -31,6 +32,7 @@ class AddGroupMember:
         group_memberships: GroupMembershipRepository,
         church_memberships: MembershipRepository,
         access: GroupAccessPolicy,
+        joined: EmitJoinedGroupFact | None = None,
         *,
         clock,
     ) -> None:
@@ -38,6 +40,9 @@ class AddGroupMember:
         self._group_memberships = group_memberships
         self._church_memberships = church_memberships
         self._access = access
+        # Les Groupes sont une **source** du moteur : entrer dans un groupe arme le regard, et
+        # c'est le seul moyen de voir celui qui ne viendra jamais.
+        self._joined = joined
         self._clock = clock
 
     async def execute(
@@ -69,6 +74,15 @@ class AddGroupMember:
             joined_by_account_id=actor_account_id,
         )
         await self._group_memberships.add(membership)
+        if self._joined is not None:
+            # Best-effort : le moteur ne bloque jamais une adhésion.
+            await self._joined.execute(
+                account_id=account_id,
+                tenant_id=tenant_id,
+                group_id=group_id,
+                joined_at=now,
+                recorded_at=now,
+            )
         return GroupMemberDTO(
             group_id=group_id,
             account_id=account_id,

@@ -160,5 +160,6 @@ MATERIALIZABLE: frozenset[EffectKind] = frozenset(
         EffectKind.RECORD_MEMORY,
         EffectKind.SCHEDULE_CHECK,
         EffectKind.CANCEL_SCHEDULED_CHECKS,
+        EffectKind.COVERAGE_SIGNAL,
     }
 )

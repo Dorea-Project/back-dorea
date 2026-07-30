@@ -37,6 +37,11 @@ class FactKind(StrEnum):
     """
 
     PRESENCE_RECORDED = "presence_recorded"  # présence positive, toute modalité
+    # **Quelqu'un entre dans un groupe.** Un acte, comme tous les autres membres de cette liste —
+    # et le seul moyen de regarder celui qui n'est **jamais** venu. Sans lui, la détection
+    # d'absence ne s'arme qu'au premier retour : le nouveau inscrit qu'on ne revoit pas reste
+    # invisible, alors que c'est précisément la personne qu'il fallait voir.
+    JOINED_GROUP = "joined_group"
     GESTURE_DONE = "gesture_done"  # visite, appel abouti, aide déclarée
     LIFE_EVENT_ANNOUNCED = "life_event_announced"  # annonce à sujet (le rôle est au payload)
     LIFE_EVENT_PRIVATE = "life_event_private"  # événement enregistré sans publication

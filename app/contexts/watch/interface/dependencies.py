@@ -24,6 +24,7 @@ from app.contexts.attendance.infrastructure.persistence.cadence_repository impor
     SqlGroupCadenceRepository,
 )
 from app.contexts.notifications.interface.dependencies import build_scheduler
+from app.contexts.watch.application.blind_groups import DetectBlindGroups
 from app.contexts.watch.application.concern_watchdog import (
     EscalateStaleConcerns,
     GuardAgainstDumping,
@@ -42,6 +43,7 @@ from app.contexts.watch.application.interpreters.appointment_requested import (
     AppointmentRequestedV1,
 )
 from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
+from app.contexts.watch.application.interpreters.joined_group import JoinedGroupV1
 from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
 )
@@ -72,6 +74,7 @@ from app.contexts.watch.infrastructure.directories import (
     SqlInviterDirectory,
     SqlPeopleDirectory,
 )
+from app.contexts.watch.infrastructure.group_rhythms import SqlGroupRhythms
 from app.contexts.watch.infrastructure.neutralization_store import (
     AttendanceNeutralizationStore,
 )
@@ -104,6 +107,9 @@ INTERPRETERS.register(ThirdPartyConcernV1())
 # Sans lui, le worker écrit des échéances tombées au ledger et il ne se passe rien : le temps
 # entre dans le moteur et n'y produit aucun effet.
 INTERPRETERS.register(CheckFiredV1())
+# Entrer dans un groupe arme le regard : sans lui, seule une presence le fait, et
+# celui qui n'est jamais venu reste invisible.
+INTERPRETERS.register(JoinedGroupV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -257,6 +263,18 @@ def build_release_held(session) -> ReleaseHeldCases:
         build_signals(session),
         SqlWatchParameterRepository(session),
         clock=lambda: datetime.now(UTC),
+    )
+
+
+def build_blind_groups(session) -> DetectBlindGroups:
+    """Le groupe qui ne saisit rien : il ne detecte personne, et son ecran vide ressemble a la
+    sante. Le defaut porte sur le groupe, jamais sur ses membres."""
+    return DetectBlindGroups(
+        SqlGroupRhythms(session),
+        SqlCoverageGapStore(session),
+        SqlWatchParameterRepository(session),
+        clock=lambda: datetime.now(UTC),
+        id_factory=uuid4,
     )
 
 

@@ -18,20 +18,22 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from app.contexts.watch.application.interpretation import WatchStateView
+from app.contexts.watch.application.interpreters.absence_watch import (
+    ABSENCE_WATCH_KIND,
+    arm_absence_watch,
+)
 from app.contexts.watch.domain.effects import (
-    CancelScheduledChecks,
     Extinguish,
     ExtinguishCause,
     ProposedEffect,
     RecordMemory,
-    ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact, FactKind
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
 
-# Le régime d'échéance de la détection d'absence. Nommé ici, à côté de qui le pose.
-ABSENCE_WATCH_KIND = "absence_watch"
+# Réexporté : le régime d'échéance était nommé ici avant d'être partagé avec l'entrée en groupe.
+__all__ = ["ABSENCE_WATCH_KIND", "PresenceRecordedV1", "PresenceRecordedV2"]
 
 
 class PresenceRecordedV1:
@@ -88,30 +90,7 @@ class PresenceRecordedV2(PresenceRecordedV1):
     effective_from = datetime(2026, 7, 30, tzinfo=UTC)
 
     def interpret(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
-        effects = list(super().interpret(fact, state))
-
-        due = fact.payload.get("check_absence_at")
-        group_id = fact.payload.get("group_id")
-        if not due or not group_id:
-            # Une rencontre sans groupe, ou un groupe sans cadence déclarée : il n'y a pas
-            # d'occurrence attendue, donc rien à manquer. On ne pose pas d'échéance sur une
-            # intuition — le silence de quelqu'un dont personne n'attend rien n'est pas un signal.
-            return effects
-
         return [
-            *effects,
-            # D'abord annuler : une seule échéance d'absence à la fois par personne.
-            CancelScheduledChecks(
-                subject_id=fact.subject_id,
-                reason="Elle était là — le regard précédent n'a plus lieu d'être.",
-                kind=ABSENCE_WATCH_KIND,
-            ),
-            ScheduleCheck(
-                subject_id=fact.subject_id,
-                reason="Regarder si cette personne a reparu depuis.",
-                at=datetime.fromisoformat(str(due)),
-                kind=ABSENCE_WATCH_KIND,
-                # Ce que le tir aura besoin de savoir : depuis quand, et dans quel groupe.
-                payload={"group_id": str(group_id), "since": fact.occurred_at.isoformat()},
-            ),
+            *super().interpret(fact, state),
+            *arm_absence_watch(fact, reason="Regarder si cette personne a reparu depuis."),
         ]

@@ -23,6 +23,7 @@ from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.groups.application.ports import InvitationCodeGenerator
 from app.contexts.groups.application.queries.get_cell_report import GetCellReport
 from app.contexts.groups.application.queries.list_group_members import ListGroupMembers
+from app.contexts.groups.application.watch_facts import EmitJoinedGroupFact
 from app.contexts.groups.infrastructure.code_generator import SecureInvitationCodeGenerator
 from app.contexts.groups.infrastructure.persistence.church_enrollment_store import (
     SqlChurchEnrollmentStore,
@@ -38,6 +39,10 @@ from app.contexts.groups.infrastructure.persistence.repositories import (
 )
 from app.contexts.iam.infrastructure.persistence.repositories import SqlAlchemyMembershipRepository
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
+from app.contexts.watch.interface.dependencies import (
+    build_absence_rhythm,
+    build_intake,
+)
 
 
 def get_group_access_policy(session: DbSession) -> GroupAccessPolicy:
@@ -66,6 +71,7 @@ def get_add_group_member_command(
         SqlGroupMembershipRepository(session),
         SqlAlchemyMembershipRepository(session),
         access,
+        EmitJoinedGroupFact(build_intake(session), build_absence_rhythm(session)),
         clock=lambda: datetime.now(UTC),
     )
 
