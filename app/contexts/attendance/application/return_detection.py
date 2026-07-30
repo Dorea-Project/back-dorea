@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from app.contexts.watch.application.intake import Intake
+from app.contexts.watch.application.intake import Intake, warn_if_disconnected
 from app.contexts.watch.domain.facts import Fact, FactKind, SubjectKind
 from app.contexts.watch.domain.registry import ATTENDANCE
 
@@ -34,6 +34,7 @@ class DetectReturn:
     """Signale au moteur qu'une personne était là. Best-effort : jamais bloquant pour M6."""
 
     def __init__(self, intake: Intake | None) -> None:
+        warn_if_disconnected("attendance", intake)
         self._intake = intake
 
     async def on_positive_presence(

@@ -27,7 +27,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contexts.appointments.domain.aggregates import Appointment
 from app.contexts.appointments.domain.enums import AppointmentStatus
-from app.contexts.watch.application.intake import Intake
+from app.contexts.watch.application.intake import Intake, warn_if_disconnected
 from app.contexts.watch.application.interpreters.appointment_requested import (
     AppointmentState,
 )
@@ -72,6 +72,7 @@ def state_of(appointment: Appointment) -> AppointmentState | None:
 
 class EmitAppointmentFacts:
     def __init__(self, intake: Intake | None, *, clock) -> None:
+        warn_if_disconnected("appointments", intake)
         self._intake = intake
         self._clock = clock
 

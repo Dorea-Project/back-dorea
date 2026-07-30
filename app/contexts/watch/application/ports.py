@@ -270,6 +270,15 @@ class ScheduledCheckStore(ABC):
         """Combien restent dues après la passe — ce qu'on doit dire plutôt que taire."""
         ...
 
+    @abstractmethod
+    async def purge_projected(self, tenant_id: UUID) -> None:
+        """Efface les échéances avant un rejeu : ce sont des **projections** du ledger.
+
+        Une échéance déjà tirée porte son `CHECK_FIRED` au journal, donc le rejeu la reposera puis
+        la retirera par le même chemin. Sans cette purge, une reprojection empilerait une seconde
+        échéance en attente à côté de chaque ancienne : la personne serait relancée deux fois."""
+        ...
+
 
 class ContactAttemptStore(ABC):
     """Les tentatives de contact. Écrites au départ, résolues au retour — ou jamais."""

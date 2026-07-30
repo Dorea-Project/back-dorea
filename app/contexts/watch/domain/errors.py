@@ -16,6 +16,18 @@ class ForbiddenFactKindError(WatchError):
     http_status = 500
 
 
+class ActorRequiredError(WatchError):
+    """Une source enregistrée pour un fait qui peut **retirer quelqu'un de la veille** sans
+    déclarer l'acteur de ce geste.
+
+    Levée à l'enregistrement, donc au démarrage. Sans elle, le repli « à défaut, le sujet » de la
+    matérialisation faisait du **défunt** l'auteur déclaré de sa propre exclusion : une donnée
+    d'audit fausse sur l'acte le plus grave du système."""
+
+    code = "WATCH_ACTOR_REQUIRED"
+    http_status = 500
+
+
 class SourceNotRegisteredError(WatchError):
     """Un fait venu d'une source que l'engine ne connaît pas. Ajouter ≠ modifier."""
 

@@ -15,10 +15,15 @@ texte libre : il n'y a pas de champ où l'écrire.
 Trois refus, et un seul est une politesse — les deux autres sont des paroles qu'aucune bonne
 intention ne reprend : la personne s'est retirée de la veille, ou a demandé qu'on cesse.
 
-Le propriétaire du cas est résolu **ici**, à l'émission, parce que les interpreters sont purs.
-S'il est nul, on émet quand même : perdre l'inquiétude parce que l'église n'a configuré personne
-serait exactement le faux silence que le produit existe pour empêcher — et ce trou-là est déjà
-consigné par `ResolveSignalOwner`.
+Le propriétaire du cas est résolu **ici**, et pas seulement à l'étage 02bis : ce service a besoin
+de le connaître pour savoir si l'émetteur *est* le référent — « je m'en occupe » posé par celui à
+qui le cas reviendrait n'est pas la même chose qu'un souci confié à quelqu'un d'autre.
+
+Depuis le 30/07/2026, la cascade se termine sur le propriétaire de l'église : il n'y a plus
+d'inquiétude sans destinataire, donc plus d'inquiétude perdue faute de configuration. Si toutefois
+rien ne remontait — une église sans propriétaire actif, ce qui ne devrait pas exister — l'étage
+02bis **écarterait** l'ouverture plutôt que de l'adresser au hasard, et le trou serait consigné en
+défaut de couverture par `ResolveSignalOwner`. Le fait, lui, resterait au ledger.
 """
 
 from __future__ import annotations

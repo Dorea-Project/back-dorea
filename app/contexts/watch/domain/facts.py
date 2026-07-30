@@ -128,6 +128,19 @@ CONSENT_REQUIRED: frozenset[FactKind] = frozenset(
 )
 
 
+# La clé du payload qui dit **qui a posé le geste**. À défaut, la matérialisation retombe sur le
+# sujet lui-même — ce qui est juste pour une auto-déclaration (elle *est* un acte du sujet) et faux
+# pour tout ce qui est posé sur quelqu'un.
+ACTOR_KEY = "actor_account_id"
+
+
+# Les kinds dont l'interprétation peut aboutir à un **retrait définitif de la veille**. Pour eux,
+# l'acteur n'est pas une commodité d'audit : sans lui, le repli sur le sujet enregistrait le
+# **défunt** comme ayant déclaré sa propre exclusion. Une source enregistrée pour l'un de ces kinds
+# sans exiger l'acteur fait échouer le démarrage de l'application.
+ACTOR_REQUIRED: frozenset[FactKind] = frozenset({FactKind.LIFE_EVENT_ANNOUNCED})
+
+
 _EMPTY: Mapping[str, Any] = MappingProxyType({})
 
 

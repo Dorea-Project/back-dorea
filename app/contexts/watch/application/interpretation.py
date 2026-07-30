@@ -39,8 +39,11 @@ class NeutralizationView:
 
 @dataclass(frozen=True)
 class OpenCaseView:
-    """Un cas en cours, en lecture seule. `owner_id` peut être NULL — c'est une donnée, pas un
-    blocage : « personne ne connaît cette personne » est précisément ce qu'il faut savoir."""
+    """Un cas en cours, en lecture seule.
+
+    `owner_id` est nullable pour relire une ligne d'avant le 30/07/2026 ; plus aucun chemin n'en
+    écrit. « Personne ne connaît cette personne » est une donnée du **référent**, pas du
+    destinataire d'un cas."""
 
     id: UUID
     subject_id: UUID

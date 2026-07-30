@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.watch.application.ports import ScheduledCheckStore
@@ -46,14 +46,17 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
         at: datetime,
     ) -> None:
         # Idempotence : rejouer le ledger ne doit pas empiler trois fois la même échéance.
+        #
+        # Le filtre porte sur **tous les états**, tirées et annulées comprises. Une échéance déjà
+        # tombée ne doit pas être reposée par un rejeu : elle retomberait, et la personne serait
+        # relancée une seconde fois pour un silence qu'on a déjà constaté. Le tir est un **acte**,
+        # pas une dérivation du journal — c'est ce qui le distingue de la pose.
         existing = await self._session.execute(
             select(ScheduledCheckModel.id).where(
                 ScheduledCheckModel.tenant_id == tenant_id,
                 ScheduledCheckModel.subject_id == subject_id,
                 ScheduledCheckModel.kind == kind,
                 ScheduledCheckModel.due_at == due_at,
-                ScheduledCheckModel.fired_at.is_(None),
-                ScheduledCheckModel.cancelled_at.is_(None),
             )
         )
         if existing.scalar_one_or_none() is not None:
@@ -123,6 +126,21 @@ class SqlScheduledCheckStore(ScheduledCheckStore):
             update(ScheduledCheckModel)
             .where(ScheduledCheckModel.id == check_id)
             .values(fired_at=at)
+        )
+        await self._session.flush()
+
+    async def purge_projected(self, tenant_id: UUID) -> None:
+        """N'efface que ce qui **pend**. Ce qui est tiré ou annulé est de l'histoire.
+
+        La pose est une projection du ledger ; le tir et l'annulation sont des actes. Effacer les
+        échéances tirées, c'est autoriser le rejeu à les reposer — donc à relancer une seconde fois
+        des gens dont on a déjà constaté le silence."""
+        await self._session.execute(
+            delete(ScheduledCheckModel).where(
+                ScheduledCheckModel.tenant_id == tenant_id,
+                ScheduledCheckModel.fired_at.is_(None),
+                ScheduledCheckModel.cancelled_at.is_(None),
+            )
         )
         await self._session.flush()
 

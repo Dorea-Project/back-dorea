@@ -33,7 +33,7 @@ from uuid import UUID, uuid4
 from app.contexts.iam.application.commands.admit_person import AdmitPerson
 from app.contexts.iam.domain.enums import AccountCreationSource
 from app.contexts.mission.domain.aggregates import MissionLink
-from app.contexts.watch.application.intake import Intake
+from app.contexts.watch.application.intake import Intake, warn_if_disconnected
 from app.contexts.watch.application.referent_ports import (
     GroupDirectory,
     ReferentOverrideRepository,
@@ -69,6 +69,7 @@ class CrossTheThreshold:
         groups: GroupDirectory,
         intake: Intake | None = None,
     ) -> None:
+        warn_if_disconnected("mission", intake)
         self._admit = admit
         self._overrides = overrides
         self._groups = groups

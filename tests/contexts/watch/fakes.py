@@ -355,10 +355,14 @@ class FakeChecks(ScheduledCheckStore):
         ]
 
     async def schedule(self, *, subject_id, tenant_id, kind, reason, due_at, at):
+        # Tous les états, tirées comprises : rejouer ne repose pas une échéance déjà tombée.
         already = [
             c
-            for c in self._pending(subject_id, tenant_id)
-            if c["kind"] == kind and c["due_at"] == due_at
+            for c in self.rows
+            if c["subject_id"] == subject_id
+            and c["tenant_id"] == tenant_id
+            and c["kind"] == kind
+            and c["due_at"] == due_at
         ]
         if already:
             return  # rejouer le ledger ne duplique pas une échéance
@@ -414,3 +418,13 @@ class FakeChecks(ScheduledCheckStore):
             and c["fired_at"] is None
             and c["cancelled_at"] is None
         )
+
+    async def purge_projected(self, tenant_id):
+        """Seul ce qui pend s'efface : le tir et l'annulation sont des actes, pas des dérivés."""
+        self.rows = [
+            c
+            for c in self.rows
+            if c["tenant_id"] != tenant_id
+            or c["fired_at"] is not None
+            or c["cancelled_at"] is not None
+        ]

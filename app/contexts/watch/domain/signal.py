@@ -165,7 +165,11 @@ class Signal(AggregateRoot):
         opened_at: datetime,
         status: SignalStatus = SignalStatus.OPEN,
         expires_at: datetime | None = None,
-        owner_account_id: UUID | None = None,  # NULL admis : c'est une donnée, pas un blocage
+        # Le destinataire. Nul reste **techniquement** admis pour relire une ligne d'avant le
+        # 30/07/2026, mais plus aucun chemin n'en écrit : un cas sans destinataire est un cas que
+        # personne ne traite, et que n'importe quel responsable de la portée pouvait s'attribuer,
+        # donc lire. C'est le référent qui peut être nul, jamais le propriétaire d'un cas.
+        owner_account_id: UUID | None = None,
         source_refs: list[UUID] | None = None,
         priority: CasePriority | None = None,  # à défaut, celle de l'origine
         annotations: list[str] | None = None,

@@ -15,10 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.contexts.watch.domain.errors import (
+    ActorRequiredError,
     ForbiddenFactKindError,
     SourceNotRegisteredError,
 )
 from app.contexts.watch.domain.facts import (
+    ACTOR_KEY,
+    ACTOR_REQUIRED,
     FactKind,
     SourceId,
     forbidden_reason,
@@ -48,6 +51,15 @@ class SourceRegistry:
                 raise ForbiddenFactKindError(
                     "Ce type de fait relève d'une famille interdite par le produit.",
                     details={"kind": kind.value, "family": family, "source": source.id},
+                )
+            # Un fait qui peut retirer quelqu'un de la veille doit dire **qui** l'a posé. Le
+            # contrôle est ici, au démarrage : une source qui l'oublierait ferait du défunt
+            # l'auteur déclaré de sa propre exclusion, et on le découvrirait dans un audit.
+            if kind in ACTOR_REQUIRED and ACTOR_KEY not in source.required_payload_keys:
+                raise ActorRequiredError(
+                    "Ce type de fait peut retirer quelqu'un de la veille : la source doit "
+                    "exiger l'acteur du geste.",
+                    details={"kind": kind.value, "source": source.id, "missing": ACTOR_KEY},
                 )
         self._sources[source.id] = source
         return source
@@ -89,7 +101,10 @@ def default_registry() -> SourceRegistry:
         RegisteredSource(
             id=ANNOUNCEMENTS,
             kinds=frozenset({FactKind.LIFE_EVENT_ANNOUNCED}),
-            required_payload_keys=frozenset({"announcement_id", "role"}),
+            # `actor_account_id` est obligatoire parce qu'un décès annoncé **retire** la personne
+            # de la veille : l'auteur de l'annonce est l'auteur du geste, et il ne peut pas être
+            # la personne retirée.
+            required_payload_keys=frozenset({"announcement_id", "role", "actor_account_id"}),
         )
     )
     registry.register(

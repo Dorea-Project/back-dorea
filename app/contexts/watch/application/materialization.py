@@ -21,6 +21,7 @@ faits sont au ledger, et une reprojection l'honorera le jour où l'objet exister
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
@@ -77,7 +78,12 @@ class Materializer:
 
         for effect in effects:
             kind = await self._write(fact, effect, actor=actor, source_ref=source_ref)
-            (written if kind is not None else deferred).append(kind or _kind_of(effect))
+            if kind is not None:
+                written.append(kind)
+                continue
+            missed = _kind_of(effect)
+            deferred.append(missed)
+            _report_deferred(fact, missed)
 
         # Un cas retenu est écrit lui aussi — mais en `HELD` : détecté, non émis, réévalué.
         # Le perdre ferait mentir la mesure du plafond au moment même où elle compte.
@@ -219,6 +225,34 @@ class Materializer:
             return EffectKind.RECORD_MEMORY
 
         return None
+
+
+_logger = logging.getLogger("dorea.watch.materialization")
+
+# Combien de fois chaque type d'effet a été proposé sans pouvoir être écrit, depuis le démarrage.
+# Un compteur, pas une table : c'est un défaut d'assemblage, il se lit à l'exploitation et il doit
+# **tomber à zéro** quand tout est branché.
+DEFERRED_COUNTS: dict[EffectKind, int] = {}
+
+
+def _report_deferred(fact: Fact, kind: EffectKind) -> None:
+    """Un effet proposé que rien n'a écrit. **Jamais en silence.**
+
+    L'engine renvoyait déjà la liste des différés, et tous ses appelants la jetaient. Un
+    interpreter pouvait donc proposer une échéance, ne rien produire, et personne ne l'apprenait —
+    exactement le faux silence que le module existe pour empêcher, retourné contre lui-même.
+
+    Le cas réel : la reprojection construite sans store d'échéances effaçait les échéances d'une
+    église et n'en reposait aucune, sans une ligne de journal."""
+    DEFERRED_COUNTS[kind] = DEFERRED_COUNTS.get(kind, 0) + 1
+    _logger.warning(
+        "effet proposé non matérialisé : %s (source=%s, kind=%s, fact_id=%s, tenant=%s)",
+        kind.value,
+        fact.source,
+        fact.kind.value,
+        fact.fact_id,
+        fact.tenant_id,
+    )
 
 
 _KIND_OF: dict[str, EffectKind] = {

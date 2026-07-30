@@ -17,6 +17,7 @@ avec le `Signal`.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -150,6 +151,19 @@ class Intake:
 
 def person_subject(subject_id: UUID) -> tuple[SubjectKind, UUID]:
     return SubjectKind.PERSON, subject_id
+
+
+def warn_if_disconnected(source: str, intake: Intake | None) -> None:
+    """Une source construite **sans intake** n'émet rien, et ne le dit à personne.
+
+    Le patron `Intake | None` est utile : il laisse tester un module sans monter le moteur, et il
+    laisse un contexte fonctionner si la veille n'est pas déployée. Mais c'est aussi le plus
+    silencieux des défauts d'assemblage — un oubli de câblage et une source entière se tait, sans
+    erreur, sans test rouge, jusqu'au jour où l'on cherche pourquoi personne n'a été signalé."""
+    if intake is None:
+        logging.getLogger("dorea.watch.intake").warning(
+            "source « %s » construite sans intake : elle n'émettra aucun fait de veille.", source
+        )
 
 
 async def load_state(

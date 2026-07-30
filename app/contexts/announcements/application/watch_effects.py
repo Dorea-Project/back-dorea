@@ -19,7 +19,7 @@ from __future__ import annotations
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.contexts.announcements.domain.aggregates import Announcement, AnnouncementSubject
-from app.contexts.watch.application.intake import Intake
+from app.contexts.watch.application.intake import Intake, warn_if_disconnected
 from app.contexts.watch.domain.facts import Fact, FactKind, SubjectKind
 from app.contexts.watch.domain.registry import ANNOUNCEMENTS
 
@@ -60,6 +60,7 @@ class EmitAnnouncementFacts:
     """Fait entrer dans le moteur les sujets **effectifs** d'une annonce."""
 
     def __init__(self, intake: Intake | None, *, clock) -> None:
+        warn_if_disconnected("announcements", intake)
         self._intake = intake
         self._clock = clock
 

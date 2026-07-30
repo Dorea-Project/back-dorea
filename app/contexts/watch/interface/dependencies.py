@@ -176,10 +176,14 @@ def build_designate_referent(session) -> DesignateReferent:
 
 
 def build_rebuild(session) -> RebuildProjections:
-    """Le rejeu porte le **même** étage 02bis que le direct — sinon il réécrirait des nuls."""
+    """Le rejeu porte la **même** pipeline que le direct : étage 02bis et échéances comprises.
+
+    Sans l'étage 02bis, il réécrirait des propriétaires nuls sur une colonne qui n'en accepte plus.
+    Sans le store d'échéances, il effacerait les relances programmées d'une église et n'en
+    reposerait aucune — en silence."""
     return RebuildProjections(
         SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session),
-        build_owner_assignment(session),
+        build_owner_assignment(session), build_checks(session),
     )
 
 

@@ -26,7 +26,11 @@ from app.contexts.watch.application.intake import FactLedger, load_state
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.materialization import Materializer
 from app.contexts.watch.application.owner_assignment import ResolveOwners
-from app.contexts.watch.application.ports import NeutralizationStore, SignalStore
+from app.contexts.watch.application.ports import (
+    NeutralizationStore,
+    ScheduledCheckStore,
+    SignalStore,
+)
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,7 @@ class RebuildProjections:
         store: NeutralizationStore,
         signals: SignalStore | None = None,
         owners: ResolveOwners | None = None,
+        checks: ScheduledCheckStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -57,13 +62,23 @@ class RebuildProjections:
         # sur une colonne NOT NULL : la reprojection, qu'on lance précisément quand quelque chose
         # est déjà cassé, échouerait là où elle doit réparer.
         self._owners = owners
-        self._materializer = Materializer(store, signals)
+        # **La matérialisation complète, échéances comprises.** Sans le store d'échéances, tout
+        # `ScheduleCheck` retombait en « différé » — et différé était jeté sans un mot. Une
+        # reprojection effaçait donc toutes les échéances d'une église et n'en reposait aucune :
+        # plus rien ne serait jamais revenu relancer personne, et on l'aurait découvert des
+        # semaines plus tard, sur les gens dont on n'a plus de nouvelles.
+        self._checks = checks
+        self._materializer = Materializer(store, signals, checks)
         self._policy = policy or ArbitrationPolicy()
 
     async def execute(self, *, tenant_id: UUID) -> ReplayReport:
         await self._store.purge_projected_neutralizations(tenant_id)
         if self._signals is not None:
             await self._signals.purge_projected(tenant_id)
+        if self._checks is not None:
+            # Les échéances **en attente** seulement : celles qui ont tiré sont de l'histoire, et
+            # les reposer ferait retomber deux fois le même silence sur la même personne.
+            await self._checks.purge_projected(tenant_id)
 
         facts = await self._ledger.stream(tenant_id)
         facts.sort(key=lambda f: f.seq if f.seq is not None else 0)
