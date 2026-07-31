@@ -118,6 +118,9 @@ class SignalModel(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Pourquoi il a été rétracté : devenu faux, ou dépassé par un signe de vie. Les deux
+    # sortent des métriques de résolution, mais ne disent pas la même chose du dispositif.
+    retraction_cause: Mapped[str | None] = mapped_column(String, nullable=True)
     # **Pourquoi** ce cas est retenu, quand il l'est : le plafond du responsable, ou le rodage de
     # l'église. Deux causes aux traitements opposés — la passe nocturne relâche la première et ne
     # doit jamais toucher la seconde, sinon une église en rodage se met à parler toute seule.

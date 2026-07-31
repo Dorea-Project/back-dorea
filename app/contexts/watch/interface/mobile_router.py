@@ -22,6 +22,7 @@ from app.contexts.watch.interface.dependencies import (
     RaiseConcernDep,
     SeeCaseDep,
     StartContactDep,
+    StopContactingMeDep,
 )
 from app.contexts.watch.interface.schemas import (
     AnswerContactBody,
@@ -176,3 +177,24 @@ async def answer_contact(
         attempt_id=attempt_id, result=payload.result, commitment=payload.commitment
     )
     return ConcernAckView(message="Merci.")
+
+
+@router.post(
+    "/tenants/{tenant_id}/stop-contacting-me",
+    response_model=ConcernAckView,
+    summary="N'insistez plus — sans motif, immédiat, et définitif",
+)
+async def stop_contacting_me(
+    tenant_id: UUID,
+    actor: CurrentActor,
+    command: StopContactingMeDep,
+) -> ConcernAckView:
+    """**Aucun corps de requête.** Pas de motif à donner, et pas de sujet à désigner : l'acteur est
+    le sujet.
+
+    Exiger une justification ferait de la sortie une négociation ; permettre de le poser pour
+    quelqu'un d'autre en ferait, un jour, le moyen de se débarrasser d'un cas gênant."""
+    stopped = await command.execute(
+        tenant_id=tenant_id, actor_account_id=actor.account_id
+    )
+    return ConcernAckView(message=stopped.message)

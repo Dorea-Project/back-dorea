@@ -39,6 +39,7 @@ from app.contexts.watch.domain.effects import (
     RecordContactAttempt,
     ResolveCase,
     ResolveContactAttempt,
+    RetractHeld,
 )
 from app.contexts.watch.domain.regime import HeldReason
 
@@ -118,6 +119,23 @@ def arbitrate(
     # 2 — fusion par personne : un seul cas ouvert, jamais deux.
     fused: list[ProposedEffect] = []
     for effect in kept:
+        # Un **signe de vie** sur un cas encore retenu le rétracte : personne ne l'avait vu,
+        # aucune promesse n'avait été faite, et faire appeler quelqu'un qui vient de donner de ses
+        # nouvelles serait le contraire de ce qu'on cherche. Sur un cas déjà émis, on n'efface
+        # rien — il est enrichi et descend en priorité, comme n'importe quel signe de vie.
+        # `at` est exigé : l'arbitrage ne lit pas d'horloge, et une rétractation sans date ne
+        # serait pas rejouable. Un signe de vie sans date reste un simple enrichissement.
+        if isinstance(effect, EnrichCase) and effect.life_sign and effect.at is not None:
+            case = state.case_of(effect.subject_id)
+            if case is not None and case.is_held:
+                fused.append(
+                    RetractHeld(
+                        subject_id=effect.subject_id,
+                        reason=effect.reason,
+                        at=effect.at,
+                    )
+                )
+                continue
         if isinstance(effect, OpenCase) and state.has_open_case(effect.subject_id):
             fused.append(
                 EnrichCase(
@@ -207,5 +225,6 @@ MATERIALIZABLE: frozenset[EffectKind] = frozenset(
         EffectKind.RESOLVE_CASE,
         EffectKind.RECORD_CONTACT_ATTEMPT,
         EffectKind.RESOLVE_CONTACT_ATTEMPT,
+        EffectKind.RETRACT_HELD,
     }
 )

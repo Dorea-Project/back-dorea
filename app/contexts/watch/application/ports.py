@@ -328,6 +328,14 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def retract_held(self, *, subject_id: UUID, tenant_id: UUID, at: datetime) -> None:
+        """Retire un cas **encore retenu**, dépassé par un signe de vie.
+
+        Sans effet sur un cas émis : quelqu'un l'a peut-être déjà lu, et on n'efface pas ce qui a
+        été vu."""
+        ...
+
+    @abstractmethod
     async def held_cases(self, *, tenant_id: UUID) -> list:
         """Les cas **détectés et retenus** par le plafond, en agrégats mutables.
 

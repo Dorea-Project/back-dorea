@@ -28,6 +28,7 @@ from app.contexts.watch.domain.errors import HumanClosureRequiredError
 from app.contexts.watch.domain.signal import (
     LIVE_STATUSES,
     ON_SHOULDERS_STATUSES,
+    RetractionCause,
     Signal,
     SignalOutcome,
     SignalStatus,
@@ -77,6 +78,7 @@ def _to_signal(row: SignalModel) -> Signal:
         closed_at=_aware(row.closed_at),
         closed_by_account_id=row.closed_by_account_id,
         retracted_at=_aware(row.retracted_at),
+        retraction_cause=row.retraction_cause,
         held_reason=row.held_reason,
     )
 
@@ -412,6 +414,19 @@ class SqlSignalStore(SignalStore):
             outcome=SignalOutcome(outcome), at=at, closed_by_account_id=by_account_id
         )
         await self.save_case(signal)
+
+    async def retract_held(
+        self, *, subject_id: UUID, tenant_id: UUID, at: datetime
+    ) -> None:
+        row = await self._live_row(subject_id, tenant_id)
+        if row is None or row.status != SignalStatus.HELD.value:
+            return  # on n'efface jamais un cas que quelqu'un a pu lire
+        signal = _to_signal(row)
+        signal.retract(at=at, cause=RetractionCause.SUPERSEDED_BY_LIFE_SIGN)
+        row.status = signal.status.value
+        row.retracted_at = signal.retracted_at
+        row.retraction_cause = signal.retraction_cause
+        await self._session.flush()
 
     async def held_cases(self, *, tenant_id: UUID) -> list[Signal]:
         """Les cas retenus par le plafond — `ix_watch_signals_tenant_status`."""

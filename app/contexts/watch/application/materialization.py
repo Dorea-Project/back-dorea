@@ -53,6 +53,7 @@ from app.contexts.watch.domain.effects import (
     RecordMemory,
     ResolveCase,
     ResolveContactAttempt,
+    RetractHeld,
     ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact
@@ -283,6 +284,12 @@ class Materializer:
             )
             return EffectKind.RESOLVE_CONTACT_ATTEMPT
 
+        if isinstance(effect, RetractHeld) and self._signals is not None:
+            await self._signals.retract_held(
+                subject_id=effect.subject_id, tenant_id=fact.tenant_id, at=effect.at
+            )
+            return EffectKind.RETRACT_HELD
+
         if isinstance(effect, MarkCaseSeen) and self._signals is not None:
             await self._signals.mark_seen(
                 subject_id=effect.subject_id, tenant_id=fact.tenant_id, at=effect.at
@@ -350,6 +357,7 @@ _KIND_OF: dict[str, EffectKind] = {
     "MarkCaseSeen": EffectKind.MARK_CASE_SEEN,
     "RecordContactAttempt": EffectKind.RECORD_CONTACT_ATTEMPT,
     "ResolveContactAttempt": EffectKind.RESOLVE_CONTACT_ATTEMPT,
+    "RetractHeld": EffectKind.RETRACT_HELD,
     "ResolveCase": EffectKind.RESOLVE_CASE,
     "ScheduleCheck": EffectKind.SCHEDULE_CHECK,
     "CancelScheduledChecks": EffectKind.CANCEL_SCHEDULED_CHECKS,

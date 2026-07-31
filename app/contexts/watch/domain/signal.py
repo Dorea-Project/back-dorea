@@ -51,6 +51,19 @@ class SignalStatus(StrEnum):
     RETRACTED = "retracted"  # devenu faux — hors métriques de résolution
 
 
+class RetractionCause(StrEnum):
+    """Pourquoi un cas a été rétracté. `RETRACTED` seul mélangeait deux choses différentes.
+
+    Un cas **devenu faux** n'a jamais eu lieu d'être : une saisie tardive a montré qu'il reposait
+    sur une erreur. Un cas **dépassé par un signe de vie** n'est pas faux — il est sans objet : la
+    personne a donné de ses nouvelles avant que quiconque ne la contacte. Les deux sortent des
+    métriques de résolution, mais les confondre empêcherait le pilote de lire ce qui s'est passé.
+    """
+
+    BECAME_FALSE = "became_false"
+    SUPERSEDED_BY_LIFE_SIGN = "superseded_by_life_sign"
+
+
 class SignalOutcome(StrEnum):
     """Liste **close**. On n'invente pas une issue pour ranger un cas gênant."""
 
@@ -189,6 +202,7 @@ class Signal(AggregateRoot):
         closed_at: datetime | None = None,
         closed_by_account_id: UUID | None = None,
         retracted_at: datetime | None = None,
+        retraction_cause: str | None = None,
         held_reason: str | None = None,
     ) -> None:
         super().__init__()
@@ -223,6 +237,7 @@ class Signal(AggregateRoot):
         self.closed_at = closed_at
         self.closed_by_account_id = closed_by_account_id
         self.retracted_at = retracted_at
+        self.retraction_cause = retraction_cause
         # Pourquoi il est retenu : le plafond du responsable, ou le rodage de l'église.
         self.held_reason = held_reason
 
@@ -392,13 +407,20 @@ class Signal(AggregateRoot):
         self.closed_at = at
         self.closed_by_account_id = closed_by_account_id
 
-    def retract(self, *, at: datetime) -> None:
-        """Le cas est devenu **faux** — une saisie tardive a montré qu'il n'avait pas lieu d'être.
+    def retract(
+        self, *, at: datetime, cause: RetractionCause = RetractionCause.BECAME_FALSE
+    ) -> None:
+        """Le cas sort sans avoir été résolu — et la **cause** dit lequel des deux cas c'est.
 
-        Ce n'est pas une clôture : rien n'a été résolu, personne n'a rien fait. Il sort des
-        métriques au lieu d'y figurer comme un succès."""
+        `BECAME_FALSE` : une saisie tardive a montré qu'il n'avait pas lieu d'être.
+        `SUPERSEDED_BY_LIFE_SIGN` : la personne a donné de ses nouvelles avant qu'on la contacte.
+
+        Ce n'est pas une clôture : rien n'a été résolu, personne n'a rien fait. Le cas sort des
+        métriques au lieu d'y figurer comme un succès — et sans la cause, le pilote ne pourrait pas
+        distinguer une détection fausse d'une détection devenue inutile."""
         self._move_to(SignalStatus.RETRACTED)
         self.retracted_at = at
+        self.retraction_cause = cause.value
 
 
 def priority_rank(priority: CasePriority) -> int:

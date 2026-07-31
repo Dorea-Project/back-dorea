@@ -35,6 +35,7 @@ class EffectKind(StrEnum):
     RECORD_CONTACT_ATTEMPT = "record_contact_attempt"
     RESOLVE_CONTACT_ATTEMPT = "resolve_contact_attempt"
     RESOLVE_CASE = "resolve_case"
+    RETRACT_HELD = "retract_held"
     SCHEDULE_CHECK = "schedule_check"
     CANCEL_SCHEDULED_CHECKS = "cancel_scheduled_checks"
     COVERAGE_SIGNAL = "coverage_signal"
@@ -70,12 +71,17 @@ class ExtinguishCause(StrEnum):
     UNREACHABLE = "unreachable"
 
 
-# Il n'existe **pas** de cause « signe de vie ». Déposer une reconnaissance prouve qu'on est
-# vivant et engagé — pas qu'on est revenu en cellule. Éteindre le cas là-dessus serait la même
-# erreur que fermer un deuil parce que la personne est venue au culte : confondre une présence
-# avec un état. Un signe de vie **enrichit** le cas et en abaisse la priorité (`EnrichCase`),
-# pour que le responsable lise « absente depuis 4 semaines, a déposé un sujet de reconnaissance
-# le 12 avril » et comprenne immédiatement de quoi il s'agit.
+# Il n'existe **pas** de cause « signe de vie », et c'est une décision, pas un oubli. Déposer une
+# reconnaissance prouve qu'on est vivant et engagé — pas qu'on est revenu en cellule. Éteindre le
+# cas là-dessus serait la même erreur que fermer un deuil parce que la personne est venue au culte :
+# confondre une présence avec un état. Un signe de vie **enrichit** le cas et en abaisse la priorité
+# (`EnrichCase`), pour que le responsable lise « absente depuis 4 semaines, a déposé un sujet de
+# reconnaissance le 12 avril » et comprenne immédiatement de quoi il s'agit.
+#
+# **Une seule exception, et elle ne fait rien disparaître de ce qui a été vu** : sur un cas encore
+# `HELD`, le signe de vie le rétracte (`RetractHeld`). Personne ne l'avait vu, aucune promesse
+# n'avait été faite — le retirer ne trahit rien, et évite de faire appeler quelqu'un qui vient
+# précisément de donner de ses nouvelles.
 
 
 # Les seules causes qui autorisent une clôture de **cas** sans acte humain. Toute autre exige un
@@ -187,6 +193,11 @@ class EnrichCase(_Effect):
     annotation: str | None = None
     priority: CasePriority | None = None  # adoptée si plus urgente ; abaissée si `downgrade`
     downgrade: bool = False
+    # **Un signe de vie.** La personne a donné de ses nouvelles — une reconnaissance déposée,
+    # une parole au compagnon. Ça n'éteint jamais un cas vu par quelqu'un ; ça rétracte un cas
+    # encore retenu, que personne n'avait lu.
+    life_sign: bool = False
+    at: datetime | None = None  # la date du signe, quand il en porte une
 
 
 @dataclass(frozen=True)
@@ -238,6 +249,18 @@ class ResolveContactAttempt(_Effect):
     result: str
     at: datetime
     commitment: str | None = None
+
+
+@dataclass(frozen=True)
+class RetractHeld(_Effect):
+    """Un cas **retenu** que le temps a rendu sans objet — pas faux, sans objet.
+
+    Un cas `HELD` n'a jamais été vu par un humain : aucune promesse n'a été faite, aucune métrique
+    de résolution ne le compte. Un signe de vie déposé dessus peut donc le faire disparaître sans
+    rien trahir. Sur un cas déjà **émis**, en revanche, on n'efface rien : quelqu'un l'a peut-être
+    déjà lu, et il se contente d'être enrichi et de descendre en priorité."""
+
+    at: datetime
 
 
 @dataclass(frozen=True)
@@ -307,6 +330,7 @@ ProposedEffect = (
     | ResolveCase
     | RecordContactAttempt
     | ResolveContactAttempt
+    | RetractHeld
     | Neutralise
     | Extinguish
     | ExcludeForever

@@ -318,6 +318,13 @@ class FakeSignals(SignalStore):
                 outcome=SignalOutcome(outcome), at=at, closed_by_account_id=by_account_id
             )
 
+    async def retract_held(self, *, subject_id, tenant_id, at):
+        from app.contexts.watch.domain.signal import RetractionCause
+
+        signal = self._live(subject_id, tenant_id)
+        if signal is not None and signal.is_held:
+            signal.retract(at=at, cause=RetractionCause.SUPERSEDED_BY_LIFE_SIGN)
+
     async def held_cases(self, *, tenant_id):
         return [s for s in self.rows if s.tenant_id == tenant_id and s.is_held]
 

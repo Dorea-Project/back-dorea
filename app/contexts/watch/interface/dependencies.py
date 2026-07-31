@@ -81,6 +81,7 @@ from app.contexts.watch.application.shadow_report import (
     LetDoreaSpeak,
     SendShadowDigest,
 )
+from app.contexts.watch.application.stop_contacting_me import StopContactingMe
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -378,6 +379,10 @@ async def get_answer_contact(session: DbSession) -> AnswerContact:
     )
 
 
+async def get_stop_contacting_me(session: DbSession) -> StopContactingMe:
+    return StopContactingMe(build_signals(session), build_checks(session), clock=_now)
+
+
 async def get_pending_attempts(session: DbSession) -> PendingAttempts:
     return PendingAttempts(build_contacts(session), clock=_now)
 
@@ -389,6 +394,7 @@ CloseCaseDep = Annotated[CloseCase, Depends(get_close_case)]
 StartContactDep = Annotated[StartContact, Depends(get_start_contact)]
 AnswerContactDep = Annotated[AnswerContact, Depends(get_answer_contact)]
 PendingAttemptsDep = Annotated[PendingAttempts, Depends(get_pending_attempts)]
+StopContactingMeDep = Annotated[StopContactingMe, Depends(get_stop_contacting_me)]
 
 
 async def get_shadow_report(
