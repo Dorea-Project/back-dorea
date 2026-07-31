@@ -4,14 +4,14 @@ C'est ce que le ledger achète. On n'a jamais à rattraper un état incohérent 
 rejoue. Une saisie tardive, une règle corrigée, un interpreter nouveau qui donne enfin du sens à
 des faits vieux de six mois — trois fois la même opération.
 
-**Mais cette promesse ne couvre que ce qui dérive des faits**, et le moteur a grandi. Les gestes
-posés *sur* un cas — l'avoir ouvert, avoir appelé, l'avoir fermé avec une issue, avoir remis une
-consolation — ne sont pas au journal : ce sont des actes, pas des faits admis à l'intake. Un rejeu
-les efface sans pouvoir les reconstruire, et il détruirait ainsi les deux métriques du pilote et la
-chaîne d'épisode qui évite de rappeler quelqu'un en repartant de zéro. D'où le garde-fou
-`_guard_human_acts` : on refuse de rejouer une église où des humains ont agi, sauf `force`
-explicite. Il disparaîtra le jour où ces gestes entreront eux-mêmes au ledger — c'est la bonne
-correction, et elle est un chantier à part.
+**Cette promesse ne couvre que ce qui dérive des faits** — et depuis le lot 3bis, elle en couvre
+beaucoup plus : l'avoir ouvert, avoir tenté de joindre, avoir dit ce qui s'est passé, avoir fermé
+avec une issue sont désormais des **faits au journal**. Un rejeu les reconstruit, avec les deux
+métriques du pilote et la chaîne d'épisode.
+
+Le garde-fou `_guard_human_acts` a donc rétréci à ce qui reste hors du journal : les consolations
+déjà **remises** (leur remise est un acte, et la remettre deux fois serait pire que ne rien
+remettre) et les gestes comptés. Il disparaîtra quand ces deux-là suivront le même chemin.
 
 Deux garanties portées ici :
 
@@ -40,6 +40,7 @@ from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.materialization import Materializer
 from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import (
+    ContactAttemptStore,
     NeutralizationStore,
     ScheduledCheckStore,
     SignalStore,
@@ -65,6 +66,7 @@ class RebuildProjections:
         signals: SignalStore | None = None,
         owners: ResolveOwners | None = None,
         checks: ScheduledCheckStore | None = None,
+        attempts: ContactAttemptStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -82,7 +84,10 @@ class RebuildProjections:
         # plus rien ne serait jamais revenu relancer personne, et on l'aurait découvert des
         # semaines plus tard, sur les gens dont on n'a plus de nouvelles.
         self._checks = checks
-        self._materializer = Materializer(store, signals, checks)
+        # Les tentatives de contact sont des projections depuis le lot 3bis : elles se
+        # reconstruisent depuis le journal, donc elles se purgent avant de rejouer.
+        self._attempts = attempts
+        self._materializer = Materializer(store, signals, checks, attempts=attempts)
         self._policy = policy or ArbitrationPolicy()
 
     async def execute(self, *, tenant_id: UUID, force: bool = False) -> ReplayReport:
@@ -94,6 +99,8 @@ class RebuildProjections:
         await self._store.purge_projected_neutralizations(tenant_id)
         if self._signals is not None:
             await self._signals.purge_projected(tenant_id)
+        if self._attempts is not None:
+            await self._attempts.purge_projected(tenant_id)
         if self._checks is not None:
             # Les échéances **en attente** seulement : celles qui ont tiré sont de l'histoire, et
             # les reposer ferait retomber deux fois le même silence sur la même personne.
@@ -125,25 +132,24 @@ class RebuildProjections:
         return report
 
     async def _guard_human_acts(self, tenant_id: UUID, *, force: bool) -> None:
-        """Refuse de rejouer une église où des humains ont agi.
+        """Refuse de rejouer si un acte humain que le journal **ne contient pas** serait effacé.
 
-        Le ledger ne contient que des faits. Les gestes posés **sur** un cas — l'avoir ouvert,
-        avoir appelé, l'avoir fermé avec une issue, avoir remis une consolation — n'y sont pas :
-        un rejeu les efface et ne peut pas les reconstruire. Ce serait détruire, au nom de la
-        réparation, la trace même du soin apporté : les issues du responsable, les deux métriques
-        du pilote, la chaîne d'épisode qui évite de rappeler quelqu'un en repartant de zéro.
+        Le garde a rétréci avec le lot 3bis : le regard, les tentatives, les issues sont entrés au
+        ledger, donc un rejeu les reconstruit. Ce qui reste hors du journal, et qu'aucune
+        reconstruction ne rendrait : les consolations **déjà remises** — leur remise est un acte, et
+        la refaire serait pire que ne rien remettre — et les gestes comptés.
 
-        Le jour où ces gestes entreront eux-mêmes au ledger, ce garde-fou n'aura plus d'objet et
-        disparaîtra. D'ici là il est la seule chose qui empêche une commande de maintenance de
-        faire, en une seconde, un dégât qu'aucune sauvegarde de projection ne répare."""
+        Il disparaîtra quand ces deux-là suivront le même chemin. D'ici là il empêche une commande
+        de maintenance de faire, en une seconde, un dégât qu'aucune sauvegarde ne répare."""
         if force or self._signals is None:
             return
         traces = await self._signals.human_traces(tenant_id)
-        if traces.total == 0:
+        # Seul ce qui n'est **pas** reconstructible bloque désormais.
+        if traces.delivered_memories == 0 and traces.gestures == 0:
             return
         raise ReplayWouldEraseHumanActsError(
-            "Rejouer effacerait des gestes que le journal ne contient pas : ce que des "
-            "responsables ont vu, tenté, conclu. Faire entrer ces gestes au ledger, ou forcer "
-            "en sachant ce qui est perdu.",
+            "Rejouer effacerait des gestes que le journal ne contient pas : des consolations "
+            "déjà remises, des gestes comptés. Les faire entrer au ledger, ou forcer en sachant "
+            "ce qui est perdu.",
             details={"tenant_id": str(tenant_id), **traces.as_details()},
         )

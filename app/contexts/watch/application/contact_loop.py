@@ -14,6 +14,11 @@ outil qui marchait.
 | **P2** | rappel de retour, réponse **sans ouvrir l'app** | `ScheduleReturnPrompt` |
 | **P3** | reprise au premier plan, **une seule** invite par session | `PendingAttempts` |
 
+Depuis le lot 3bis, les deux gestes entrent par le **journal** : sans ça, une reprojection effaçait
+`first_contact_at` — la métrique reine du pilote — sans pouvoir la reconstruire. La péremption dure
+a suivi le même chemin : elle vit dans l'interpreter, qui reçoit le décompte et l'origine du cas
+dans le fait, et un rejeu conclut donc la même chose qu'au premier jour.
+
 Les trois ensemble, ou aucune : P1 seule laisse des tentatives éternellement en attente, P2 seule
 n'a rien à rappeler, P3 seule arrive trop tard.
 """
@@ -28,14 +33,13 @@ from app.contexts.notifications.application.notifier import (
     NotificationScheduler,
     PushNotification,
 )
+from app.contexts.watch.application.case_acts import RecordCaseAct
 from app.contexts.watch.application.ports import ContactAttemptStore, SignalStore
 from app.contexts.watch.domain.contact import (
-    HARD_EXPIRY_ATTEMPTS,
     ContactAttempt,
     ContactChannel,
     ContactResult,
 )
-from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 
 # Trop court, ça agace ; trop long, on a perdu le contexte de l'appel.
 RETURN_PROMPT_DELAY = timedelta(hours=3)
@@ -60,6 +64,7 @@ class StartContact:
         self,
         attempts: ContactAttemptStore,
         signals: SignalStore,
+        acts: RecordCaseAct,
         scheduler: NotificationScheduler | None = None,
         *,
         clock,
@@ -67,6 +72,7 @@ class StartContact:
     ) -> None:
         self._attempts = attempts
         self._signals = signals
+        self._acts = acts
         self._scheduler = scheduler
         self._clock = clock
         self._new_id = id_factory
@@ -81,26 +87,28 @@ class StartContact:
         person_label: str,
     ) -> StartedContact:
         now = self._clock()
-        attempt = ContactAttempt(
-            id=self._new_id(),
-            tenant_id=tenant_id,
+        # Le sujet vient du **cas**, pas de l'appelant : c'est lui qui porte la personne, et un
+        # geste doit dire de qui il s'agit sans qu'une surface ait à le retrouver.
+        case = await self._signals.get_case(signal_id=signal_id, tenant_id=tenant_id)
+        subject_id = case.subject_id if case is not None else signal_id
+        # L'effort entre par le **journal**, comme tout le reste : sans ça, une reprojection
+        # effaçait `first_contact_at` — la métrique reine du pilote — sans pouvoir la reconstruire.
+        attempt_id = self._new_id()
+        await self._acts.attempted(
+            attempt_id=attempt_id,
             signal_id=signal_id,
+            subject_id=subject_id,
+            tenant_id=tenant_id,
             by_account_id=by_account_id,
             channel=channel,
-            attempted_at=now,
-            result=ContactResult.PENDING,  # l'état normal au départ, pas une anomalie
-        )
-        await self._attempts.add(attempt)
-        await self._signals.mark_contact_started(
-            signal_id=signal_id, tenant_id=tenant_id, at=now
         )
 
         prompt_at = now + RETURN_PROMPT_DELAY
-        await self._schedule_return(attempt, by_account_id, person_label, prompt_at)
-        return StartedContact(attempt_id=attempt.id, prompt_at=prompt_at)
+        await self._schedule_return(attempt_id, by_account_id, person_label, prompt_at)
+        return StartedContact(attempt_id=attempt_id, prompt_at=prompt_at)
 
     async def _schedule_return(
-        self, attempt: ContactAttempt, owner: UUID, label: str, at: datetime
+        self, attempt_id: UUID, owner: UUID, label: str, at: datetime
     ) -> None:
         """P2 — la **seule** notification du produit autorisée à insister.
 
@@ -115,7 +123,7 @@ class StartContact:
                 body=f"As-tu pu joindre {label} ?",
                 data={
                     "type": "contact_return",
-                    "attempt_id": str(attempt.id),
+                    "attempt_id": str(attempt_id),
                     "actions": "reached,not_reached,postponed",
                 },
             ),
@@ -133,11 +141,13 @@ class AnswerContact:
         self,
         attempts: ContactAttemptStore,
         signals: SignalStore,
+        acts: RecordCaseAct,
         *,
         clock,
     ) -> None:
         self._attempts = attempts
         self._signals = signals
+        self._acts = acts
         self._clock = clock
 
     async def execute(
@@ -151,33 +161,24 @@ class AnswerContact:
         if attempt is None or not attempt.awaits_answer:
             return attempt
 
-        now = self._clock()
-        attempt.resolve(result=result, at=now, commitment=commitment)
-        await self._attempts.save(attempt)
-
-        if result is ContactResult.NOT_REACHED:
-            await self._maybe_expire(attempt, now)
-        return attempt
-
-    async def _maybe_expire(self, attempt: ContactAttempt, now: datetime) -> None:
-        """La **péremption dure** — seconde et dernière clôture système.
-
-        Trois tentatives sans réponse sur un régime d'échéance : le cas sort de la file. Ce
-        n'est pas un renoncement, c'est une question de volume — sans elle, un module
-        d'évangélisation qui fonctionne noie son propre inviteur en trois semaines. La personne
-        reste en base ; elle sort de la file, pas du fichier."""
-        origin = await self._signals.origin_of(attempt.signal_id, attempt.tenant_id)
-        if origin is not CasePriority.DEADLINE:
-            return
+        # Ce que le monde sait **maintenant** voyage avec le fait : le nombre de tentatives sans
+        # réponse et l'origine du cas. C'est ce qui permet à l'interpreter de décider seul de la
+        # péremption dure, sans rien relire — et à un rejeu de conclure la même chose.
         failed = await self._attempts.count_not_reached(attempt.signal_id)
-        if failed < HARD_EXPIRY_ATTEMPTS:
-            return
-        await self._signals.extinguish_by_id(
-            signal_id=attempt.signal_id,
-            tenant_id=attempt.tenant_id,
-            cause=ExtinguishCause.UNREACHABLE.value,
-            at=now,
+        case = await self._signals.get_case(
+            signal_id=attempt.signal_id, tenant_id=attempt.tenant_id
         )
+        if case is None:
+            return attempt  # le cas a disparu sous la tentative : rien à raconter
+        await self._acts.answered(
+            attempt=attempt,
+            subject_id=case.subject_id,
+            result=result,
+            commitment=commitment,
+            failed_attempts=failed + (1 if result is ContactResult.NOT_REACHED else 0),
+            origin=case.origin.value,
+        )
+        return await self._attempts.get(attempt_id)
 
 
 class PendingAttempts:

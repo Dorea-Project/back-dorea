@@ -32,6 +32,8 @@ class EffectKind(StrEnum):
     EXCLUDE_FOREVER = "exclude_forever"
     RECORD_MEMORY = "record_memory"
     MARK_CASE_SEEN = "mark_case_seen"
+    RECORD_CONTACT_ATTEMPT = "record_contact_attempt"
+    RESOLVE_CONTACT_ATTEMPT = "resolve_contact_attempt"
     RESOLVE_CASE = "resolve_case"
     SCHEDULE_CHECK = "schedule_check"
     CANCEL_SCHEDULED_CHECKS = "cancel_scheduled_checks"
@@ -212,6 +214,33 @@ class ResolveCase(_Effect):
 
 
 @dataclass(frozen=True)
+class RecordContactAttempt(_Effect):
+    """L'effort, écrit **avant** que l'application perde la main.
+
+    `attempt_id` vient du fait : généré une fois à l'émission, il rend l'écriture idempotente au
+    rejeu. Le cas visé, lui, est retrouvé par la personne — un rejeu recrée les cas avec de
+    nouveaux identifiants."""
+
+    attempt_id: UUID
+    channel: str
+    at: datetime
+    by_account_id: UUID
+
+
+@dataclass(frozen=True)
+class ResolveContactAttempt(_Effect):
+    """« Voilà comment ça s'est passé » — et, s'il l'a écrit, ce que le responsable fera ensuite.
+
+    `commitment` porte sur **son geste**, jamais sur la personne : c'est ce qui fait qu'il n'existe
+    toujours aucun endroit où écrire quelque chose sur quelqu'un."""
+
+    attempt_id: UUID
+    result: str
+    at: datetime
+    commitment: str | None = None
+
+
+@dataclass(frozen=True)
 class Neutralise(_Effect):
     starts_at: datetime
     expected_return_at: datetime
@@ -276,6 +305,8 @@ ProposedEffect = (
     | EnrichCase
     | MarkCaseSeen
     | ResolveCase
+    | RecordContactAttempt
+    | ResolveContactAttempt
     | Neutralise
     | Extinguish
     | ExcludeForever

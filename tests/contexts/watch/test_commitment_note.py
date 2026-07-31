@@ -17,7 +17,7 @@ from app.contexts.watch.domain.contact import ContactChannel, ContactResult
 from app.contexts.watch.domain.effects import CasePriority
 from app.contexts.watch.domain.signal import Signal, SignalStatus
 from app.contexts.watch.infrastructure.persistence import models
-from tests.contexts.watch.fakes import FakeContactAttempts, FakeSignals
+from tests.contexts.watch.fakes import FakeContactAttempts, FakeSignals, case_acts_for
 
 _NOW = datetime(2026, 8, 3, tzinfo=UTC)
 
@@ -38,8 +38,9 @@ def _case(signals, *, tenant, owner):
 
 async def _attempt(attempts, signals, *, tenant, owner):
     case = _case(signals, tenant=tenant, owner=owner)
+    acts = case_acts_for(signals, clock=lambda: _NOW, attempts=attempts)
     started = await StartContact(
-        attempts, signals, None, clock=lambda: _NOW, id_factory=uuid4
+        attempts, signals, acts, None, clock=lambda: _NOW, id_factory=uuid4
     ).execute(
         signal_id=case.id, tenant_id=tenant, by_account_id=owner,
         channel=ContactChannel.CALL, person_label="Awa",
@@ -55,7 +56,10 @@ async def test_the_note_records_what_i_will_do_next():
     attempts, signals = FakeContactAttempts(), FakeSignals()
     attempt_id = await _attempt(attempts, signals, tenant=tenant, owner=lead)
 
-    resolved = await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+    resolved = await AnswerContact(
+        attempts, signals, case_acts_for(signals, clock=lambda: _NOW, attempts=attempts),
+        clock=lambda: _NOW,
+    ).execute(
         attempt_id=attempt_id,
         result=ContactResult.REACHED,
         commitment="Je repasse jeudi avec le colis.",
@@ -73,7 +77,10 @@ async def test_an_empty_note_is_no_note():
     attempts, signals = FakeContactAttempts(), FakeSignals()
     attempt_id = await _attempt(attempts, signals, tenant=tenant, owner=lead)
 
-    resolved = await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+    resolved = await AnswerContact(
+        attempts, signals, case_acts_for(signals, clock=lambda: _NOW, attempts=attempts),
+        clock=lambda: _NOW,
+    ).execute(
         attempt_id=attempt_id, result=ContactResult.REACHED, commitment="   "
     )
 
@@ -88,7 +95,10 @@ async def test_the_note_is_written_once_like_the_outcome():
     tenant, lead = uuid4(), uuid4()
     attempts, signals = FakeContactAttempts(), FakeSignals()
     attempt_id = await _attempt(attempts, signals, tenant=tenant, owner=lead)
-    answer = AnswerContact(attempts, signals, clock=lambda: _NOW)
+    answer = AnswerContact(
+        attempts, signals, case_acts_for(signals, clock=lambda: _NOW, attempts=attempts),
+        clock=lambda: _NOW,
+    )
 
     await answer.execute(
         attempt_id=attempt_id, result=ContactResult.REACHED, commitment="Je rappelle jeudi."

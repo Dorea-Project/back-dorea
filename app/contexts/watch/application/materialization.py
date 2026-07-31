@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app.contexts.watch.application.ports import (
+    ContactAttemptStore,
     NeutralizationStore,
     ScheduledCheckStore,
     SignalStore,
@@ -48,8 +49,10 @@ from app.contexts.watch.domain.effects import (
     Neutralise,
     OpenCase,
     ProposedEffect,
+    RecordContactAttempt,
     RecordMemory,
     ResolveCase,
+    ResolveContactAttempt,
     ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact
@@ -70,6 +73,7 @@ class Materializer:
         checks: ScheduledCheckStore | None = None,
         gaps: CoverageGapStore | None = None,
         *,
+        attempts: ContactAttemptStore | None = None,
         id_factory=uuid4,
     ) -> None:
         self._store = store
@@ -78,6 +82,8 @@ class Materializer:
         # Le magasin des défauts de dispositif. Sans lui, `CoverageSignal` restait « proposé et
         # jamais écrit » — et depuis le lot 2a, ce silence-là est au moins bruyant.
         self._gaps = gaps
+        # Les tentatives de contact sont désormais écrites depuis le journal, elles aussi.
+        self._attempts = attempts
         self._new_id = id_factory
 
     async def apply(
@@ -248,6 +254,32 @@ class Materializer:
             )
             return EffectKind.COVERAGE_SIGNAL
 
+        if isinstance(effect, RecordContactAttempt) and self._attempts is not None:
+            await self._attempts.record(
+                attempt_id=effect.attempt_id,
+                subject_id=effect.subject_id,
+                tenant_id=fact.tenant_id,
+                by_account_id=effect.by_account_id,
+                channel=effect.channel,
+                at=effect.at,
+            )
+            if self._signals is not None:
+                # L'intention est écrite **avant** que l'application perde la main : c'est ce qui
+                # rend `first_contact_at` juste même quand personne ne revient dire l'issue.
+                await self._signals.mark_contact_started_for_subject(
+                    subject_id=effect.subject_id, tenant_id=fact.tenant_id, at=effect.at
+                )
+            return EffectKind.RECORD_CONTACT_ATTEMPT
+
+        if isinstance(effect, ResolveContactAttempt) and self._attempts is not None:
+            await self._attempts.resolve(
+                attempt_id=effect.attempt_id,
+                result=effect.result,
+                at=effect.at,
+                commitment=effect.commitment,
+            )
+            return EffectKind.RESOLVE_CONTACT_ATTEMPT
+
         if isinstance(effect, MarkCaseSeen) and self._signals is not None:
             await self._signals.mark_seen(
                 subject_id=effect.subject_id, tenant_id=fact.tenant_id, at=effect.at
@@ -313,6 +345,8 @@ _KIND_OF: dict[str, EffectKind] = {
     "ExcludeForever": EffectKind.EXCLUDE_FOREVER,
     "RecordMemory": EffectKind.RECORD_MEMORY,
     "MarkCaseSeen": EffectKind.MARK_CASE_SEEN,
+    "RecordContactAttempt": EffectKind.RECORD_CONTACT_ATTEMPT,
+    "ResolveContactAttempt": EffectKind.RESOLVE_CONTACT_ATTEMPT,
     "ResolveCase": EffectKind.RESOLVE_CASE,
     "ScheduleCheck": EffectKind.SCHEDULE_CHECK,
     "CancelScheduledChecks": EffectKind.CANCEL_SCHEDULED_CHECKS,

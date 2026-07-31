@@ -46,6 +46,8 @@ from app.contexts.watch.application.interpreters.appointment_requested import (
 from app.contexts.watch.application.interpreters.case_acts import (
     CaseClosedV1,
     CaseSeenV1,
+    ContactAnsweredV1,
+    ContactAttemptedV1,
 )
 from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
 from app.contexts.watch.application.interpreters.joined_group import JoinedGroupV1
@@ -119,6 +121,8 @@ INTERPRETERS.register(JoinedGroupV1())
 # conclues et les deux metriques du pilote.
 INTERPRETERS.register(CaseSeenV1())
 INTERPRETERS.register(CaseClosedV1())
+INTERPRETERS.register(ContactAttemptedV1())
+INTERPRETERS.register(ContactAnsweredV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -144,7 +148,7 @@ def build_intake(session) -> Intake:
     return Intake(
         SqlFactLedger(session), SOURCES, INTERPRETERS,
         build_store(session), build_signals(session), build_checks(session),
-        build_owner_assignment(session),
+        build_owner_assignment(session), build_contacts(session),
     )
 
 
@@ -230,7 +234,7 @@ def build_rebuild(session) -> RebuildProjections:
     reposerait aucune — en silence."""
     return RebuildProjections(
         SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session),
-        build_owner_assignment(session), build_checks(session),
+        build_owner_assignment(session), build_checks(session), build_contacts(session),
     )
 
 
@@ -331,6 +335,7 @@ async def get_start_contact(session: DbSession) -> StartContact:
     return StartContact(
         build_contacts(session),
         build_signals(session),
+        build_case_acts(session),
         build_scheduler(session),  # le rappel de retour part d'ici, ou nulle part
         clock=_now,
         id_factory=uuid4,
@@ -338,7 +343,9 @@ async def get_start_contact(session: DbSession) -> StartContact:
 
 
 async def get_answer_contact(session: DbSession) -> AnswerContact:
-    return AnswerContact(build_contacts(session), build_signals(session), clock=_now)
+    return AnswerContact(
+        build_contacts(session), build_signals(session), build_case_acts(session), clock=_now
+    )
 
 
 async def get_pending_attempts(session: DbSession) -> PendingAttempts:

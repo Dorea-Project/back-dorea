@@ -181,26 +181,41 @@ async def test_a_reprojection_never_refires_a_deadline_that_already_fell():
 # --- 1bis. Un rejeu n'efface pas ce que des humains ont fait -----------------------------
 
 
-async def test_a_replay_refuses_to_erase_what_a_responsable_has_done():
-    """Le journal porte des faits ; « j'ai appelé » est un **acte**, et il n'y est pas.
+async def test_a_replay_no_longer_refuses_what_the_ledger_can_rebuild():
+    """Le garde-fou a **rétréci**, et c'est tout l'intérêt du lot 3bis.
 
-    Rejouer effacerait les issues des responsables, le premier regard, le premier contact, les
-    gestes comptés, la chaîne d'épisode et les consolations déjà remises. Détruire la trace du soin
-    au nom de la réparation est le pire échange possible."""
+    Le regard, les tentatives et les issues sont entrés au journal : un rejeu les reconstruit, donc
+    il n'y a plus de raison de le refuser. La réparation redevient une opération ordinaire."""
     tenant, member = uuid4(), uuid4()
     checks = FakeChecks()
     intake, ledger, store, signals, interpreters = _engine(checks=checks)
     await intake.submit(_consented(_contact_request_fact(tenant=tenant, member=member)))
+    signals.rows[0].record_contact_attempt(at=_NOW + timedelta(days=1))
 
-    case = signals.rows[0]
-    case.record_contact_attempt(at=_NOW + timedelta(days=1))  # quelqu'un a appelé
+    report = await RebuildProjections(
+        ledger, interpreters, store, signals, None, checks
+    ).execute(tenant_id=tenant)
+
+    assert report.facts == 1
+
+
+async def test_a_replay_still_refuses_to_erase_a_consolation_already_delivered():
+    """Ce qui reste hors du journal : une consolation **remise**.
+
+    La remise est un acte, et la refaire serait pire que ne rien remettre — « 32 personnes portent
+    votre famille » ne se dit pas deux fois."""
+    tenant, member = uuid4(), uuid4()
+    checks = FakeChecks()
+    intake, ledger, store, signals, interpreters = _engine(checks=checks)
+    await intake.submit(_consented(_contact_request_fact(tenant=tenant, member=member)))
+    signals.memory.append((tenant, member, "return_confirmed", _NOW, "Revenue.", _NOW))
 
     with pytest.raises(ReplayWouldEraseHumanActsError) as refusal:
         await RebuildProjections(
             ledger, interpreters, store, signals, None, checks
         ).execute(tenant_id=tenant)
 
-    assert refusal.value.details["contacted"] == 1
+    assert refusal.value.details["delivered_memories"] == 1
     assert signals.rows  # et rien n'a été effacé : le refus précède la purge
 
 

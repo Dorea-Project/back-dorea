@@ -70,6 +70,11 @@ class FactKind(StrEnum):
     # date, et l'a signé. Rien ici ne décrit une omission.
     CASE_SEEN = "case_seen"  # « je l'ai ouvert » — la mesure la plus précoce du pilote
     CASE_CLOSED = "case_closed"  # « voilà ce qui s'est passé » — l'issue, choisie, jamais déduite
+    # L'effort, écrit **au départ** : on sort vers WhatsApp ou le téléphone et on ne revient
+    # pas toujours. Sans cette trace posée avant de perdre la main, le produit conclurait à un
+    # échec de veille là où il y a eu un appel de vingt minutes.
+    CONTACT_ATTEMPTED = "contact_attempted"
+    CONTACT_ANSWERED = "contact_answered"  # « voilà comment ça s'est passé », et ce que je ferai
 
 
 # Le **temps lui-même entre par le ledger** : `CHECK_FIRED` est ce qui rend l'évaluation des
@@ -164,7 +169,14 @@ ACTOR_REQUIRED: frozenset[FactKind] = frozenset({FactKind.LIFE_EVENT_ANNOUNCED})
 #   sources : plus rien n'entre *sur* quelqu'un qui est mort ou qui a demandé qu'on cesse. Mais
 #   fermer le cas d'un défunt est justement l'acte qu'on attend du responsable, et le lui refuser
 #   laisserait le cas ouvert pour toujours sur l'écran de quelqu'un.
-CASE_ACTS: frozenset[FactKind] = frozenset({FactKind.CASE_SEEN, FactKind.CASE_CLOSED})
+CASE_ACTS: frozenset[FactKind] = frozenset(
+    {
+        FactKind.CASE_SEEN,
+        FactKind.CASE_CLOSED,
+        FactKind.CONTACT_ATTEMPTED,
+        FactKind.CONTACT_ANSWERED,
+    }
+)
 
 
 # Ce que certains kinds exigent du payload, **quelle que soit la source**. Le registre porte les
@@ -172,6 +184,8 @@ CASE_ACTS: frozenset[FactKind] = frozenset({FactKind.CASE_SEEN, FactKind.CASE_CL
 KIND_REQUIRED_KEYS: dict[FactKind, frozenset[str]] = {
     FactKind.CASE_SEEN: frozenset({"signal_id", ACTOR_KEY}),
     FactKind.CASE_CLOSED: frozenset({"signal_id", ACTOR_KEY, "outcome"}),
+    FactKind.CONTACT_ATTEMPTED: frozenset({"attempt_id", "signal_id", ACTOR_KEY, "channel"}),
+    FactKind.CONTACT_ANSWERED: frozenset({"attempt_id", ACTOR_KEY, "result"}),
 }
 
 

@@ -235,4 +235,11 @@ async def test_closing_the_case_of_a_deceased_person_still_works():
 
 def test_the_acts_are_a_closed_family():
     """La liste est fermée : on n'ajoute pas un geste sans y penser."""
-    assert CASE_ACTS == frozenset({FactKind.CASE_SEEN, FactKind.CASE_CLOSED})
+    assert CASE_ACTS == frozenset(
+        {
+            FactKind.CASE_SEEN,
+            FactKind.CASE_CLOSED,
+            FactKind.CONTACT_ATTEMPTED,
+            FactKind.CONTACT_ANSWERED,
+        }
+    )

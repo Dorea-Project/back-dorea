@@ -24,7 +24,17 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from app.contexts.watch.application.interpretation import WatchStateView
-from app.contexts.watch.domain.effects import MarkCaseSeen, ProposedEffect, ResolveCase
+from app.contexts.watch.domain.contact import HARD_EXPIRY_ATTEMPTS, ContactResult
+from app.contexts.watch.domain.effects import (
+    CasePriority,
+    Extinguish,
+    ExtinguishCause,
+    MarkCaseSeen,
+    ProposedEffect,
+    RecordContactAttempt,
+    ResolveCase,
+    ResolveContactAttempt,
+)
 from app.contexts.watch.domain.facts import Fact, FactKind
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
@@ -65,3 +75,73 @@ class CaseClosedV1:
                 outcome=str(fact.payload["outcome"]),
             )
         ]
+
+
+class ContactAttemptedV1:
+    """L'effort, écrit **avant** que l'application perde la main.
+
+    On sort vers WhatsApp ou le téléphone, et on ne revient pas toujours. Sans cette trace posée au
+    départ, le produit conclurait à un échec de veille là où il y a eu un appel de vingt minutes —
+    le pire des faux négatifs, celui qui invalide un succès réel."""
+
+    kind = FactKind.CONTACT_ATTEMPTED
+    version = 1
+    effective_from = _GENESIS
+
+    def interpret(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
+        return [
+            RecordContactAttempt(
+                subject_id=fact.subject_id,
+                reason="Un contact a été tenté.",
+                attempt_id=UUID(str(fact.payload["attempt_id"])),
+                channel=str(fact.payload["channel"]),
+                at=fact.occurred_at,
+                by_account_id=_actor(fact),
+            )
+        ]
+
+
+class ContactAnsweredV1:
+    """Ce que le responsable rapporte de son appel — et, le cas échéant, la **péremption dure**.
+
+    Trois tentatives sans réponse sur un régime d'échéance : le cas sort de la file. Ce n'est pas
+    un renoncement, c'est une question de volume — sans elle, un module d'évangélisation qui
+    fonctionne noie son propre inviteur en trois semaines. La personne reste en base ; elle sort de
+    la file, pas du fichier.
+
+    Le décompte et l'origine du cas voyagent dans le payload, écrits au moment où on les connaît :
+    l'interpreter reste pur, et un rejeu conclut la même chose qu'au premier jour."""
+
+    kind = FactKind.CONTACT_ANSWERED
+    version = 1
+    effective_from = _GENESIS
+
+    def interpret(self, fact: Fact, state: WatchStateView) -> Sequence[ProposedEffect]:
+        result = str(fact.payload["result"])
+        effects: list[ProposedEffect] = [
+            ResolveContactAttempt(
+                subject_id=fact.subject_id,
+                reason="Le responsable a dit ce qui s'est passé.",
+                attempt_id=UUID(str(fact.payload["attempt_id"])),
+                result=result,
+                at=fact.occurred_at,
+                commitment=fact.payload.get("commitment"),
+            )
+        ]
+        if self._expires(fact, result):
+            effects.append(
+                Extinguish(
+                    subject_id=fact.subject_id,
+                    reason="Resté sans réponse après trois tentatives.",
+                    cause=ExtinguishCause.UNREACHABLE,
+                    at=fact.occurred_at,
+                )
+            )
+        return effects
+
+    def _expires(self, fact: Fact, result: str) -> bool:
+        if result != ContactResult.NOT_REACHED.value:
+            return False
+        if fact.payload.get("origin") != CasePriority.DEADLINE.value:
+            return False
+        return int(fact.payload.get("failed_attempts") or 0) >= HARD_EXPIRY_ATTEMPTS

@@ -39,6 +39,7 @@ from app.contexts.watch.application.materialization import (
 )
 from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import (
+    ContactAttemptStore,
     NeutralizationStore,
     ScheduledCheckStore,
     SignalStore,
@@ -93,6 +94,7 @@ class Intake:
         signals: SignalStore | None = None,
         checks: ScheduledCheckStore | None = None,
         owners: ResolveOwners | None = None,
+        attempts: ContactAttemptStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -105,7 +107,7 @@ class Intake:
         # plus : c'est le régime des tests d'unité purs, jamais celui de la production — où la
         # colonne est NOT NULL et refuserait l'écriture.
         self._owners = owners
-        self._materializer = Materializer(store, signals, checks)
+        self._materializer = Materializer(store, signals, checks, attempts=attempts)
         self._policy = policy or ArbitrationPolicy()
 
     async def submit(self, fact: Fact) -> IntakeResult:

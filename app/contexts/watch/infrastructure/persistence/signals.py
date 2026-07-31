@@ -374,6 +374,16 @@ class SqlSignalStore(SignalStore):
         rows = (await self._session.execute(stmt)).scalars().all()
         return {r.subject_id: _to_signal(r) for r in rows}
 
+    async def mark_contact_started_for_subject(
+        self, *, subject_id: UUID, tenant_id: UUID, at: datetime
+    ) -> None:
+        row = await self._live_row(subject_id, tenant_id)
+        if row is None:
+            return
+        signal = _to_signal(row)
+        signal.record_contact_attempt(at=at)
+        await self.save_case(signal)
+
     async def mark_seen(self, *, subject_id: UUID, tenant_id: UUID, at: datetime) -> None:
         row = await self._live_row(subject_id, tenant_id)
         if row is None:
@@ -545,6 +555,65 @@ class SqlContactAttemptStore(ContactAttemptStore):
         row.answered_at = attempt.answered_at
         row.commitment = attempt.commitment
         await self._session.flush()
+
+    async def purge_projected(self, tenant_id: UUID) -> None:
+        await self._session.execute(
+            delete(ContactAttemptModel).where(ContactAttemptModel.tenant_id == tenant_id)
+        )
+        await self._session.flush()
+
+    async def record(
+        self,
+        *,
+        attempt_id: UUID,
+        subject_id: UUID,
+        tenant_id: UUID,
+        by_account_id: UUID,
+        channel: str,
+        at: datetime,
+    ) -> None:
+        if await self._session.get(ContactAttemptModel, attempt_id) is not None:
+            return  # rejouer n'empile pas : l'identifiant vient du journal
+        signal_id = await self._live_signal_id(subject_id, tenant_id)
+        self._session.add(
+            ContactAttemptModel(
+                id=attempt_id,
+                tenant_id=tenant_id,
+                signal_id=signal_id,
+                by_account_id=by_account_id,
+                channel=channel,
+                attempted_at=at,
+                result=ContactResult.PENDING.value,
+            )
+        )
+        await self._session.flush()
+
+    async def _live_signal_id(self, subject_id: UUID, tenant_id: UUID) -> UUID:
+        """Le cas vivant de cette personne — retrouvé maintenant, jamais lu du payload.
+
+        Un rejeu recrée les cas avec de nouveaux identifiants : rattacher la tentative à celui
+        d'origine la laisserait orpheline."""
+        stmt = (
+            select(SignalModel.id)
+            .where(
+                SignalModel.tenant_id == tenant_id,
+                SignalModel.subject_id == subject_id,
+                SignalModel.status.in_(_LIVE),
+            )
+            .order_by(SignalModel.opened_at)
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalars().first()
+
+    async def resolve(
+        self, *, attempt_id: UUID, result: str, at: datetime, commitment: str | None = None
+    ) -> None:
+        row = await self._session.get(ContactAttemptModel, attempt_id)
+        if row is None:
+            return
+        attempt = _to_attempt(row)
+        attempt.resolve(result=ContactResult(result), at=at, commitment=commitment)
+        await self.save(attempt)
 
     async def count_not_reached(self, signal_id: UUID) -> int:
         stmt = select(func.count()).where(

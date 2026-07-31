@@ -22,7 +22,7 @@ from app.contexts.watch.domain.contact import (
 )
 from app.contexts.watch.domain.effects import CasePriority
 from app.contexts.watch.domain.signal import Signal, SignalOutcome, SignalStatus
-from tests.contexts.watch.fakes import FakeContactAttempts, FakeSignals
+from tests.contexts.watch.fakes import FakeContactAttempts, FakeSignals, case_acts_for
 
 _NOW = datetime(2026, 5, 1, tzinfo=UTC)
 
@@ -43,8 +43,15 @@ def _case(*, tenant, subject, origin=CasePriority.ABSENCE, owner=None) -> Signal
     )
 
 
+def _acts(signals, attempts, *, now=_NOW):
+    """Les gestes passent par le journal : la doublure monte le vrai chemin."""
+    return case_acts_for(signals, clock=lambda: now, attempts=attempts)
+
+
 def _loop(signals, attempts, scheduler=None, *, now=_NOW):
-    return StartContact(attempts, signals, scheduler, clock=lambda: now)
+    return StartContact(
+        attempts, signals, _acts(signals, attempts, now=now), scheduler, clock=lambda: now
+    )
 
 
 # --- P1 : l'intention s'écrit au départ ---------------------------------------------------
@@ -138,7 +145,10 @@ async def test_answering_once_is_enough():
         signal_id=case.id, tenant_id=tenant, by_account_id=owner,
         channel=ContactChannel.CALL, person_label="Awa",
     )
-    answer = AnswerContact(attempts, signals, clock=lambda: _NOW + timedelta(hours=3))
+    later = _NOW + timedelta(hours=3)
+    answer = AnswerContact(
+        attempts, signals, _acts(signals, attempts, now=later), clock=lambda: later
+    )
 
     await answer.execute(attempt_id=started.attempt_id, result=ContactResult.REACHED)
     await answer.execute(attempt_id=started.attempt_id, result=ContactResult.NOT_REACHED)
@@ -182,7 +192,9 @@ async def test_an_answered_attempt_is_never_asked_about_again():
         channel=ContactChannel.CALL, person_label="Awa",
     )
 
-    await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+    await AnswerContact(
+        attempts, signals, _acts(signals, attempts, now=_NOW), clock=lambda: _NOW
+    ).execute(
         attempt_id=started.attempt_id, result=ContactResult.POSTPONED
     )
     remaining = await PendingAttempts(
@@ -209,7 +221,9 @@ async def test_three_failed_attempts_close_a_deadline_case():
             signal_id=case.id, tenant_id=tenant, by_account_id=owner,
             channel=ContactChannel.CALL, person_label="Awa",
         )
-        await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+        await AnswerContact(
+        attempts, signals, _acts(signals, attempts, now=_NOW), clock=lambda: _NOW
+    ).execute(
             attempt_id=started.attempt_id, result=ContactResult.NOT_REACHED
         )
 
@@ -230,7 +244,9 @@ async def test_the_hard_expiry_never_touches_another_regime():
             signal_id=case.id, tenant_id=tenant, by_account_id=owner,
             channel=ContactChannel.CALL, person_label="Awa",
         )
-        await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+        await AnswerContact(
+        attempts, signals, _acts(signals, attempts, now=_NOW), clock=lambda: _NOW
+    ).execute(
             attempt_id=started.attempt_id, result=ContactResult.NOT_REACHED
         )
 
@@ -248,7 +264,9 @@ async def test_reaching_someone_never_expires_anything():
             signal_id=case.id, tenant_id=tenant, by_account_id=owner,
             channel=ContactChannel.CALL, person_label="Awa",
         )
-        await AnswerContact(attempts, signals, clock=lambda: _NOW).execute(
+        await AnswerContact(
+        attempts, signals, _acts(signals, attempts, now=_NOW), clock=lambda: _NOW
+    ).execute(
             attempt_id=started.attempt_id, result=ContactResult.REACHED
         )
 

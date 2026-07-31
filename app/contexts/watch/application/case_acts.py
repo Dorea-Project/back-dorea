@@ -58,6 +58,86 @@ class RecordCaseAct:
             extra={"outcome": outcome.value},
         )
 
+    async def attempted(
+        self,
+        *,
+        attempt_id: UUID,
+        signal_id: UUID,
+        subject_id: UUID,
+        tenant_id: UUID,
+        by_account_id: UUID,
+        channel,
+    ) -> None:
+        """L'effort, écrit **avant** que l'application perde la main.
+
+        `attempt_id` est généré ici et voyage dans le fait : c'est lui qui rend l'écriture
+        idempotente au rejeu, sans quoi chaque reconstruction empilerait une tentative de plus."""
+        now = self._clock()
+        await self._emit(
+            fact_id=uuid5(_FACT_NAMESPACE, f"{attempt_id}:{FactKind.CONTACT_ATTEMPTED.value}"),
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            kind=FactKind.CONTACT_ATTEMPTED,
+            at=now,
+            payload={
+                "attempt_id": str(attempt_id),
+                "signal_id": str(signal_id),
+                "actor_account_id": str(by_account_id),
+                "channel": getattr(channel, "value", str(channel)),
+            },
+        )
+
+    async def answered(
+        self,
+        *,
+        attempt,
+        subject_id: UUID,
+        result,
+        commitment: str | None,
+        failed_attempts: int,
+        origin: str | None,
+    ) -> None:
+        """Ce que le responsable rapporte — avec ce que le monde sait au moment où il le dit.
+
+        Le décompte des tentatives sans réponse et l'origine du cas voyagent dans le fait : c'est
+        ce qui permet à l'interpreter de décider seul de la péremption dure, sans rien relire."""
+        now = self._clock()
+        payload: dict[str, str] = {
+            "attempt_id": str(attempt.id),
+            "actor_account_id": str(attempt.by_account_id),
+            "result": getattr(result, "value", str(result)),
+            "failed_attempts": str(failed_attempts),
+        }
+        if origin is not None:
+            payload["origin"] = origin
+        if commitment and commitment.strip():
+            payload["commitment"] = commitment.strip()
+        await self._emit(
+            fact_id=uuid5(_FACT_NAMESPACE, f"{attempt.id}:{FactKind.CONTACT_ANSWERED.value}"),
+            tenant_id=attempt.tenant_id,
+            subject_id=subject_id,
+            kind=FactKind.CONTACT_ANSWERED,
+            at=now,
+            payload=payload,
+        )
+
+    async def _emit(
+        self, *, fact_id: UUID, tenant_id: UUID, subject_id: UUID, kind: FactKind, at, payload
+    ) -> None:
+        await self._intake.submit(
+            Fact(
+                fact_id=fact_id,
+                tenant_id=tenant_id,
+                occurred_at=at,
+                recorded_at=at,
+                source=CASE_ACTIONS,
+                kind=kind,
+                subject_kind=SubjectKind.PERSON,
+                subject_id=subject_id,
+                payload=payload,
+            )
+        )
+
     async def _submit(
         self,
         *,

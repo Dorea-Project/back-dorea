@@ -36,7 +36,21 @@ from app.contexts.watch.domain.effects import (
     MarkCaseSeen,
     OpenCase,
     ProposedEffect,
+    RecordContactAttempt,
     ResolveCase,
+    ResolveContactAttempt,
+)
+
+# Ce qui **traverse** l'exclusion : l'exclusion elle-même — c'est elle qui l'a posée — et les
+# gestes du responsable sur un cas. Fermer le cas d'un défunt, dire qu'on a tenté de le joindre,
+# sont justement les actes qu'on attend de lui ; les refuser laisserait le cas ouvert pour
+# toujours sur son écran.
+_CROSSES_EXCLUSION = (
+    ExcludeForever,
+    MarkCaseSeen,
+    ResolveCase,
+    RecordContactAttempt,
+    ResolveContactAttempt,
 )
 
 # Ordre de priorité — par **origine du dire**. Le déclaré d'abord : c'est la personne elle-même.
@@ -92,9 +106,7 @@ def arbitrate(
         # Les gestes du responsable traversent l'exclusion : fermer le cas d'un défunt est
         # justement l'acte qu'on attend de lui, et le refuser laisserait le cas ouvert pour
         # toujours sur son écran.
-        if state.is_excluded(effect.subject_id) and not isinstance(
-            effect, (ExcludeForever, MarkCaseSeen, ResolveCase)
-        ):
+        if state.is_excluded(effect.subject_id) and not isinstance(effect, _CROSSES_EXCLUSION):
             dropped.append((effect, "subject_excluded"))
             continue
         kept.append(effect)
@@ -170,5 +182,7 @@ MATERIALIZABLE: frozenset[EffectKind] = frozenset(
         EffectKind.COVERAGE_SIGNAL,
         EffectKind.MARK_CASE_SEEN,
         EffectKind.RESOLVE_CASE,
+        EffectKind.RECORD_CONTACT_ATTEMPT,
+        EffectKind.RESOLVE_CONTACT_ATTEMPT,
     }
 )

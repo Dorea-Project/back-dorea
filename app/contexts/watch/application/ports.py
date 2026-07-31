@@ -291,6 +291,16 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def mark_contact_started_for_subject(
+        self, *, subject_id: UUID, tenant_id: UUID, at: datetime
+    ) -> None:
+        """Un contact a commencé sur le cas vivant de cette personne — `first_contact_at`.
+
+        Visé par la personne et non par un identifiant de cas, pour la même raison que partout
+        ailleurs : un rejeu recrée les cas avec de nouveaux identifiants."""
+        ...
+
+    @abstractmethod
     async def mark_seen(self, *, subject_id: UUID, tenant_id: UUID, at: datetime) -> None:
         """Le cas vivant de cette personne a été **ouvert** par son destinataire.
 
@@ -396,10 +406,41 @@ class ScheduledCheckStore(ABC):
 
 
 class ContactAttemptStore(ABC):
-    """Les tentatives de contact. Écrites au départ, résolues au retour — ou jamais."""
+    """Les tentatives de contact. Écrites au départ, résolues au retour — ou jamais.
+
+    Depuis le lot 3bis, ce sont des **projections** : chaque tentative naît d'un fait au journal,
+    et `purge_projected` permet à un rejeu de les reconstruire au lieu de les empiler."""
 
     @abstractmethod
     async def add(self, attempt) -> None: ...
+
+    @abstractmethod
+    async def purge_projected(self, tenant_id: UUID) -> None:
+        """Efface les tentatives avant un rejeu — elles se reconstruisent depuis le journal."""
+        ...
+
+    @abstractmethod
+    async def record(
+        self,
+        *,
+        attempt_id: UUID,
+        subject_id: UUID,
+        tenant_id: UUID,
+        by_account_id: UUID,
+        channel: str,
+        at: datetime,
+    ) -> None:
+        """Écrit la tentative depuis le fait.
+
+        `attempt_id` vient du journal : rejouer ne l'empile pas une seconde fois."""
+        ...
+
+    @abstractmethod
+    async def resolve(
+        self, *, attempt_id: UUID, result: str, at: datetime, commitment: str | None = None
+    ) -> None:
+        """L'issue rapportée, et ce que le responsable s'engage à faire. Une seule fois."""
+        ...
 
     @abstractmethod
     async def get(self, attempt_id: UUID): ...

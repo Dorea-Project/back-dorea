@@ -298,6 +298,11 @@ class FakeSignals(SignalStore):
             and s.closed_at >= since
         ]
 
+    async def mark_contact_started_for_subject(self, *, subject_id, tenant_id, at):
+        signal = self._live(subject_id, tenant_id)
+        if signal is not None:
+            signal.record_contact_attempt(at=at)
+
     async def mark_seen(self, *, subject_id, tenant_id, at):
         signal = self._live(subject_id, tenant_id)
         if signal is not None:
@@ -371,6 +376,40 @@ class FakeContactAttempts(ContactAttemptStore):
 
     async def save(self, attempt):
         pass  # agrégat muté en mémoire
+
+    async def purge_projected(self, tenant_id):
+        self.rows = [a for a in self.rows if a.tenant_id != tenant_id]
+
+    async def record(self, *, attempt_id, subject_id, tenant_id, by_account_id, channel, at):
+        from app.contexts.watch.domain.contact import ContactAttempt, ContactResult
+
+        if any(a.id == attempt_id for a in self.rows):
+            return  # rejouer n'empile pas : l'identifiant vient du journal
+        self.rows.append(
+            ContactAttempt(
+                id=attempt_id,
+                tenant_id=tenant_id,
+                signal_id=self._signal_of(subject_id, tenant_id),
+                by_account_id=by_account_id,
+                channel=channel,
+                attempted_at=at,
+                result=ContactResult.PENDING,
+            )
+        )
+
+    def _signal_of(self, subject_id, tenant_id):
+        """Le cas vivant de la personne — la doublure porte la même règle que le SQL."""
+        for signal in getattr(self, "signals", []) or []:
+            if signal.subject_id == subject_id and signal.tenant_id == tenant_id and signal.is_live:
+                return signal.id
+        return subject_id
+
+    async def resolve(self, *, attempt_id, result, at, commitment=None):
+        from app.contexts.watch.domain.contact import ContactResult
+
+        attempt = next((a for a in self.rows if a.id == attempt_id), None)
+        if attempt is not None:
+            attempt.resolve(result=ContactResult(result), at=at, commitment=commitment)
 
     async def count_not_reached(self, signal_id):
         from app.contexts.watch.domain.contact import ContactResult
@@ -488,7 +527,7 @@ class FakeChecks(ScheduledCheckStore):
         ]
 
 
-def case_acts_for(signals: FakeSignals, *, clock):
+def case_acts_for(signals: FakeSignals, *, clock, attempts=None):
     """Les gestes du responsable, câblés sur le **vrai** chemin : fait → interpreter → écriture.
 
     Depuis le lot 3bis, « j'ai vu » et « je ferme » ne mutent plus la projection directement : ils
@@ -509,11 +548,23 @@ def case_acts_for(signals: FakeSignals, *, clock):
     interpreters = InterpreterRegistry()
     interpreters.register(CaseSeenV1())
     interpreters.register(CaseClosedV1())
+    from app.contexts.watch.application.interpreters.case_acts import (
+        ContactAnsweredV1,
+        ContactAttemptedV1,
+    )
+
+    interpreters.register(ContactAttemptedV1())
+    interpreters.register(ContactAnsweredV1())
+    if attempts is not None:
+        # La doublure des tentatives a besoin de connaître les cas pour rattacher chacune au
+        # sien — comme le SQL, qui retrouve le cas vivant de la personne.
+        attempts.signals = signals.rows
     intake = Intake(
         FakeLedger(),
         default_registry(),
         interpreters,
         AttendanceNeutralizationStore(FakeAbsences(), FakeExclusions()),
         signals,
+        attempts=attempts,
     )
     return RecordCaseAct(intake, clock=clock)
