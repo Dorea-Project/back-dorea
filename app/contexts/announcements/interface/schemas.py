@@ -140,7 +140,9 @@ class AnnouncementView(BaseModel):
     gathering_id: UUID | None
     slots_needed: int | None
     accepts_engagement: bool
-    engagement_count: int
+    # `None` = non divulgué : un compteur public n'est légitime qu'avec un
+    # dénominateur (« 12 / 15 places »). Sans plafond, le nombre est un score.
+    engagement_count: int | None
     engaged: bool
     slots_remaining: int | None
     invitation: str | None = Field(

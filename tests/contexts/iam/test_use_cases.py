@@ -128,6 +128,10 @@ async def test_get_membership_status_pastor_is_read_only_except_his_agenda():
         "view_pastoral_alerts",
         "manage_appointments",
         "publish_sermon",
+        # `broadcast_wider` : diffuser au-delà de l'église est un acte **institutionnel**,
+        # et c'est sa voix qui engage l'église au-dehors. Le compte Business reste exigé
+        # en plus — l'un est le droit de payer, l'autre celui de parler au nom d'un corps.
+        "broadcast_wider",
         "launch_collection",
     }
     assert "view_contributions" not in dto.permissions

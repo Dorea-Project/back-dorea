@@ -30,9 +30,15 @@ class AnnouncementDTO:
     event_at: datetime | None
     gathering_id: UUID | None
     slots_needed: int | None  # None sur une mobilisation **sans plafond** (la veillée)
-    # --- l'engagement SE COMPTE : c'est de l'organisation ---
+    # --- l'engagement se compte **quand il a un dénominateur** ---
+    #
+    # Un compteur public n'est légitime que s'il a un dénominateur. « 12 / 15 places » ne se lit
+    # pas comme une popularité : ça se lit *reste-t-il une place*, et sans ce nombre le membre ne
+    # peut pas décider — c'est de la capacité. « 24 confirmés » et « 32 portent » sont des nombres
+    # nus, donc comparables d'une annonce à l'autre, donc des scores. Et « 32 personnes portent »
+    # sur une annonce de décès a déjà son destinataire légitime : la famille, par `GetConsolation`.
     accepts_engagement: bool
-    engagement_count: int
+    engagement_count: int | None  # None = **non divulgué** (voir `ConsolationDTO`)
     engaged: bool  # le membre courant s'est-il engagé ?
     slots_remaining: int | None  # None si sans plafond
     invitation: str | None  # le geste vers lequel le clic ouvre (None si déjà engagé / inform)

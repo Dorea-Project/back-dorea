@@ -40,6 +40,7 @@ from app.contexts.events.domain.errors import (
     NotAChurchMemberError,
     NotEventAuthorError,
     WiderReachRequiresBusinessError,
+    WiderReachRequiresMandateError,
 )
 from app.contexts.events.domain.repositories import (
     EventParticipantRepository,
@@ -429,7 +430,11 @@ async def test_member_confirms_presence_and_it_is_counted():
     dto = await GetEvent(events, parts, _FakeReactions(), _FakeAudience(), ms).execute(
         event_id=e.id, viewer_account_id=member
     )
-    assert dto.participant_count == 1 and dto.i_confirmed is True
+    assert dto.i_confirmed is True
+    # Le décompte n'est plus public : sans capacité, « 24 confirmés » est un nombre nu, donc
+    # comparable d'un événement à l'autre, donc un score. L'organisateur le lit dans /stats.
+    assert dto.participant_count is None
+    assert await parts.count_by_event(e.id) == 1  # la donnée est bien là
 
 
 async def test_withdraw_removes_presence():
@@ -638,12 +643,30 @@ async def test_confirming_presence_notifies_the_organizer():
     assert notifier.calls and notifier.calls[0][0] == [author]
 
 
+class _FakeMandate:
+    """Le mandat de diffusion élargie — accordé ou refusé, et on retient ce qui a été demandé."""
+
+    def __init__(self, *, granted=True):
+        self.granted = granted
+        self.asked: list[str] = []
+
+    async def ensure_church_wide(self, *, actor_account_id, tenant_id, permission):
+        self.asked.append(permission.value)
+        if not self.granted:
+            from app.contexts.groups.domain.errors import UnauthorizedGroupActionError
+
+            raise UnauthorizedGroupActionError("Pas de mandat.", details={})
+
+
 async def test_publishing_a_church_event_broadcasts_to_the_church():
     tenant, author, m1, m2 = uuid4(), uuid4(), uuid4(), uuid4()
     ms = _FakeMemberships([_member(author, tenant)])
     audience = _FakeAudience(members=[author, m1, m2])
     notifier = _FakeNotifier()
-    cmd = PublishEvent(_FakeEvents(), ms, _FakeBusiness(), audience, notifier, clock=lambda: _NOW)
+    cmd = PublishEvent(
+        _FakeEvents(), ms, _FakeBusiness(), _FakeMandate(), audience, notifier,
+        clock=lambda: _NOW,
+    )
     await cmd.execute(
         actor_account_id=author, tenant_id=tenant,
         category=EventCategory.VIGIL, title="Veillée", starts_at=_SOON,
@@ -657,7 +680,8 @@ async def test_publishing_a_denomination_event_broadcasts_to_the_denomination():
     audience = _FakeAudience(denomination="AD", peers=[tenant, uuid4()], members=[author, m1, m2])
     notifier = _FakeNotifier()
     cmd = PublishEvent(
-        _FakeEvents(), ms, _FakeBusiness(is_business=True), audience, notifier, clock=lambda: _NOW
+        _FakeEvents(), ms, _FakeBusiness(is_business=True), _FakeMandate(), audience,
+        notifier, clock=lambda: _NOW,
     )
     await cmd.execute(
         actor_account_id=author, tenant_id=tenant,
@@ -673,8 +697,8 @@ async def test_publishing_a_platform_event_enqueues_the_broadcast():
     audience = _FakeAudience(all_tenants=[tenant, uuid4()], members=[author, m1, m2])
     notifier, scheduler = _FakeNotifier(), _FakeScheduler()
     cmd = PublishEvent(
-        _FakeEvents(), ms, _FakeBusiness(is_business=True), audience, notifier, scheduler,
-        clock=lambda: _NOW,
+        _FakeEvents(), ms, _FakeBusiness(is_business=True), _FakeMandate(), audience,
+        notifier, scheduler, clock=lambda: _NOW,
     )
     await cmd.execute(
         actor_account_id=author, tenant_id=tenant,
@@ -755,3 +779,81 @@ async def test_a_non_organizer_cannot_see_the_stats():
     )
     with pytest.raises(NotEventAuthorError):
         await stats.execute(actor_account_id=uuid4(), event_id=events._e[0].id)
+
+
+# --- Le mandat : deux clés, pas une ------------------------------------------------------
+
+
+async def test_a_business_member_without_a_mandate_does_not_broadcast_wider():
+    """Le compte Business est le droit de **payer**, pas celui de parler au nom d'une église.
+
+    Sans cette seconde clé, n'importe quel membre actif diffusait à toute sa dénomination en
+    enregistrant une carte : la légitimité invoquée était institutionnelle, le porteur du droit
+    individuel."""
+    tenant, member = uuid4(), uuid4()
+    ms = _FakeMemberships([_member(member, tenant)])
+    mandate = _FakeMandate(granted=False)
+    cmd = PublishEvent(
+        _FakeEvents(), ms, _FakeBusiness(is_business=True), mandate, clock=lambda: _NOW
+    )
+
+    with pytest.raises(WiderReachRequiresMandateError):
+        await cmd.execute(
+            actor_account_id=member, tenant_id=tenant,
+            category=EventCategory.CONVENTION, title="Convention", starts_at=_SOON,
+            scope=EventScope.DENOMINATION,
+        )
+    assert mandate.asked == ["broadcast_wider"]
+
+
+async def test_a_mandated_pastor_without_a_card_does_not_broadcast_either():
+    """Le pendant : le mandat n'est pas un moyen de paiement.
+
+    Et le refus est **distinct** — un refus de mandat n'est pas un refus de paiement. Renvoyer vers
+    une page d'abonnement quelqu'un qui a payé ne lui apprendrait rien."""
+    tenant, pastor = uuid4(), uuid4()
+    ms = _FakeMemberships([_member(pastor, tenant)])
+    cmd = PublishEvent(
+        _FakeEvents(), ms, _FakeBusiness(is_business=False), _FakeMandate(), clock=lambda: _NOW
+    )
+
+    with pytest.raises(WiderReachRequiresBusinessError):
+        await cmd.execute(
+            actor_account_id=pastor, tenant_id=tenant,
+            category=EventCategory.CONVENTION, title="Convention", starts_at=_SOON,
+            scope=EventScope.DENOMINATION,
+        )
+
+
+async def test_the_two_keys_together_publish():
+    tenant, pastor = uuid4(), uuid4()
+    ms = _FakeMemberships([_member(pastor, tenant)])
+    cmd = PublishEvent(
+        _FakeEvents(), ms, _FakeBusiness(is_business=True), _FakeMandate(), clock=lambda: _NOW
+    )
+
+    dto = await cmd.execute(
+        actor_account_id=pastor, tenant_id=tenant,
+        category=EventCategory.CONVENTION, title="Convention régionale", starts_at=_SOON,
+        scope=EventScope.DENOMINATION,
+    )
+
+    assert dto.scope == "denomination"
+
+
+async def test_the_church_scope_needs_neither_card_nor_mandate():
+    """L'église reste gratuite et ouverte : c'est chez soi qu'on parle sans rien demander."""
+    tenant, member = uuid4(), uuid4()
+    ms = _FakeMemberships([_member(member, tenant)])
+    mandate = _FakeMandate(granted=False)
+    cmd = PublishEvent(
+        _FakeEvents(), ms, _FakeBusiness(is_business=False), mandate, clock=lambda: _NOW
+    )
+
+    dto = await cmd.execute(
+        actor_account_id=member, tenant_id=tenant,
+        category=EventCategory.VIGIL, title="Veillée", starts_at=_SOON,
+    )
+
+    assert dto.scope == "church"
+    assert mandate.asked == []  # on ne demande rien pour parler chez soi

@@ -36,7 +36,9 @@ async def _decorate(
     *,
     viewer_account_id: UUID | None,
 ) -> EventDTO:
-    participant_count = await participants.count_by_event(event.id)
+    # Le décompte n'est plus servi au public : sans capacité, c'est un score. Il vit dans
+    # `/stats`, pour l'organisateur.
+    participant_count = None
     my_reaction = None
     i_confirmed = False
     if viewer_account_id is not None:

@@ -36,6 +36,7 @@ from app.contexts.events.infrastructure.persistence.repositories import (
     SqlEventRepository,
     SqlEventViewRepository,
 )
+from app.contexts.groups.interface.dependencies import GroupAccessPolicyDep
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyMembershipRepository,
 )
@@ -46,11 +47,12 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def get_publish_command(session: DbSession) -> PublishEvent:
+def get_publish_command(session: DbSession, access: GroupAccessPolicyDep) -> PublishEvent:
     return PublishEvent(
         SqlEventRepository(session),
         SqlAlchemyMembershipRepository(session),
         BillingBusinessTierAdapter(session),
+        access,
         IamTenantAudienceAdapter(session),
         build_notifier(session),
         build_scheduler(session),

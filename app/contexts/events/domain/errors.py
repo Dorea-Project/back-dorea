@@ -51,3 +51,15 @@ class WiderReachRequiresBusinessError(EventError):
 
     code = "EVT_WIDER_REACH_REQUIRES_BUSINESS"
     http_status = 403
+
+
+class WiderReachRequiresMandateError(EventError):
+    """Le compte Business est le droit de **payer** ; le mandat est le droit de **parler**.
+
+    Erreur distincte, et ce n'est pas un détail d'implémentation : un refus de mandat n'est pas un
+    refus de paiement, et le message doit dire lequel. Quelqu'un qui a payé et qu'on renvoie vers
+    une page d'abonnement ne comprendra jamais ce qu'on lui demande — c'est à son pasteur qu'il
+    doit s'adresser."""
+
+    code = "EVT_WIDER_REACH_REQUIRES_MANDATE"
+    http_status = 403

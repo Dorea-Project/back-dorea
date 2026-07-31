@@ -9,7 +9,7 @@ from app.contexts.events.domain.aggregates import Event, EventParticipant
 def to_event_dto(
     event: Event,
     *,
-    participant_count: int,
+    participant_count: int | None = None,
     my_reaction: str | None = None,
     i_confirmed: bool = False,
 ) -> EventDTO:

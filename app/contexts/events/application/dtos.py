@@ -23,7 +23,12 @@ class EventDTO:
     scope: str
     status: str
     created_at: datetime
-    participant_count: int  # le nombre de présences confirmées
+    # **Non divulgué au public** : `Event` n'a pas de capacité, donc ce nombre n'aurait aucun
+    # dénominateur — « 24 confirmés » est un nombre nu, comparable d'un événement à l'autre,
+    # donc un score. Il reste servi à l'organisateur par `/stats`, où il éclaire au lieu de
+    # classer. Le jour où la billetterie apportera une capacité, il pourra revenir sous forme
+    # de fraction — « 24 / 80 » se lit *reste-t-il une place*, ce qui est de la capacité.
+    participant_count: int | None
     my_reaction: str | None = None  # ma réaction (si je suis le lecteur)
     i_confirmed: bool = False  # ai-je confirmé ma présence ?
 

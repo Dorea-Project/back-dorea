@@ -223,6 +223,10 @@ async def test_me_endpoint_exposes_resolved_permissions_after_claim(ctx):
         "manage_appointments",
         "publish_sermon",
         "launch_collection",
+        # Diffuser au-delà de l'église est un acte **institutionnel** : c'est sa voix qui engage
+        # l'église au-dehors. Le compte Business reste exigé en plus — l'un est le droit de
+        # payer, l'autre celui de parler au nom d'un corps.
+        "broadcast_wider",
     }
 
 

@@ -1,7 +1,11 @@
 """Use cases **auteur** de l'événement — publier, annuler.
 
-`PublishEvent` — tout **membre actif** publie un événement pour son église (portée CHURCH en E-0 ;
-au-delà exige le compte Business, à venir). `CancelEvent` — l'auteur seul annule.
+`PublishEvent` — tout **membre actif** publie un événement pour son église. Au-delà, il faut
+**deux clés** : le compte Business de la personne (le droit de payer) et le mandat de son église
+(le droit de parler au nom d'un corps). Un seul verrou portait les deux significations, et
+n'importe quel membre diffusait à toute sa dénomination en enregistrant une carte.
+
+`CancelEvent` — l'auteur seul annule.
 """
 
 from __future__ import annotations
@@ -18,11 +22,15 @@ from app.contexts.events.domain.errors import (
     EventNotFoundError,
     NotAChurchMemberError,
     NotEventAuthorError,
+    WiderReachRequiresMandateError,
 )
 from app.contexts.events.domain.repositories import (
     EventParticipantRepository,
     EventRepository,
 )
+from app.contexts.groups.application.group_access import GroupAccessPolicy
+from app.contexts.groups.domain.errors import UnauthorizedGroupActionError
+from app.contexts.iam.domain.permissions import Permission
 from app.contexts.iam.domain.repositories import MembershipRepository
 from app.contexts.notifications.application.notifier import (
     NotificationScheduler,
@@ -37,6 +45,7 @@ class PublishEvent:
         events: EventRepository,
         memberships: MembershipRepository,
         business: BusinessTierPort,
+        access: GroupAccessPolicy | None = None,
         audience: EventAudiencePort | None = None,
         notifier: Notifier | None = None,
         scheduler: NotificationScheduler | None = None,
@@ -46,6 +55,9 @@ class PublishEvent:
         self._events = events
         self._memberships = memberships
         self._business = business
+        # **Deux clés, pas une.** Le compte Business est le droit de payer ; le mandat est le
+        # droit de parler au nom d'un corps. Un seul verrou portait les deux significations.
+        self._access = access
         self._audience = audience
         self._notifier = notifier
         self._scheduler = scheduler
@@ -90,6 +102,35 @@ class PublishEvent:
         accounts = await self._audience.member_account_ids(tenant_ids)
         return [a for a in accounts if a != event.author_account_id]  # pas soi-même
 
+    async def _ensure_mandate(
+        self, actor_account_id: UUID, tenant_id: UUID, scope: EventScope
+    ) -> None:
+        """Le **mandat** : le droit de parler au nom d'un corps, distinct du droit de payer.
+
+        Sans lui, n'importe quel membre actif diffusait à toute sa dénomination en enregistrant
+        une carte — la légitimité invoquée était institutionnelle, le porteur du droit individuel.
+        L'argument à donner au pasteur n'est pas bureaucratique : *si un de tes membres diffuse une
+        bêtise à toute la dénomination, c'est ton église qu'on blâmera, pas lui.*
+
+        Attribué par défaut à l'Owner, au Pasteur et à l'Admin — les voix qui engagent
+        l'institution. Un responsable de jeunesse qui veut une conférence dénominationnelle passe
+        par son pasteur : c'est le geste ecclésial normal.
+        """
+        if self._access is None:
+            return
+        try:
+            await self._access.ensure_church_wide(
+                actor_account_id=actor_account_id,
+                tenant_id=tenant_id,
+                permission=Permission.BROADCAST_WIDER,
+            )
+        except UnauthorizedGroupActionError as refused:
+            raise WiderReachRequiresMandateError(
+                "Diffuser au-delà de votre église engage l'église elle-même : demandez le "
+                "mandat à votre pasteur.",
+                details={"scope": scope.value},
+            ) from refused
+
     async def execute(
         self,
         *,
@@ -111,10 +152,13 @@ class PublishEvent:
                 "Rejoignez d'abord cette église pour y publier un événement.",
                 details={"tenant_id": str(tenant_id)},
             )
-        # La porte du rayonnement : au-delà de l'église, il faut le compte Business de l'auteur.
+        # La porte du rayonnement : au-delà de l'église, il faut le compte Business de l'auteur
+        # **et** le mandat de son église.
         business_active = scope is not EventScope.CHURCH and await self._business.is_business(
             actor_account_id
         )
+        if scope is not EventScope.CHURCH:
+            await self._ensure_mandate(actor_account_id, tenant_id, scope)
         event = Event.publish(
             id=uuid4(),
             tenant_id=tenant_id,

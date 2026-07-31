@@ -563,9 +563,13 @@ async def test_engage_is_idempotent_and_inform_refuses_it():
     anns, engs = _FakeAnnouncements([a]), _FakeEngagements()
     engage = EngageAnnouncement(anns, engs, _FakeAudience({cell}), clock=lambda: _NOW)
     dto = await engage.execute(actor_account_id=awa, announcement_id=a.id)
-    assert dto.engaged is True and dto.engagement_count == 1
+    assert dto.engaged is True
     dto = await engage.execute(actor_account_id=awa, announcement_id=a.id)
-    assert dto.engagement_count == 1  # idempotent
+    assert dto.engaged is True  # idempotent : s'engager deux fois ne compte qu'une
+    # Une convocation n'a pas de plafond : le nombre n'a pas de dénominateur, donc il est tu.
+    # Sans ça, « 24 confirmés » se compare d'une annonce à l'autre — c'est un score.
+    assert dto.engagement_count is None
+    assert await engs.count_for(a.id) == 1
 
     info = _ann(tenant, Cat.INFO, cell, uuid4())
     with pytest.raises(ResponsesNotAcceptedError):
@@ -719,8 +723,11 @@ async def test_death_is_an_uncapped_mobilization_nobody_caps_a_veillee():
     assert a.accepts_engagement is True  # on s'engage, on ne se contente pas de cliquer 🙏
     for _ in range(30):  # trente personnes à la veillée : jamais « complet »
         dto = await engage.execute(actor_account_id=uuid4(), announcement_id=a.id)
-    assert dto.engagement_count == 30
+    assert await engs.count_for(a.id) == 30  # elles sont bien là
     assert dto.slots_remaining is None  # pas de plafond, donc pas de reste
+    # **Et le nombre ne s'affiche pas.** « 30 portent » sur un décès est un score ; ce compte a
+    # déjà son destinataire légitime — la famille, par `GetConsolation`.
+    assert dto.engagement_count is None
 
 
 # --- L'anti-vitrine : le décompte va au sujet, pas à l'auteur ---
@@ -886,3 +893,26 @@ async def test_responders_visible_to_author_hidden_from_outsider():
     assert dto.count == 1 and dto.responders[0].account_id == awa
     with pytest.raises(UnauthorizedGroupActionError):
         await listing.execute(actor_account_id=outsider, announcement_id=a.id)
+
+
+# --- La règle du dénominateur ---
+
+
+async def test_a_capped_mobilization_shows_the_count_because_it_has_a_denominator():
+    """« 12 / 15 places » ne se lit pas comme une popularité : ça se lit *reste-t-il une place*.
+
+    Sans ce nombre, le membre ne peut pas décider — c'est de la capacité, pas un score. C'est le
+    seul cas où un compteur public est légitime."""
+    tenant, cell, awa = uuid4(), uuid4(), uuid4()
+    a = _ann(tenant, Cat.CALL, cell, uuid4(), slots=15)  # un appel à volontaires, plafonné
+    engs = _FakeEngagements()
+    engage = EngageAnnouncement(
+        _FakeAnnouncements([a]), engs, _FakeAudience({cell}), clock=lambda: _NOW
+    )
+
+    dto = await engage.execute(actor_account_id=awa, announcement_id=a.id)
+
+    assert a.is_capped is True
+    assert dto.engagement_count == 1  # le compte, **avec** son dénominateur
+    assert dto.slots_needed == 15
+    assert dto.slots_remaining == 14

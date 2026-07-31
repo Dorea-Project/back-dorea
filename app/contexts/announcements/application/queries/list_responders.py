@@ -1,8 +1,16 @@
 """Requête `ListResponders` (M8) — l'engagement rendu visible à l'auteur.
 
 L'auteur (ou un responsable de la portée) voit **qui** s'est engagé : ses volontaires (mobiliser),
-qui vient (convoquer), qui porte (prier). Tout le monde voit les **compteurs** (dans le fil) ;
-seuls l'auteur / les responsables voient les **noms** (choix figé).
+qui vient (convoquer), qui porte (prier).
+
+Le compte, lui, n'est public **que s'il a un dénominateur** : une mobilisation plafonnée affiche
+« n / places », ce qui est de la capacité et permet au membre de décider. Partout ailleurs il reste
+tu — « 32 portent » est un nombre nu, donc comparable d'une annonce à l'autre, donc un score. Sur
+une annonce de décès, ce nombre a d'ailleurs déjà son destinataire légitime : la famille, par
+`GetConsolation`.
+
+Les **noms**, eux, restent réservés à l'auteur et aux responsables de la portée, quelle que soit
+l'intention (choix figé).
 """
 
 from __future__ import annotations

@@ -4,7 +4,9 @@ Deux dé-identifications par défaut (l'Église parle, pas la personne ; pas de 
 - **l'identité** (`author_account_id`/`concerns_account_id`) n'est révélée que si `reveal_identity`
   (l'archive backoffice — redevabilité). Dans le fil, l'auteur est tu ; le sujet ne voit qu'un
   booléen **`concerns_me`** (« ceci vous concerne »), sans exposer son id à toute l'église.
-- **`reaction_counts`** reste `None` sauf là où il console (`GetConsolation`) ou éclaire (pilotage).
+- **`reaction_counts`** reste `None` sauf là où il console (`GetConsolation`) ou éclaire ;
+- **`engagement_count`** n'est rendu que sur une annonce **plafonnée**, où il se lit
+  « n / places » — de la capacité, pas un score.
 
 `invitation` (« le clic n'absout pas ») : le geste plus coûteux vers lequel réagir ouvre — masqué
 une fois qu'on s'est engagé (le geste est fait) ou si l'intention n'attend aucun engagement.
@@ -57,7 +59,10 @@ def to_announcement_dto(
         gathering_id=a.gathering_id,
         slots_needed=a.slots_needed,
         accepts_engagement=a.accepts_engagement,
-        engagement_count=engagement_count,
+        # Le champ n'est renseigné que si le plafond existe : un développeur futur qui
+        # voudrait afficher « 32 portent » n'a pas de dénominateur à mettre à côté — il n'y a
+        # pas de forme pour le dire. Même mécanique que les familles fermées de `FactKind`.
+        engagement_count=engagement_count if a.is_capped else None,
         engaged=engaged,
         slots_remaining=slots_remaining,
         # Le clic ouvre un geste — tant qu'on ne l'a pas encore fait.

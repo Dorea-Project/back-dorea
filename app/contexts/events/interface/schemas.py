@@ -50,7 +50,9 @@ class EventView(BaseModel):
     media_urls: list[str]
     scope: str
     status: str
-    participant_count: int
+    # `None` = non divulgué : sans capacité, un nombre nu est un score. L'organisateur le lit
+    # dans `/stats`.
+    participant_count: int | None
     my_reaction: str | None
     i_confirmed: bool
 

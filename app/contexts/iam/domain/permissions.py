@@ -32,6 +32,14 @@ class Permission(StrEnum):
     PUBLISH_ANNOUNCEMENT = "publish_announcement"  # M8
     MANAGE_APPOINTMENTS = "manage_appointments"  # garder l'agenda du pasteur (RDV)
     PUBLISH_SERMON = "publish_sermon"  # déposer/approuver/publier un sermon (le pasteur)
+    # **Parler au nom d'un corps.** Diffuser au-delà de son église est un acte institutionnel :
+    # c'est l'église qui s'adresse à un corps plus large. Le compte Business est le droit de
+    # **payer** ; celui-ci est le droit de **parler**. Les deux sont exigés, et ils ne portent
+    # pas sur le même sujet — l'un sur une personne, l'autre sur une institution.
+    #
+    # L'argument à donner au pasteur n'est pas bureaucratique : *si un de tes membres diffuse
+    # une bêtise à toute la dénomination, c'est ton église qu'on blâmera, pas lui.*
+    BROADCAST_WIDER = "broadcast_wider"
     # --- Collectes : **lancer n'est pas voir** -------------------------------------------
     #
     # Si celui qui lance une collecte en voit le détail nominatif, alors le pasteur sait qui
@@ -61,6 +69,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.PUBLISH_ANNOUNCEMENT,
             Permission.MANAGE_APPOINTMENTS,  # gouvernance : peut aussi tenir l'agenda
             Permission.PUBLISH_SERMON,  # gouvernance : peut aussi déposer/publier un sermon
+            Permission.BROADCAST_WIDER,  # engage l'institution : la gouvernance le peut
         }
     ),
     # Pasteur : LECTURE SEULE (spec §5.6) — **sauf son agenda de rendez-vous** et **ses sermons**,
@@ -71,6 +80,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.VIEW_PASTORAL_ALERTS,
             Permission.MANAGE_APPOINTMENTS,
             Permission.PUBLISH_SERMON,
+            Permission.BROADCAST_WIDER,  # c'est sa voix qui engage l'église au-dehors
             # Il lance la collecte. Il n'en verra **jamais** le détail nominatif — seulement le
             # total et la progression.
             Permission.LAUNCH_COLLECTION,
