@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Uuid, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -39,6 +39,16 @@ class AccountModel(Base):
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)  # backoffice (email)
     pin_hash: Mapped[str | None] = mapped_column(String, nullable=True)  # mobile (phone)
     hash_algo_version: Mapped[int | None] = mapped_column(nullable=True)
+    # --- L'anniversaire : jour + mois suffisent -------------------------------------
+    #
+    # `birth_year` est optionnelle et **n'est jamais affichée nulle part** : l'âge de
+    # quelqu'un n'est pas une donnée d'église. Elle n'existe que si le membre la donne.
+    # `birthday_scope` est son réglage de visibilité : `hidden` éteint tout, y compris
+    # pour le pasteur — le réglage du membre absorbe, comme `DO_NOT_CONTACT`.
+    birth_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    birth_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    birthday_scope: Mapped[str] = mapped_column(String, server_default=text("'groups'"))
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
