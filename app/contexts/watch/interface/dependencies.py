@@ -25,6 +25,7 @@ from app.contexts.attendance.infrastructure.persistence.cadence_repository impor
 )
 from app.contexts.notifications.interface.dependencies import build_scheduler
 from app.contexts.watch.application.blind_groups import DetectBlindGroups
+from app.contexts.watch.application.case_acts import RecordCaseAct
 from app.contexts.watch.application.concern_watchdog import (
     EscalateStaleConcerns,
     GuardAgainstDumping,
@@ -41,6 +42,10 @@ from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.appointment_requested import (
     AppointmentRequestedV1,
+)
+from app.contexts.watch.application.interpreters.case_acts import (
+    CaseClosedV1,
+    CaseSeenV1,
 )
 from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
 from app.contexts.watch.application.interpreters.joined_group import JoinedGroupV1
@@ -110,6 +115,10 @@ INTERPRETERS.register(CheckFiredV1())
 # Entrer dans un groupe arme le regard : sans lui, seule une presence le fait, et
 # celui qui n'est jamais venu reste invisible.
 INTERPRETERS.register(JoinedGroupV1())
+# Les gestes du responsable entrent au ledger : sans eux, un rejeu efface les issues qu'il a
+# conclues et les deux metriques du pilote.
+INTERPRETERS.register(CaseSeenV1())
+INTERPRETERS.register(CaseClosedV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -303,12 +312,19 @@ async def get_my_cases(session: DbSession) -> ListMyCases:
     return ListMyCases(build_signals(session))
 
 
+def build_case_acts(session) -> RecordCaseAct:
+    """Les gestes du responsable passent par le journal, comme toute autre source."""
+    return RecordCaseAct(build_intake(session), clock=_now)
+
+
 async def get_see_case(session: DbSession) -> SeeCase:
-    return SeeCase(build_signals(session), clock=_now)
+    return SeeCase(build_signals(session), build_case_acts(session), clock=_now)
 
 
 async def get_close_case(session: DbSession) -> CloseCase:
-    return CloseCase(build_signals(session), clock=_now)
+    return CloseCase(
+        build_signals(session), build_case_acts(session), build_checks(session), clock=_now
+    )
 
 
 async def get_start_contact(session: DbSession) -> StartContact:

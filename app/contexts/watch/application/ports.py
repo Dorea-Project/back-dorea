@@ -291,6 +291,30 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def mark_seen(self, *, subject_id: UUID, tenant_id: UUID, at: datetime) -> None:
+        """Le cas vivant de cette personne a été **ouvert** par son destinataire.
+
+        Visé par la personne et non par un identifiant : un rejeu recrée les cas avec de nouveaux
+        identifiants, et il y a au plus un cas vivant par personne."""
+        ...
+
+    @abstractmethod
+    async def resolve_case(
+        self,
+        *,
+        subject_id: UUID,
+        tenant_id: UUID,
+        outcome: str,
+        at: datetime,
+        by_account_id: UUID,
+    ) -> None:
+        """Ferme le cas vivant de cette personne, avec l'issue **choisie** par un humain.
+
+        L'agrégat refuse tout seul ce qui n'a pas lieu d'être : issue absorbante déjà posée,
+        transition inexistante. Le dépôt ne rejoue aucune de ces règles."""
+        ...
+
+    @abstractmethod
     async def held_cases(self, *, tenant_id: UUID) -> list:
         """Les cas **détectés et retenus** par le plafond, en agrégats mutables.
 

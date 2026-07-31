@@ -22,6 +22,7 @@ from app.contexts.watch.domain.errors import (
 from app.contexts.watch.domain.facts import (
     ACTOR_KEY,
     ACTOR_REQUIRED,
+    CASE_ACTS,
     FactKind,
     SourceId,
     forbidden_reason,
@@ -96,6 +97,10 @@ WATCH_SCHEDULER: SourceId = "watch_scheduler"  # le worker de l'engine, qui fait
 # Les Groupes : ils ne disent qu'une chose, l'entrée de quelqu'un dans un groupe. C'est ce qui
 # permet de regarder celui qui n'est jamais venu — sinon seule une présence arme le regard.
 GROUPS: SourceId = "groups"
+# La surface du responsable quand elle rapporte **ses propres gestes** sur un cas. Distincte
+# de `WATCH_UI` (d'où part une inquiétude sur autrui) : ce n'est pas la même chose de dire
+# quelque chose de quelqu'un et de dire ce que l'on a fait.
+CASE_ACTIONS: SourceId = "case_actions"
 
 
 def default_registry() -> SourceRegistry:
@@ -142,6 +147,13 @@ def default_registry() -> SourceRegistry:
         registry.register(
             RegisteredSource(id=surface, kinds=frozenset({FactKind.THIRD_PARTY_CONCERN}))
         )
+    # L'écran du responsable dit aussi ce qu'il **fait** : il a ouvert le cas, il l'a fermé avec
+    # une issue. Ces gestes n'étaient écrits que sur la projection — donc perdus au premier rejeu,
+    # avec les deux métriques du pilote. Les clés qu'ils exigent tiennent au type de fait
+    # (`KIND_REQUIRED_KEYS`) et non à la surface : un geste anonyme n'est pas un geste.
+    registry.register(
+        RegisteredSource(id=CASE_ACTIONS, kinds=frozenset(CASE_ACTS))
+    )
     # L'entrée dans un groupe : `group_id` est obligatoire, puisque c'est le rythme de ce
     # groupe-là qui dira quand regarder. Sans lui, le fait n'aurait rien à armer.
     registry.register(

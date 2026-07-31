@@ -59,6 +59,17 @@ class FactKind(StrEnum):
     OCCURRENCE_ACKNOWLEDGED = "occurrence_acknowledged"  # « pas de rencontre cette semaine »
     GROUP_TEMPERATURE = "group_temperature"  # compagnon collectif — agrégé, jamais individuel
     CHECK_FIRED = "check_fired"  # une échéance posée par l'engine est arrivée à terme
+    # --- Les gestes du responsable, **sur un cas** -------------------------------------------
+    #
+    # Le journal ne contenait que ce que les sources disent du monde ; ce qu'un responsable
+    # *faisait* vivait uniquement sur la projection. Une reprojection l'effaçait donc sans pouvoir
+    # le reconstruire : les issues qu'il avait conclues, le premier regard, le premier contact —
+    # c'est-à-dire les deux métriques du pilote et toute la matière dont la calibration a besoin.
+    #
+    # Ce sont des **actes**, au même titre qu'une présence : quelqu'un a fait quelque chose, à une
+    # date, et l'a signé. Rien ici ne décrit une omission.
+    CASE_SEEN = "case_seen"  # « je l'ai ouvert » — la mesure la plus précoce du pilote
+    CASE_CLOSED = "case_closed"  # « voilà ce qui s'est passé » — l'issue, choisie, jamais déduite
 
 
 # Le **temps lui-même entre par le ledger** : `CHECK_FIRED` est ce qui rend l'évaluation des
@@ -144,6 +155,24 @@ ACTOR_KEY = "actor_account_id"
 # **défunt** comme ayant déclaré sa propre exclusion. Une source enregistrée pour l'un de ces kinds
 # sans exiger l'acteur fait échouer le démarrage de l'application.
 ACTOR_REQUIRED: frozenset[FactKind] = frozenset({FactKind.LIFE_EVENT_ANNOUNCED})
+
+
+# Les gestes posés **par un humain sur un cas**. Deux règles les distinguent de tout le reste :
+#
+# - ils exigent l'acteur et le cas visé — un geste anonyme n'est pas un geste ;
+# - ils **traversent l'exclusion**. Le filtre « personne retirée de la veille » protège des
+#   sources : plus rien n'entre *sur* quelqu'un qui est mort ou qui a demandé qu'on cesse. Mais
+#   fermer le cas d'un défunt est justement l'acte qu'on attend du responsable, et le lui refuser
+#   laisserait le cas ouvert pour toujours sur l'écran de quelqu'un.
+CASE_ACTS: frozenset[FactKind] = frozenset({FactKind.CASE_SEEN, FactKind.CASE_CLOSED})
+
+
+# Ce que certains kinds exigent du payload, **quelle que soit la source**. Le registre porte les
+# clés par source ; ceci porte celles qui tiennent au type de fait lui-même.
+KIND_REQUIRED_KEYS: dict[FactKind, frozenset[str]] = {
+    FactKind.CASE_SEEN: frozenset({"signal_id", ACTOR_KEY}),
+    FactKind.CASE_CLOSED: frozenset({"signal_id", ACTOR_KEY, "outcome"}),
+}
 
 
 _EMPTY: Mapping[str, Any] = MappingProxyType({})

@@ -19,7 +19,7 @@ from app.contexts.watch.domain.errors import (
     NotYourCaseError,
 )
 from app.contexts.watch.domain.signal import Signal, SignalOutcome, SignalStatus
-from tests.contexts.watch.fakes import FakeSignals
+from tests.contexts.watch.fakes import FakeSignals, case_acts_for
 
 _JAN = datetime(2026, 1, 12, tzinfo=UTC)
 _FEB = datetime(2026, 2, 3, tzinfo=UTC)
@@ -189,7 +189,7 @@ async def test_opening_a_case_stamps_the_metric_that_anticipates_abandonment():
     await _open(signals, subject=uuid4(), tenant=tenant, owner=jean)
     case = signals.rows[0]
 
-    await SeeCase(signals, clock=lambda: _MAR).execute(
+    await SeeCase(signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR).execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean
     )
 
@@ -200,10 +200,12 @@ async def test_seeing_a_case_twice_never_moves_the_first_time():
     signals, jean, tenant = FakeSignals(), uuid4(), uuid4()
     await _open(signals, subject=uuid4(), tenant=tenant, owner=jean)
     case = signals.rows[0]
-    see = SeeCase(signals, clock=lambda: _MAR)
+    see = SeeCase(signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR)
 
     await see.execute(signal_id=case.id, tenant_id=tenant, actor_account_id=jean)
-    await SeeCase(signals, clock=lambda: _MAR + timedelta(days=3)).execute(
+    later = lambda: _MAR + timedelta(days=3)  # noqa: E731 — une horloge, pas une fonction métier
+    command = SeeCase(signals, case_acts_for(signals, clock=later), clock=later)
+    await command.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean
     )
 
@@ -219,7 +221,10 @@ async def test_closing_records_who_did_it():
     await _open(signals, subject=uuid4(), tenant=tenant, owner=jean)
     case = signals.rows[0]
 
-    await CloseCase(signals, clock=lambda: _MAR).execute(
+    command = CloseCase(
+        signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR
+    )
+    await command.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean,
         outcome=SignalOutcome.FOLLOWED,
     )
@@ -235,7 +240,10 @@ async def test_nobody_closes_a_case_confided_to_someone_else():
     case = signals.rows[0]
 
     with pytest.raises(NotYourCaseError):
-        await CloseCase(signals, clock=lambda: _MAR).execute(
+        command = CloseCase(
+            signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR
+        )
+        await command.execute(
             signal_id=case.id, tenant_id=tenant, actor_account_id=marie,
             outcome=SignalOutcome.FOLLOWED,
         )
@@ -249,7 +257,10 @@ async def test_an_unowned_case_can_be_taken():
     await _open(signals, subject=uuid4(), tenant=tenant, owner=None)
     case = signals.rows[0]
 
-    await CloseCase(signals, clock=lambda: _MAR).execute(
+    command = CloseCase(
+        signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR
+    )
+    await command.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=marie,
         outcome=SignalOutcome.FOLLOWED,
     )
@@ -263,7 +274,10 @@ async def test_a_case_from_another_church_does_not_exist_here():
     case = signals.rows[0]
 
     with pytest.raises(CaseNotFoundError):
-        await CloseCase(signals, clock=lambda: _MAR).execute(
+        command = CloseCase(
+            signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR
+        )
+        await command.execute(
             signal_id=case.id, tenant_id=tenant, actor_account_id=jean,
             outcome=SignalOutcome.FOLLOWED,
         )
@@ -276,7 +290,7 @@ async def test_the_service_cannot_bypass_the_aggregate():
     signals, jean, tenant = FakeSignals(), uuid4(), uuid4()
     await _open(signals, subject=uuid4(), tenant=tenant, owner=jean)
     case = signals.rows[0]
-    close = CloseCase(signals, clock=lambda: _MAR)
+    close = CloseCase(signals, case_acts_for(signals, clock=lambda: _MAR), clock=lambda: _MAR)
     await close.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean,
         outcome=SignalOutcome.DECEASED,

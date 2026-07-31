@@ -44,10 +44,12 @@ from app.contexts.watch.domain.effects import (
     ExcludeForever,
     Extinguish,
     ExtinguishCause,
+    MarkCaseSeen,
     Neutralise,
     OpenCase,
     ProposedEffect,
     RecordMemory,
+    ResolveCase,
     ScheduleCheck,
 )
 from app.contexts.watch.domain.facts import Fact
@@ -246,6 +248,22 @@ class Materializer:
             )
             return EffectKind.COVERAGE_SIGNAL
 
+        if isinstance(effect, MarkCaseSeen) and self._signals is not None:
+            await self._signals.mark_seen(
+                subject_id=effect.subject_id, tenant_id=fact.tenant_id, at=effect.at
+            )
+            return EffectKind.MARK_CASE_SEEN
+
+        if isinstance(effect, ResolveCase) and self._signals is not None:
+            await self._signals.resolve_case(
+                subject_id=effect.subject_id,
+                tenant_id=fact.tenant_id,
+                outcome=effect.outcome,
+                at=effect.at,
+                by_account_id=effect.by_account_id,
+            )
+            return EffectKind.RESOLVE_CASE
+
         if isinstance(effect, RecordMemory) and self._signals is not None:
             await self._signals.record_memory(
                 subject_id=effect.subject_id,
@@ -294,6 +312,8 @@ _KIND_OF: dict[str, EffectKind] = {
     "Extinguish": EffectKind.EXTINGUISH,
     "ExcludeForever": EffectKind.EXCLUDE_FOREVER,
     "RecordMemory": EffectKind.RECORD_MEMORY,
+    "MarkCaseSeen": EffectKind.MARK_CASE_SEEN,
+    "ResolveCase": EffectKind.RESOLVE_CASE,
     "ScheduleCheck": EffectKind.SCHEDULE_CHECK,
     "CancelScheduledChecks": EffectKind.CANCEL_SCHEDULED_CHECKS,
     "CoverageSignal": EffectKind.COVERAGE_SIGNAL,

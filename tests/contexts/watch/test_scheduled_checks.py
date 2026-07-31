@@ -46,6 +46,7 @@ from tests.contexts.watch.fakes import (
     FakeExclusions,
     FakeLedger,
     FakeSignals,
+    case_acts_for,
 )
 
 _NOW = datetime(2026, 5, 1, tzinfo=UTC)
@@ -207,7 +208,10 @@ async def test_do_not_contact_cancels_the_deadlines_too():
         due_at=_NOW + timedelta(days=10), at=_NOW,
     )
 
-    await CloseCase(signals, checks, clock=lambda: _NOW).execute(
+    command = CloseCase(
+        signals, case_acts_for(signals, clock=lambda: _NOW), checks, clock=lambda: _NOW
+    )
+    await command.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean,
         outcome=SignalOutcome.DO_NOT_CONTACT,
     )
@@ -229,7 +233,10 @@ async def test_an_ordinary_closure_leaves_the_rhythm_alone():
         due_at=_NOW + timedelta(days=10), at=_NOW,
     )
 
-    await CloseCase(signals, checks, clock=lambda: _NOW).execute(
+    command = CloseCase(
+        signals, case_acts_for(signals, clock=lambda: _NOW), checks, clock=lambda: _NOW
+    )
+    await command.execute(
         signal_id=case.id, tenant_id=tenant, actor_account_id=jean,
         outcome=SignalOutcome.FOLLOWED,
     )

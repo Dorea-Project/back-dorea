@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.contexts.watch.application.case_acts import RecordCaseAct
 from app.contexts.watch.application.ports import SignalStore
 from app.contexts.watch.domain.errors import CaseNotFoundError, NotYourCaseError
 from app.contexts.watch.domain.signal import Signal, SignalOutcome
@@ -67,10 +68,14 @@ class ListMyCases:
 
 
 class _OwnedCase:
-    """Socle : charger le cas, et vérifier qu'il est bien sur les épaules de celui qui agit."""
+    """Socle : charger le cas, et vérifier qu'il est bien sur les épaules de celui qui agit.
 
-    def __init__(self, signals: SignalStore, *, clock) -> None:
+    L'autorité se vérifie **ici**, à l'émission du geste. L'interpreter, lui, ne la rejoue pas :
+    un fait admis au journal est un geste dont on a déjà établi qu'il avait le droit d'exister."""
+
+    def __init__(self, signals: SignalStore, acts: RecordCaseAct, *, clock) -> None:
         self._signals = signals
+        self._acts = acts
         self._clock = clock
 
     async def _load(self, *, signal_id: UUID, tenant_id: UUID, actor_account_id: UUID) -> Signal:
@@ -88,7 +93,11 @@ class _OwnedCase:
 
 
 class SeeCase(_OwnedCase):
-    """Le responsable a **ouvert** le cas. La mesure la plus précoce dont dispose le pilote."""
+    """Le responsable a **ouvert** le cas. La mesure la plus précoce dont dispose le pilote.
+
+    Le geste entre par le **journal**, comme une présence ou une annonce. Il n'écrit plus la
+    projection directement : sans ça, une reprojection effaçait `first_seen_at` sans pouvoir le
+    reconstruire — et c'est le seul indicateur qui **anticipe** l'abandon."""
 
     async def execute(
         self, *, signal_id: UUID, tenant_id: UUID, actor_account_id: UUID
@@ -96,9 +105,14 @@ class SeeCase(_OwnedCase):
         case = await self._load(
             signal_id=signal_id, tenant_id=tenant_id, actor_account_id=actor_account_id
         )
-        case.see(at=self._clock())
-        await self._signals.save_case(case)
-        return CaseDTO.of(case)
+        await self._acts.seen(
+            case=case, tenant_id=tenant_id, actor_account_id=actor_account_id
+        )
+        return CaseDTO.of(
+            await self._load(
+                signal_id=signal_id, tenant_id=tenant_id, actor_account_id=actor_account_id
+            )
+        )
 
 
 class CloseCase(_OwnedCase):
@@ -113,8 +127,8 @@ class CloseCase(_OwnedCase):
     semaines plus tôt — et la parole qu'on s'était engagé à respecter serait démentie par une
     notification automatique."""
 
-    def __init__(self, signals, checks=None, *, clock) -> None:
-        super().__init__(signals, clock=clock)
+    def __init__(self, signals, acts, checks=None, *, clock) -> None:
+        super().__init__(signals, acts, clock=clock)
         self._checks = checks
 
     async def execute(
@@ -128,11 +142,20 @@ class CloseCase(_OwnedCase):
         case = await self._load(
             signal_id=signal_id, tenant_id=tenant_id, actor_account_id=actor_account_id
         )
-        # L'agrégat refuse tout seul ce qui n'a pas lieu d'être : issue absorbante, transition
-        # inexistante, clôture sans humain. On ne rejoue aucune de ces règles ici.
+        # **L'agrégat tranche avant que le geste entre au journal.** Il refuse tout seul ce qui
+        # n'a pas lieu d'être : issue absorbante, transition inexistante, clôture sans humain — et
+        # on ne rejoue aucune de ces règles ici. La mutation faite sur cet exemplaire est jetée :
+        # elle ne sert qu'à obtenir le verdict. C'est la matérialisation qui écrira, depuis le
+        # fait.
+        #
+        # L'ordre compte : un geste refusé qui serait déjà au journal ferait échouer chaque rejeu
+        # ultérieur, sur un acte qui n'a jamais eu lieu.
         now = self._clock()
         case.close(outcome=outcome, at=now, closed_by_account_id=actor_account_id)
-        await self._signals.save_case(case)
+        await self._acts.closed(
+            case=case, tenant_id=tenant_id, actor_account_id=actor_account_id, outcome=outcome
+        )
+        case = await self._signals.get_case(signal_id=signal_id, tenant_id=tenant_id)
         if case.is_absorbing and self._checks is not None:
             await self._checks.cancel_for(
                 subject_id=case.subject_id, tenant_id=tenant_id, kind=None, at=now

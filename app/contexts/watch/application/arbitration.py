@@ -33,8 +33,10 @@ from app.contexts.watch.domain.effects import (
     EffectKind,
     EnrichCase,
     ExcludeForever,
+    MarkCaseSeen,
     OpenCase,
     ProposedEffect,
+    ResolveCase,
 )
 
 # Ordre de priorité — par **origine du dire**. Le déclaré d'abord : c'est la personne elle-même.
@@ -87,7 +89,12 @@ def arbitrate(
     # 1 — l'exclusion absorbe. Ce garde est ici, pas dans les interpreters : un seul endroit à
     # tenir, valable pour tout greffon présent et futur.
     for effect in effects:
-        if state.is_excluded(effect.subject_id) and not isinstance(effect, ExcludeForever):
+        # Les gestes du responsable traversent l'exclusion : fermer le cas d'un défunt est
+        # justement l'acte qu'on attend de lui, et le refuser laisserait le cas ouvert pour
+        # toujours sur son écran.
+        if state.is_excluded(effect.subject_id) and not isinstance(
+            effect, (ExcludeForever, MarkCaseSeen, ResolveCase)
+        ):
             dropped.append((effect, "subject_excluded"))
             continue
         kept.append(effect)
@@ -161,5 +168,7 @@ MATERIALIZABLE: frozenset[EffectKind] = frozenset(
         EffectKind.SCHEDULE_CHECK,
         EffectKind.CANCEL_SCHEDULED_CHECKS,
         EffectKind.COVERAGE_SIGNAL,
+        EffectKind.MARK_CASE_SEEN,
+        EffectKind.RESOLVE_CASE,
     }
 )

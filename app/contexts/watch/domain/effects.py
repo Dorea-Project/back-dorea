@@ -31,6 +31,8 @@ class EffectKind(StrEnum):
     EXTINGUISH = "extinguish"
     EXCLUDE_FOREVER = "exclude_forever"
     RECORD_MEMORY = "record_memory"
+    MARK_CASE_SEEN = "mark_case_seen"
+    RESOLVE_CASE = "resolve_case"
     SCHEDULE_CHECK = "schedule_check"
     CANCEL_SCHEDULED_CHECKS = "cancel_scheduled_checks"
     COVERAGE_SIGNAL = "coverage_signal"
@@ -186,6 +188,30 @@ class EnrichCase(_Effect):
 
 
 @dataclass(frozen=True)
+class MarkCaseSeen(_Effect):
+    """Le propriétaire a **ouvert** le cas — la mesure la plus précoce du pilote.
+
+    Elle vise le cas vivant de cette personne, pas un identifiant : un rejeu recrée les cas avec de
+    nouveaux identifiants, et un geste qui pointerait vers l'ancien ne retrouverait rien. Il y a au
+    plus un cas vivant par personne — c'est un invariant de l'arbitrage, et il suffit."""
+
+    at: datetime
+    by_account_id: UUID
+
+
+@dataclass(frozen=True)
+class ResolveCase(_Effect):
+    """Le responsable a dit ce qui s'est passé. **L'issue est choisie, jamais déduite.**
+
+    C'est de là que vient toute la calibration : sans issue humaine, on ne saurait pas distinguer
+    une intuition juste d'une intuition fausse, et le taux de justesse mesurerait le vide."""
+
+    at: datetime
+    by_account_id: UUID
+    outcome: str
+
+
+@dataclass(frozen=True)
 class Neutralise(_Effect):
     starts_at: datetime
     expected_return_at: datetime
@@ -248,6 +274,8 @@ class CoverageSignal(_Effect):
 ProposedEffect = (
     OpenCase
     | EnrichCase
+    | MarkCaseSeen
+    | ResolveCase
     | Neutralise
     | Extinguish
     | ExcludeForever

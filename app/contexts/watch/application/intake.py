@@ -49,7 +49,12 @@ from app.contexts.watch.domain.errors import (
     FactKindNotAllowedError,
     InvalidPayloadError,
 )
-from app.contexts.watch.domain.facts import Fact, SubjectKind
+from app.contexts.watch.domain.facts import (
+    CASE_ACTS,
+    KIND_REQUIRED_KEYS,
+    Fact,
+    SubjectKind,
+)
 from app.contexts.watch.domain.registry import SourceRegistry
 
 
@@ -110,7 +115,11 @@ class Intake:
                 "Cette source n'est pas enregistrée pour émettre ce type de fait.",
                 details={"source": fact.source, "kind": fact.kind.value},
             )
-        missing = source.required_payload_keys - set(fact.payload)
+        # Ce que la **source** exige, et ce que le **type de fait** exige : un geste sans acteur
+        # ni cas visé n'est pas un geste, quelle que soit la surface qui l'envoie.
+        missing = (
+            source.required_payload_keys | KIND_REQUIRED_KEYS.get(fact.kind, frozenset())
+        ) - set(fact.payload)
         if missing:
             raise InvalidPayloadError(
                 "Le payload ne porte pas ce que ce type de fait exige.",
@@ -126,8 +135,16 @@ class Intake:
             return IntakeResult(accepted=False, reason="duplicate")
 
         state = await self._load_state(fact)
-        if fact.is_about_person and state.is_excluded(fact.subject_id):
+        if (
+            fact.is_about_person
+            and fact.kind not in CASE_ACTS
+            and state.is_excluded(fact.subject_id)
+        ):
             # Retirée de la veille : plus rien n'entre sur elle, quelle que soit la source.
+            #
+            # **Sauf les gestes du responsable.** Fermer le cas d'un défunt est justement l'acte
+            # qu'on attend de lui ; le refuser laisserait le cas ouvert pour toujours sur son
+            # écran, et ferait de la mort de quelqu'un un bug d'interface.
             return IntakeResult(accepted=False, reason="subject_excluded")
 
         sealed = await self._ledger.append(fact)

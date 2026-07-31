@@ -298,6 +298,20 @@ class FakeSignals(SignalStore):
             and s.closed_at >= since
         ]
 
+    async def mark_seen(self, *, subject_id, tenant_id, at):
+        signal = self._live(subject_id, tenant_id)
+        if signal is not None:
+            signal.see(at=at)
+
+    async def resolve_case(self, *, subject_id, tenant_id, outcome, at, by_account_id):
+        from app.contexts.watch.domain.signal import SignalOutcome
+
+        signal = self._live(subject_id, tenant_id)
+        if signal is not None:
+            signal.close(
+                outcome=SignalOutcome(outcome), at=at, closed_by_account_id=by_account_id
+            )
+
     async def held_cases(self, *, tenant_id):
         return [s for s in self.rows if s.tenant_id == tenant_id and s.is_held]
 
@@ -472,3 +486,34 @@ class FakeChecks(ScheduledCheckStore):
             or c["fired_at"] is not None
             or c["cancelled_at"] is not None
         ]
+
+
+def case_acts_for(signals: FakeSignals, *, clock):
+    """Les gestes du responsable, câblés sur le **vrai** chemin : fait → interpreter → écriture.
+
+    Depuis le lot 3bis, « j'ai vu » et « je ferme » ne mutent plus la projection directement : ils
+    entrent au journal. Un test qui construirait une commande sans ce chemin ne testerait plus ce
+    que fait la production."""
+    from app.contexts.watch.application.case_acts import RecordCaseAct
+    from app.contexts.watch.application.intake import Intake
+    from app.contexts.watch.application.interpretation import InterpreterRegistry
+    from app.contexts.watch.application.interpreters.case_acts import (
+        CaseClosedV1,
+        CaseSeenV1,
+    )
+    from app.contexts.watch.domain.registry import default_registry
+    from app.contexts.watch.infrastructure.neutralization_store import (
+        AttendanceNeutralizationStore,
+    )
+
+    interpreters = InterpreterRegistry()
+    interpreters.register(CaseSeenV1())
+    interpreters.register(CaseClosedV1())
+    intake = Intake(
+        FakeLedger(),
+        default_registry(),
+        interpreters,
+        AttendanceNeutralizationStore(FakeAbsences(), FakeExclusions()),
+        signals,
+    )
+    return RecordCaseAct(intake, clock=clock)
