@@ -41,6 +41,7 @@ from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import (
     ContactAttemptStore,
     NeutralizationStore,
+    RegimeStore,
     ScheduledCheckStore,
     SignalStore,
 )
@@ -56,6 +57,7 @@ from app.contexts.watch.domain.facts import (
     Fact,
     SubjectKind,
 )
+from app.contexts.watch.domain.regime import TenantRegime
 from app.contexts.watch.domain.registry import SourceRegistry
 
 
@@ -95,6 +97,7 @@ class Intake:
         checks: ScheduledCheckStore | None = None,
         owners: ResolveOwners | None = None,
         attempts: ContactAttemptStore | None = None,
+        regimes: RegimeStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -107,6 +110,8 @@ class Intake:
         # plus : c'est le régime des tests d'unité purs, jamais celui de la production — où la
         # colonne est NOT NULL et refuserait l'écriture.
         self._owners = owners
+        # Le rodage : sans dépôt, on suppose une église qui parle (tests d'unité).
+        self._regimes = regimes
         self._materializer = Materializer(store, signals, checks, attempts=attempts)
         self._policy = policy or ArbitrationPolicy()
 
@@ -168,14 +173,16 @@ class Intake:
         decided = arbitrate(proposed, state, policy=self._policy)
         if undeliverable:
             decided = replace(decided, dropped=decided.dropped + undeliverable)
-        written = await self._materializer.apply(fact, decided.admitted, decided.held)
+        written = await self._materializer.apply(
+            fact, decided.admitted, decided.held, decided.held_reason.value
+        )
         return IntakeResult(
             accepted=True, fact=fact, arbitration=decided, materialization=written
         )
 
     async def _load_state(self, fact: Fact) -> WatchStateView:
         """Charge l'état **du sujet** que les interpreters liront — eux restent purs."""
-        return await load_state(self._store, self._signals, fact)
+        return await load_state(self._store, self._signals, fact, self._regimes)
 
 
 def person_subject(subject_id: UUID) -> tuple[SubjectKind, UUID]:
@@ -196,7 +203,10 @@ def warn_if_disconnected(source: str, intake: Intake | None) -> None:
 
 
 async def load_state(
-    store: NeutralizationStore, signals: SignalStore | None, fact: Fact
+    store: NeutralizationStore,
+    signals: SignalStore | None,
+    fact: Fact,
+    regimes: RegimeStore | None = None,
 ) -> WatchStateView:
     """L'état **borné au sujet du fait** — trois lectures ponctuelles, indexées.
 
@@ -214,9 +224,15 @@ async def load_state(
         if signals is not None
         else None
     )
+    # Le régime de rodage : une église qui observe détecte tout et n'émet rien. Sans dépôt —
+    # les tests d'unité purs — on suppose une église qui parle.
+    regime = (
+        await regimes.regime_of(fact.tenant_id) if regimes is not None else TenantRegime.STEADY
+    )
     return WatchStateView.for_subject(
         subject_id,
         excluded=excluded,
+        regime=regime,
         neutralizations=tuple(
             NeutralizationView(
                 id=row[0], subject_id=row[1], starts_at=row[2], expected_return_at=row[3]

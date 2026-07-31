@@ -118,9 +118,28 @@ class SignalModel(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # **Pourquoi** ce cas est retenu, quand il l'est : le plafond du responsable, ou le rodage de
+    # l'église. Deux causes aux traitements opposés — la passe nocturne relâche la première et ne
+    # doit jamais toucher la seconde, sinon une église en rodage se met à parler toute seule.
+    held_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 LIVE_STATUS_VALUES: tuple[str, ...] = tuple(s.value for s in LIVE_STATUSES)
+
+
+class TenantRegimeModel(Base):
+    """Le régime de rodage d'une église. **L'absence de ligne vaut `SHADOW`** : le rodage est le
+    défaut, sans dépendre d'un provisionnement ni d'une migration de données."""
+
+    __tablename__ = "watch_tenant_regimes"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
+    regime: Mapped[str] = mapped_column(String)
+    since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Sortir du rodage est une **décision**, et elle se sait : c'est le moment où l'église accepte
+    # que Dorea parle à ses responsables.
+    changed_by_account_id: Mapped[UUID] = mapped_column(Uuid)
 
 
 class GroupTypePolicyModel(Base):

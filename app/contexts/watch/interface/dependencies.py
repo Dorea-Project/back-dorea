@@ -72,6 +72,7 @@ from app.contexts.watch.application.referent_resolution import (
     ResolveSignalOwner,
 )
 from app.contexts.watch.application.release_held import ReleaseHeldCases
+from app.contexts.watch.application.shadow_report import BuildShadowReport
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -95,6 +96,7 @@ from app.contexts.watch.infrastructure.persistence.referent import (
     SqlReferentOverrideRepository,
     SqlWatchParameterRepository,
 )
+from app.contexts.watch.infrastructure.persistence.regime import SqlRegimeStore
 from app.contexts.watch.infrastructure.persistence.signals import (
     SqlContactAttemptStore,
     SqlSignalStore,
@@ -148,8 +150,13 @@ def build_intake(session) -> Intake:
     return Intake(
         SqlFactLedger(session), SOURCES, INTERPRETERS,
         build_store(session), build_signals(session), build_checks(session),
-        build_owner_assignment(session), build_contacts(session),
+        build_owner_assignment(session), build_contacts(session), build_regimes(session),
     )
+
+
+def build_regimes(session) -> SqlRegimeStore:
+    """Le rodage. **L'absence de decision vaut SHADOW** : aucune eglise ne parle par oubli."""
+    return SqlRegimeStore(session)
 
 
 def build_owner_assignment(session) -> ResolveOwners:
@@ -235,6 +242,7 @@ def build_rebuild(session) -> RebuildProjections:
     return RebuildProjections(
         SqlFactLedger(session), INTERPRETERS, build_store(session), build_signals(session),
         build_owner_assignment(session), build_checks(session), build_contacts(session),
+        build_regimes(session),
     )
 
 
@@ -289,6 +297,11 @@ def build_blind_groups(session) -> DetectBlindGroups:
         clock=lambda: datetime.now(UTC),
         id_factory=uuid4,
     )
+
+
+def build_shadow_report(session) -> BuildShadowReport:
+    """« Voici ce que Dorea aurait signale » — la sortie du rodage, pour le pasteur."""
+    return BuildShadowReport(build_signals(session), build_regimes(session))
 
 
 def build_concern_precision(session) -> MeasureConcernPrecision:

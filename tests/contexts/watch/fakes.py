@@ -121,7 +121,7 @@ class FakeSignals(SignalStore):
 
     async def open_case(
         self, *, subject_id, tenant_id, origin, reason, opened_at, expires_at, source_ref, held,
-        owner_account_id=None,
+        owner_account_id=None, held_reason=None,
     ):
         existing = self._live(subject_id, tenant_id)
         if existing is not None:
@@ -146,6 +146,7 @@ class FakeSignals(SignalStore):
                 previous_closed_at=previous.closed_at if previous else None,
             )
         )
+        self.rows[-1].held_reason = held_reason if held else None
 
     def _last_resolved(self, subject_id, tenant_id):
         closed = [

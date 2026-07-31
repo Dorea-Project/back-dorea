@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from app.contexts.watch.domain.regime import TenantRegime
+
 
 @dataclass(frozen=True)
 class HumanTraces:
@@ -143,6 +145,7 @@ class SignalStore(ABC):
         source_ref: UUID,
         held: bool,
         owner_account_id: UUID | None = None,
+        held_reason: str | None = None,
     ) -> None:
         """Ouvre un cas, ou **enrichit** celui qui existe déjà. Jamais deux sur une personne.
 
@@ -348,6 +351,22 @@ class SignalStore(ABC):
         regard, le premier contact, les gestes comptés, la chaîne d'épisode et les consolations
         déjà remises sont des **actes**, absents du journal. Cette méthode les détruit. Le garde-fou
         est chez l'appelant (`RebuildProjections`), pas ici : un store ne discute pas d'un ordre."""
+        ...
+
+
+class RegimeStore(ABC):
+    """Le régime de rodage d'une église — et son défaut, qui n'est pas neutre."""
+
+    @abstractmethod
+    async def regime_of(self, tenant_id: UUID) -> TenantRegime:
+        """`SHADOW` en l'absence de décision : aucune église ne se met à parler par oubli."""
+        ...
+
+    @abstractmethod
+    async def set_regime(
+        self, *, tenant_id: UUID, regime: TenantRegime, at: datetime, by_account_id: UUID
+    ) -> None:
+        """Sortir du rodage est une **décision**, datée et signée."""
         ...
 
 

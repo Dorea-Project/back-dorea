@@ -25,6 +25,7 @@ from uuid import UUID
 from app.contexts.watch.domain.effects import ProposedEffect
 from app.contexts.watch.domain.errors import NoInterpreterError, StateScopeError
 from app.contexts.watch.domain.facts import Fact, FactKind
+from app.contexts.watch.domain.regime import TenantRegime
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,10 @@ class WatchStateView:
     open_cases: tuple[OpenCaseView, ...] = ()
     subject_id: UUID | None = None  # None = vue complète
     owner_case_counts: Mapping[UUID | None, int] | None = None
+    # Le régime de rodage de l'église. Par défaut `STEADY` : une vue construite à la main —
+    # un test, un rejeu partiel — se comporte comme une église qui parle. C'est le **dépôt**
+    # qui répond `SHADOW` en l'absence de décision, pas le type.
+    regime: TenantRegime = TenantRegime.STEADY
 
     @classmethod
     def for_subject(
@@ -85,6 +90,7 @@ class WatchStateView:
         excluded: bool,
         neutralizations: tuple[NeutralizationView, ...] = (),
         case: OpenCaseView | None = None,
+        regime: TenantRegime = TenantRegime.STEADY,
     ) -> WatchStateView:
         """La vue **réduite** : ce qu'on sait de cette personne-là, et rien d'autre."""
         return cls(
@@ -92,6 +98,7 @@ class WatchStateView:
             open_neutralizations=neutralizations,
             open_cases=(case,) if case is not None else (),
             subject_id=subject_id,
+            regime=regime,
         )
 
     def with_owner_counts(self, counts: Mapping[UUID | None, int]) -> WatchStateView:

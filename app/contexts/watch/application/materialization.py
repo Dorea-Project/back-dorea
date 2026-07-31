@@ -91,6 +91,7 @@ class Materializer:
         fact: Fact,
         effects: Sequence[ProposedEffect],
         held: Sequence[ProposedEffect] = (),
+        held_reason: str | None = None,
     ) -> MaterializationResult:
         written: list[EffectKind] = []
         deferred: list[EffectKind] = []
@@ -121,6 +122,8 @@ class Materializer:
                     source_ref=source_ref,
                     held=True,
                     owner_account_id=effect.owner_account_id,
+                    # **Pourquoi** il est retenu : le plafond se relâchera, le rodage non.
+                    held_reason=held_reason,
                 )
                 held_kinds.append(EffectKind.OPEN_CASE)
 

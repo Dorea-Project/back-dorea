@@ -42,6 +42,7 @@ from app.contexts.watch.application.owner_assignment import ResolveOwners
 from app.contexts.watch.application.ports import (
     ContactAttemptStore,
     NeutralizationStore,
+    RegimeStore,
     ScheduledCheckStore,
     SignalStore,
 )
@@ -67,6 +68,7 @@ class RebuildProjections:
         owners: ResolveOwners | None = None,
         checks: ScheduledCheckStore | None = None,
         attempts: ContactAttemptStore | None = None,
+        regimes: RegimeStore | None = None,
         *,
         policy: ArbitrationPolicy | None = None,
     ) -> None:
@@ -87,6 +89,8 @@ class RebuildProjections:
         # Les tentatives de contact sont des projections depuis le lot 3bis : elles se
         # reconstruisent depuis le journal, donc elles se purgent avant de rejouer.
         self._attempts = attempts
+        # Un rejeu doit refaire les mêmes choix : le régime en fait partie.
+        self._regimes = regimes
         self._materializer = Materializer(store, signals, checks, attempts=attempts)
         self._policy = policy or ArbitrationPolicy()
 
@@ -112,7 +116,7 @@ class RebuildProjections:
         async for fact in self._ledger.stream(tenant_id):
             # L'état est relu à chaque pas : un effet posé par le fait n éclaire le fait n+1,
             # exactement comme en direct.
-            state = await load_state(self._store, self._signals, fact)
+            state = await load_state(self._store, self._signals, fact, self._regimes)
             proposed = self._interpreters.interpret(fact, state)
             undeliverable = ()
             if self._owners is not None:
@@ -121,7 +125,9 @@ class RebuildProjections:
                 )
             state = await with_owner_budgets(state, proposed, self._signals, tenant_id)
             decided = arbitrate(proposed, state, policy=self._policy)
-            written = await self._materializer.apply(fact, decided.admitted, decided.held)
+            written = await self._materializer.apply(
+                fact, decided.admitted, decided.held, decided.held_reason.value
+            )
             report = ReplayReport(
                 facts=report.facts + 1,
                 written=report.written + len(written.written),

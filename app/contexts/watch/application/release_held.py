@@ -23,6 +23,7 @@ from uuid import UUID
 from app.contexts.watch.application.ports import SignalStore
 from app.contexts.watch.application.referent_ports import WatchParameterRepository
 from app.contexts.watch.domain.parameters import WatchParam
+from app.contexts.watch.domain.regime import HeldReason
 from app.contexts.watch.domain.signal import priority_rank
 
 
@@ -49,7 +50,14 @@ class ReleaseHeldCases:
 
     async def execute(self, *, tenant_id: UUID) -> ReleasedCases:
         cap = await self._params.get_int(tenant_id, WatchParam.OPEN_CASES_CAP)
-        held = await self._signals.held_cases(tenant_id=tenant_id)
+        # **Le rodage n'est pas un plafond.** Un cas retenu parce que l'église observe ne se
+        # relâche pas quand une place se libère : il attend que l'église décide de parler.
+        # Les confondre ferait sortir une église de SHADOW toute seule, pendant la nuit.
+        held = [
+            case
+            for case in await self._signals.held_cases(tenant_id=tenant_id)
+            if case.held_reason != HeldReason.SHADOW.value
+        ]
 
         # L'ordre de l'arbitrage, à l'identique : l'origine du dire d'abord, puis le plus ancien.
         # À origine égale, c'est le décrochage le plus vieux qui a le plus attendu.

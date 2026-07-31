@@ -40,6 +40,7 @@ from app.contexts.watch.domain.effects import (
     ResolveCase,
     ResolveContactAttempt,
 )
+from app.contexts.watch.domain.regime import HeldReason
 
 # Ce qui **traverse** l'exclusion : l'exclusion elle-même — c'est elle qui l'a posée — et les
 # gestes du responsable sur un cas. Fermer le cas d'un défunt, dire qu'on a tenté de le joindre,
@@ -77,6 +78,9 @@ class Arbitration:
     admitted: tuple[ProposedEffect, ...] = ()
     held: tuple[ProposedEffect, ...] = ()
     dropped: tuple[tuple[ProposedEffect, str], ...] = ()
+    # **Pourquoi** ce qui est retenu l'est. Le plafond se relâche quand la place se libère ; le
+    # rodage ne se relâche que le jour où l'église décide de laisser Dorea parler.
+    held_reason: HeldReason = HeldReason.CAP
 
 
 def _origin_of(effect: ProposedEffect) -> CasePriority | None:
@@ -141,6 +145,20 @@ def arbitrate(
     fused.sort(key=_rank)
 
     # 4 — plafond de débit, appliqué aux seules **ouvertures** de cas.
+    #
+    # En **rodage**, aucun cas ne sort — pas même le déclaré. Tout est détecté, journalisé, écrit,
+    # et retenu avec sa raison : l'église observe ce que Dorea aurait dit avant de le laisser dire.
+    # Retenir le déclaré peut surprendre, et c'est pourtant le point : une église qui n'a pas encore
+    # annoncé Dorea à ses responsables ne doit pas leur envoyer un cas, quelle qu'en soit l'origine.
+    held_reason = HeldReason.CAP
+    if not state.regime.emits:
+        return Arbitration(
+            admitted=tuple(e for e in fused if not isinstance(e, OpenCase)),
+            held=tuple(e for e in fused if isinstance(e, OpenCase)),
+            dropped=tuple(dropped),
+            held_reason=HeldReason.SHADOW,
+        )
+
     admitted: list[ProposedEffect] = []
     budget: dict[object, int] = {}
     for effect in fused:
@@ -159,7 +177,12 @@ def arbitrate(
         budget[owner] = already + 1
         admitted.append(effect)
 
-    return Arbitration(admitted=tuple(admitted), held=tuple(held), dropped=tuple(dropped))
+    return Arbitration(
+        admitted=tuple(admitted),
+        held=tuple(held),
+        dropped=tuple(dropped),
+        held_reason=held_reason,
+    )
 
 
 def as_held(effect: ProposedEffect) -> ProposedEffect:

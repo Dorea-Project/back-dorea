@@ -77,6 +77,7 @@ def _to_signal(row: SignalModel) -> Signal:
         closed_at=_aware(row.closed_at),
         closed_by_account_id=row.closed_by_account_id,
         retracted_at=_aware(row.retracted_at),
+        held_reason=row.held_reason,
     )
 
 
@@ -127,6 +128,7 @@ class SqlSignalStore(SignalStore):
         source_ref: UUID,
         held: bool,
         owner_account_id: UUID | None = None,
+        held_reason: str | None = None,
     ) -> None:
         existing = await self._live_row(subject_id, tenant_id)
         if existing is not None:
@@ -169,6 +171,7 @@ class SqlSignalStore(SignalStore):
                 priority=CasePriority(origin).value,
                 annotations=[],
                 gestures_count=0,
+                held_reason=held_reason if held else None,
             )
         )
         await self._session.flush()
@@ -424,6 +427,7 @@ class SqlSignalStore(SignalStore):
         if row is None:
             return
         row.status = signal.status.value
+        row.held_reason = signal.held_reason
         row.owner_account_id = signal.owner_account_id
         row.priority = signal.priority.value
         row.annotations = list(signal.annotations)

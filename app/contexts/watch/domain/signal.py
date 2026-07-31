@@ -189,6 +189,7 @@ class Signal(AggregateRoot):
         closed_at: datetime | None = None,
         closed_by_account_id: UUID | None = None,
         retracted_at: datetime | None = None,
+        held_reason: str | None = None,
     ) -> None:
         super().__init__()
         self.id = id
@@ -222,6 +223,8 @@ class Signal(AggregateRoot):
         self.closed_at = closed_at
         self.closed_by_account_id = closed_by_account_id
         self.retracted_at = retracted_at
+        # Pourquoi il est retenu : le plafond du responsable, ou le rodage de l'église.
+        self.held_reason = held_reason
 
     # --- Lecture ---
 
@@ -285,12 +288,17 @@ class Signal(AggregateRoot):
     def release(self) -> None:
         """Le plafond s'est desserré : le cas retenu devient visible.
 
+        Ne relâche **que** ce que le plafond retient — la passe nocturne le vérifie avant
+        d'appeler. Relâcher un cas retenu par le rodage ferait parler toute seule, pendant la
+        nuit, une église qui observait.
+
         Il va directement chez son destinataire — il en a un depuis son ouverture. Le faire passer
         par `OPEN` le rendrait « prenable » par n'importe quel responsable de la portée, ce qui est
         exactement la porte qu'on a fermée en rendant le propriétaire obligatoire."""
         self._move_to(
             SignalStatus.ASSIGNED if self.owner_account_id is not None else SignalStatus.OPEN
         )
+        self.held_reason = None
 
     def see(self, *, at: datetime) -> None:
         """Le propriétaire a **ouvert** le cas. Un cas jamais ouvert est le vrai signal d'alarme
