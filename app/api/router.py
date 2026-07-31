@@ -59,6 +59,9 @@ from app.contexts.tenant.interface.onboarding_router import (
     public_router as onboarding_public_router,
 )
 from app.contexts.tenant.interface.router import router as tenant_router
+from app.contexts.watch.interface.backoffice_router import (
+    router as backoffice_watch_router,
+)
 from app.contexts.watch.interface.mobile_router import router as mobile_watch_router
 from app.contexts.watch.interface.platform_router import router as platform_watch_router
 
@@ -97,6 +100,8 @@ backoffice_router.include_router(backoffice_groups_router, tags=["backoffice:gro
 backoffice_router.include_router(
     backoffice_attendance_router, prefix="/attendance", tags=["backoffice:attendance"]
 )
+# Le rodage : ce que Dorea aurait signalé, et la décision de la laisser parler.
+backoffice_router.include_router(backoffice_watch_router, tags=["backoffice:watch"])
 backoffice_router.include_router(
     backoffice_announcements_router, prefix="/announcements", tags=["backoffice:announcements"]
 )

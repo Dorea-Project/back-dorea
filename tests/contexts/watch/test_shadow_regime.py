@@ -226,3 +226,124 @@ async def test_a_church_that_speaks_has_no_shadow_report():
 
     assert report.is_observing is False
     assert report.count == 0
+
+
+# --- La surface du rodage ----------------------------------------------------------------
+
+
+class _Access:
+    """L'autorité, réduite à son verdict — et à la permission qu'on lui a demandée."""
+
+    def __init__(self, *, allowed=True):
+        self.allowed = allowed
+        self.asked: list[str] = []
+
+    async def ensure_church_wide(self, *, actor_account_id, tenant_id, permission):
+        self.asked.append(permission.value)
+        if not self.allowed:
+            from app.contexts.groups.domain.errors import UnauthorizedGroupActionError
+
+            raise UnauthorizedGroupActionError("Non.", details={})
+
+
+class _People:
+    def __init__(self, pastors=()):
+        self._pastors = list(pastors)
+
+    async def pastors(self, tenant_id):
+        return list(self._pastors)
+
+
+class _Notifier:
+    def __init__(self):
+        self.sent: list[tuple] = []
+
+    async def notify(self, account_ids, notification):
+        self.sent.append((list(account_ids), notification))
+
+
+async def test_the_report_requires_church_wide_pastoral_authority():
+    """Il nomme des personnes de toute l'église : un responsable de cellule n'y a pas accès."""
+    import pytest
+
+    from app.contexts.groups.domain.errors import UnauthorizedGroupActionError
+
+    tenant = uuid4()
+    access = _Access(allowed=False)
+    report = BuildShadowReport(FakeSignals(), _Regimes(), access)
+
+    with pytest.raises(UnauthorizedGroupActionError):
+        await report.execute(tenant_id=tenant, actor_account_id=uuid4())
+    assert access.asked == ["view_pastoral_alerts"]
+
+
+async def test_letting_dorea_speak_is_a_governance_act():
+    """Accepter que Dorea parle engage l'église : c'est la propriété, pas la lecture pastorale."""
+    from app.contexts.watch.application.shadow_report import LetDoreaSpeak
+
+    tenant, owner = uuid4(), uuid4()
+    regimes, access = _Regimes(), _Access()
+
+    chosen = await LetDoreaSpeak(regimes, access, clock=lambda: _NOW).execute(
+        tenant_id=tenant, actor_account_id=owner
+    )
+
+    assert access.asked == ["manage_staff"]
+    assert chosen is TenantRegime.ASSISTED  # on sort du rodage, on ne saute pas à l'automatique
+    assert await regimes.regime_of(tenant) is TenantRegime.ASSISTED
+
+
+async def test_leaving_the_shadow_never_dumps_what_was_held():
+    """Rien n'est rétroactif.
+
+    Les cas retenus pendant l'observation ont été détectés quand personne n'était chargé de rien ;
+    les déverser d'un coup sur des responsables qui découvrent le produit serait exactement
+    l'inverse de ce que le rodage protège."""
+    from app.contexts.watch.application.shadow_report import LetDoreaSpeak
+
+    tenant, member, owner = uuid4(), uuid4(), uuid4()
+    intake, signals, _ = _engine()
+    await intake.submit(_call_me(tenant, member))
+    regimes = _Regimes()
+
+    await LetDoreaSpeak(regimes, _Access(), clock=lambda: _NOW).execute(
+        tenant_id=tenant, actor_account_id=owner
+    )
+
+    assert signals.rows[0].status is SignalStatus.HELD
+    assert signals.rows[0].held_reason == HeldReason.SHADOW.value
+
+
+async def test_the_digest_says_a_number_never_a_name():
+    """Une notification qui nomme quelqu'un sur un écran de verrouillage est une fuite."""
+    from app.contexts.watch.application.shadow_report import SendShadowDigest
+
+    tenant, member, pastor = uuid4(), uuid4(), uuid4()
+    intake, signals, _ = _engine()
+    await intake.submit(_call_me(tenant, member))
+    notifier = _Notifier()
+
+    sent = await SendShadowDigest(
+        BuildShadowReport(signals, _Regimes()), _People([pastor]), notifier
+    ).execute(tenant_id=tenant)
+
+    assert sent.notified == 1
+    (targets, notification) = notifier.sent[0]
+    assert targets == [pastor]
+    assert "1 situation" in notification.body
+    assert str(member) not in notification.body
+
+
+async def test_a_calm_week_notifies_nobody():
+    """On ne notifie pas pour dire qu'il n'y a rien : le silence d'une semaine calme est vrai."""
+    from app.contexts.watch.application.shadow_report import SendShadowDigest
+
+    tenant, pastor = uuid4(), uuid4()
+    notifier = _Notifier()
+
+    sent = await SendShadowDigest(
+        BuildShadowReport(FakeSignals(), _Regimes()), _People([pastor]), notifier
+    ).execute(tenant_id=tenant)
+
+    assert sent.tenants == 1 and sent.notified == 0
+    assert notifier.sent == []

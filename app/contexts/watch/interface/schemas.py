@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.contexts.watch.domain.concern import NUANCE_LABELS, Nuance
 from app.contexts.watch.domain.contact import ContactChannel, ContactResult
+from app.contexts.watch.domain.regime import TenantRegime
 from app.contexts.watch.domain.signal import SignalOutcome
 
 
@@ -138,3 +139,51 @@ class PendingAttemptListView(BaseModel):
                 for a in attempts
             ]
         )
+
+
+class WouldHaveSignalledView(BaseModel):
+    """Un cas que l'église aurait reçu. La raison est celle qui **aurait été affichée**."""
+
+    subject_account_id: UUID
+    reason: str
+    origin: str
+    detected_at: datetime
+    owner_account_id: UUID | None
+
+
+class ShadowReportView(BaseModel):
+    """Ce que Dorea aurait dit — dans l'ordre où elle l'aurait dit."""
+
+    regime: str
+    observing: bool
+    count: int
+    cases: list[WouldHaveSignalledView]
+
+    @classmethod
+    def of(cls, report) -> "ShadowReportView":
+        return cls(
+            regime=report.regime.value,
+            observing=report.is_observing,
+            count=report.count,
+            cases=[
+                WouldHaveSignalledView(
+                    subject_account_id=c.subject_id,
+                    reason=c.reason,
+                    origin=c.origin,
+                    detected_at=c.detected_at,
+                    owner_account_id=c.owner_account_id,
+                )
+                for c in report.cases
+            ],
+        )
+
+
+class LetDoreaSpeakBody(BaseModel):
+    """Le régime visé. `ASSISTED` par défaut : on sort du rodage sans sauter à l'automatique."""
+
+    regime: TenantRegime = TenantRegime.ASSISTED
+
+
+class RegimeView(BaseModel):
+    regime: str
+    emits: bool  # ce régime laisse-t-il un cas atteindre un responsable ?

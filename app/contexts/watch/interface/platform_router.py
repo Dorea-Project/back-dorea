@@ -37,9 +37,20 @@ from app.contexts.watch.interface.dependencies import (
     build_escalate_concerns,
     build_fire_checks,
     build_release_held,
+    build_shadow_digest,
 )
 
 router = APIRouter(dependencies=[Depends(require_platform_token)])
+
+
+class ShadowDigestResult(BaseModel):
+    """Ce qui a été **dit**, jamais ce qui a été observé.
+
+    Une église en rodage sans rien à signaler ne reçoit rien : on ne notifie pas pour dire qu'il
+    n'y a rien, et le silence d'une semaine calme est un vrai silence."""
+
+    observing: int  # églises en rodage
+    notified: int  # celles où il y avait quelque chose à dire
 
 
 class WatchRunResult(BaseModel):
@@ -62,6 +73,31 @@ class WatchRunResult(BaseModel):
     # Ce qui reste retenu. Un arriéré permanent n'est pas un problème de plafond : c'est une
     # détection trop bavarde, et c'est le seuil qu'on remonte alors, jamais le plafond.
     still_held: int
+
+
+@router.post(
+    "/watch/shadow-digest",
+    response_model=ShadowDigestResult,
+    summary="« Dorea observe » — le résumé aux pasteurs des églises en rodage",
+)
+async def shadow_digest(session: DbSession, tenant_id: UUID | None = None) -> ShadowDigestResult:
+    """**La cadence vit dans le cron, pas ici.**
+
+    Écrire « une fois par semaine » dans le code aurait demandé de mémoriser la date du dernier
+    envoi — un état de plus, pour un rythme qui se règle dans une ligne de crontab. Le service, lui,
+    reste bête : il regarde qui observe, et le dit."""
+    tenants = (
+        [tenant_id]
+        if tenant_id is not None
+        else list((await session.execute(select(TenantModel.id))).scalars().all())
+    )
+    digest = build_shadow_digest(session)
+    observing = notified = 0
+    for each in tenants:
+        sent = await digest.execute(tenant_id=each)
+        observing += sent.tenants
+        notified += sent.notified
+    return ShadowDigestResult(observing=observing, notified=notified)
 
 
 @router.post(

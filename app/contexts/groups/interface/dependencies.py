@@ -39,10 +39,6 @@ from app.contexts.groups.infrastructure.persistence.repositories import (
 )
 from app.contexts.iam.infrastructure.persistence.repositories import SqlAlchemyMembershipRepository
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
-from app.contexts.watch.interface.dependencies import (
-    build_absence_rhythm,
-    build_intake,
-)
 
 
 def get_group_access_policy(session: DbSession) -> GroupAccessPolicy:
@@ -66,6 +62,14 @@ def get_create_group_command(
 def get_add_group_member_command(
     access: GroupAccessPolicyDep, session: DbSession
 ) -> AddGroupMember:
+    # Import différé : la Veille importe l'autorité de Groupes pour ses écrans de rodage, et
+    # Groupes importe la Veille pour armer le regard à l'adhésion. La boucle se dénoue ici,
+    # au moment de l'appel, plutôt qu'au chargement des modules.
+    from app.contexts.watch.interface.dependencies import (
+        build_absence_rhythm,
+        build_intake,
+    )
+
     return AddGroupMember(
         SqlGroupRepository(session),
         SqlGroupMembershipRepository(session),

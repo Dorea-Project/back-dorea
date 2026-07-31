@@ -23,7 +23,11 @@ from app.contexts.attendance.infrastructure.persistence.absence_repository impor
 from app.contexts.attendance.infrastructure.persistence.cadence_repository import (
     SqlGroupCadenceRepository,
 )
-from app.contexts.notifications.interface.dependencies import build_scheduler
+from app.contexts.groups.interface.dependencies import GroupAccessPolicyDep
+from app.contexts.notifications.interface.dependencies import (
+    build_notifier,
+    build_scheduler,
+)
 from app.contexts.watch.application.blind_groups import DetectBlindGroups
 from app.contexts.watch.application.case_acts import RecordCaseAct
 from app.contexts.watch.application.concern_watchdog import (
@@ -72,7 +76,11 @@ from app.contexts.watch.application.referent_resolution import (
     ResolveSignalOwner,
 )
 from app.contexts.watch.application.release_held import ReleaseHeldCases
-from app.contexts.watch.application.shadow_report import BuildShadowReport
+from app.contexts.watch.application.shadow_report import (
+    BuildShadowReport,
+    LetDoreaSpeak,
+    SendShadowDigest,
+)
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -299,9 +307,18 @@ def build_blind_groups(session) -> DetectBlindGroups:
     )
 
 
-def build_shadow_report(session) -> BuildShadowReport:
+def build_shadow_report(session, access=None) -> BuildShadowReport:
     """« Voici ce que Dorea aurait signale » — la sortie du rodage, pour le pasteur."""
-    return BuildShadowReport(build_signals(session), build_regimes(session))
+    return BuildShadowReport(build_signals(session), build_regimes(session), access)
+
+
+def build_shadow_digest(session) -> SendShadowDigest:
+    """L'envoi hebdomadaire. La cadence vit dans le cron, pas ici."""
+    return SendShadowDigest(
+        build_shadow_report(session),
+        SqlPeopleDirectory(session),
+        build_notifier(session),
+    )
 
 
 def build_concern_precision(session) -> MeasureConcernPrecision:
@@ -372,3 +389,19 @@ CloseCaseDep = Annotated[CloseCase, Depends(get_close_case)]
 StartContactDep = Annotated[StartContact, Depends(get_start_contact)]
 AnswerContactDep = Annotated[AnswerContact, Depends(get_answer_contact)]
 PendingAttemptsDep = Annotated[PendingAttempts, Depends(get_pending_attempts)]
+
+
+async def get_shadow_report(
+    session: DbSession, access: GroupAccessPolicyDep
+) -> BuildShadowReport:
+    return build_shadow_report(session, access)
+
+
+async def get_let_dorea_speak(
+    session: DbSession, access: GroupAccessPolicyDep
+) -> LetDoreaSpeak:
+    return LetDoreaSpeak(build_regimes(session), access, clock=_now)
+
+
+BuildShadowReportDep = Annotated[BuildShadowReport, Depends(get_shadow_report)]
+LetDoreaSpeakDep = Annotated[LetDoreaSpeak, Depends(get_let_dorea_speak)]
