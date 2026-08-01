@@ -289,15 +289,29 @@ class FakeSignals(SignalStore):
             if s.opened_at >= since
         ]
 
-    async def concern_outcomes(self, *, tenant_id, since):
+    async def closed_cases_since(self, *, tenant_id, since):
         return [
-            s.outcome.value
-            for s in self._concerns(tenant_id)
-            if s.status is SignalStatus.CLOSED
+            (s.origin.value, s.outcome.value)
+            for s in self.rows
+            if s.tenant_id == tenant_id
+            and s.status is SignalStatus.CLOSED
             and s.outcome is not None
             and s.closed_at is not None
             and s.closed_at >= since
+            and s.closed_by_account_id is not None
         ]
+
+    async def ignored_ratio(self, *, tenant_id, older_than):
+        from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES
+
+        borne = [
+            s
+            for s in self.rows
+            if s.tenant_id == tenant_id
+            and s.status in ON_SHOULDERS_STATUSES
+            and s.opened_at <= older_than
+        ]
+        return sum(1 for s in borne if s.first_seen_at is None), len(borne)
 
     async def mark_contact_started_for_subject(self, *, subject_id, tenant_id, at):
         signal = self._live(subject_id, tenant_id)

@@ -7,7 +7,7 @@ NULL) : une église peut ranger ses types autrement sans qu'on touche au code.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from app.contexts.watch.application.referent_ports import (
     ReferentOverrideRepository,
     WatchParameterRepository,
 )
+from app.contexts.watch.calibration.ports import WatchParameterWriter
 from app.contexts.watch.domain.coverage import CoverageGapRecord
 from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
 from app.contexts.watch.domain.parameters import DEFAULTS, WatchParam
@@ -263,7 +264,7 @@ class SqlReferentHistoryRepository(ReferentHistoryRepository):
         )
 
 
-class SqlWatchParameterRepository(WatchParameterRepository):
+class SqlWatchParameterRepository(WatchParameterRepository, WatchParameterWriter):
     """Lit la valeur de l'église, sinon celle du défaut, sinon la valeur de départ codée.
 
     Le troisième repli n'est pas une constante déguisée : c'est le filet qui évite qu'une base
@@ -286,3 +287,18 @@ class SqlWatchParameterRepository(WatchParameterRepository):
             iter(rows), None
         )
         return chosen.value if chosen is not None else DEFAULTS[param]
+
+    async def set_int(self, *, tenant_id: UUID, param: WatchParam, value: int) -> None:
+        stmt = select(WatchParameterModel).where(
+            WatchParameterModel.param == param.value,
+            WatchParameterModel.tenant_id == tenant_id,  # jamais la ligne du défaut
+        )
+        row = (await self._session.execute(stmt)).scalars().first()
+        if row is None:
+            self._session.add(
+                WatchParameterModel(
+                    id=uuid4(), tenant_id=tenant_id, param=param.value, value=value
+                )
+            )
+        else:
+            row.value = value

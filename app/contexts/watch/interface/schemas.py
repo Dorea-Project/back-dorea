@@ -189,6 +189,36 @@ class RegimeView(BaseModel):
     emits: bool  # ce régime laisse-t-il un cas atteindre un responsable ?
 
 
+class CalibrationProposalView(BaseModel):
+    """Une proposition de seuil. **`evidence` est la phrase qu'on peut contester.**
+
+    Aucun champ ne nomme quelqu'un : la calibration porte sur `(église, paramètre)`, et une vue
+    qui exposerait un membre trahirait exactement ce que le module s'interdit."""
+
+    id: UUID
+    param: str
+    current: int
+    proposed: int
+    evidence: str
+
+    @classmethod
+    def of(cls, proposal) -> "CalibrationProposalView":
+        return cls(
+            id=proposal.id,
+            param=proposal.param.value,
+            current=proposal.current,
+            proposed=proposal.proposed,
+            evidence=proposal.evidence,
+        )
+
+
+class DecideOnProposalBody(BaseModel):
+    """Accepter, ou refuser. Sans défaut : ranger d'un clic ne doit pas être plus facile que
+    décider."""
+
+    accept: bool
+
+
 class ContextSegmentView(BaseModel):
     """Une ligne du bloc, et la source qu'on peut déplier pour vérifier."""
 

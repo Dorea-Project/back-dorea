@@ -47,7 +47,7 @@ from app.contexts.watch.application.referent_ports import (
     WatchParameterRepository,
 )
 from app.contexts.watch.domain.coverage import CoverageGapRecord
-from app.contexts.watch.domain.effects import CoverageGap, CoverageScope
+from app.contexts.watch.domain.effects import CasePriority, CoverageGap, CoverageScope
 from app.contexts.watch.domain.parameters import WatchParam
 from app.contexts.watch.domain.signal import SignalOutcome
 
@@ -228,11 +228,21 @@ class MeasureConcernPrecision:
         self._clock = clock
 
     async def execute(self, *, tenant_id: UUID) -> ConcernPrecision:
+        """Le cas particulier de `OutcomeJudge` — **même requête, même filtre**.
+
+        Les deux lectures de « précision » ne peuvent pas diverger, parce qu'il n'y a qu'une
+        source. Deux nombres qui portent le même nom et se contredisent finissent toujours par
+        être arbitrés par celui qui arrange."""
         now = self._clock()
         window = await self._params.get_int(tenant_id, WatchParam.CONCERN_WINDOW_DAYS)
-        outcomes = await self._signals.concern_outcomes(
+        rows = await self._signals.closed_cases_since(
             tenant_id=tenant_id, since=now - timedelta(days=window)
         )
+        outcomes = [
+            outcome
+            for origin, outcome in rows
+            if CasePriority(origin) is CasePriority.CONCERN
+        ]
         confirmed = sum(
             1 for o in outcomes if SignalOutcome(o) not in UNCONFIRMED_OUTCOMES
         )

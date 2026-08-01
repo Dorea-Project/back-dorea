@@ -17,6 +17,10 @@ vivaient que dans un script. Un service qu'aucune surface n'atteint ne tourne nu
 L'ordre compte : les échéances d'abord, pour que l'escalade voie l'état du jour et non celui
 d'hier.
 
+À part, sur sa propre cadence : **la boucle froide** (`/watch/calibrate`). Elle ne décide d'aucun
+cas — elle mesure les seuils contre ce que les responsables ont constaté et propose. Mensuelle,
+parce que sa fenêtre de mesure l'est.
+
 Gardée par le **jeton de service Plateforme** : c'est de l'infrastructure, pas une action
 d'église. Le même code reste accessible par `python -m scripts.watch_concerns` — deux chemins,
 une seule implémentation.
@@ -33,6 +37,7 @@ from app.contexts.tenant.infrastructure.persistence.models import TenantModel
 from app.contexts.tenant.interface.dependencies import require_platform_token
 from app.contexts.watch.interface.dependencies import (
     build_blind_groups,
+    build_calibration_pass,
     build_dumping_guard,
     build_escalate_concerns,
     build_fire_checks,
@@ -98,6 +103,45 @@ async def shadow_digest(session: DbSession, tenant_id: UUID | None = None) -> Sh
         observing += sent.tenants
         notified += sent.notified
     return ShadowDigestResult(observing=observing, notified=notified)
+
+
+class CalibrationRunResult(BaseModel):
+    """Ce que la boucle froide a proposé, et ce que les régimes ont laissé passer seul.
+
+    `applied` ne peut être non nul que pour des églises en `STEADY`, et seulement dans les bornes
+    dures. Partout ailleurs, ces propositions attendent quelqu'un."""
+
+    tenants: int
+    proposed: int
+    applied: int
+
+
+@router.post(
+    "/watch/calibrate",
+    response_model=CalibrationRunResult,
+    summary="La boucle froide : mesurer les seuils contre ce que les églises ont constaté",
+)
+async def calibrate(session: DbSession, tenant_id: UUID | None = None) -> CalibrationRunResult:
+    """**Mensuelle, et la cadence vit dans le cron.**
+
+    Le grain est le mois parce que la fenêtre de mesure l'est : proposer chaque nuit sur trente
+    jours glissants reviendrait à reproposer trente fois la même chose. Le dépôt s'en protège
+    déjà, mais un cron qui bat au rythme de ce qu'il mesure est plus honnête qu'un garde-fou.
+
+    Elle ne décide d'aucun cas et ne touche à personne : sa seule écriture possible est un
+    `WatchParam` entier, pour une église."""
+    tenants = (
+        [tenant_id]
+        if tenant_id is not None
+        else list((await session.execute(select(TenantModel.id))).scalars().all())
+    )
+    cold = build_calibration_pass(session)
+    proposed = applied = 0
+    for each in tenants:
+        result = await cold.execute(tenant_id=each)
+        proposed += result.proposed
+        applied += result.applied
+    return CalibrationRunResult(tenants=len(tenants), proposed=proposed, applied=applied)
 
 
 @router.post(

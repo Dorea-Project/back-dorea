@@ -83,6 +83,13 @@ from app.contexts.watch.application.shadow_report import (
     SendShadowDigest,
 )
 from app.contexts.watch.application.stop_contacting_me import StopContactingMe
+from app.contexts.watch.calibration.judge import OutcomeJudge
+from app.contexts.watch.calibration.proposal import ApplyProposal, Proposer
+from app.contexts.watch.calibration.review import (
+    DecideOnProposal,
+    ListProposals,
+    RunCalibrationPass,
+)
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -95,6 +102,9 @@ from app.contexts.watch.infrastructure.directories import (
 from app.contexts.watch.infrastructure.group_rhythms import SqlGroupRhythms
 from app.contexts.watch.infrastructure.neutralization_store import (
     AttendanceNeutralizationStore,
+)
+from app.contexts.watch.infrastructure.persistence.calibration import (
+    SqlCalibrationProposalStore,
 )
 from app.contexts.watch.infrastructure.persistence.checks import SqlScheduledCheckStore
 from app.contexts.watch.infrastructure.persistence.ledger import SqlFactLedger
@@ -331,6 +341,18 @@ def build_concern_precision(session) -> MeasureConcernPrecision:
     )
 
 
+def build_calibration_pass(session) -> RunCalibrationPass:
+    """La boucle froide, assemblée. `clock` la traverse : elle date les décisions, rien d'autre."""
+    params = SqlWatchParameterRepository(session)
+    proposals = SqlCalibrationProposalStore(session)
+    return RunCalibrationPass(
+        OutcomeJudge(build_signals(session), params, clock=_now),
+        Proposer(params),
+        proposals,
+        ApplyProposal(params, build_regimes(session), proposals, clock=_now),
+    )
+
+
 def build_contacts(session) -> SqlContactAttemptStore:
     return SqlContactAttemptStore(session)
 
@@ -415,5 +437,26 @@ async def get_let_dorea_speak(
     return LetDoreaSpeak(build_regimes(session), access, clock=_now)
 
 
+async def get_list_proposals(
+    session: DbSession, access: GroupAccessPolicyDep
+) -> ListProposals:
+    return ListProposals(SqlCalibrationProposalStore(session), access)
+
+
+async def get_decide_on_proposal(
+    session: DbSession, access: GroupAccessPolicyDep
+) -> DecideOnProposal:
+    params = SqlWatchParameterRepository(session)
+    proposals = SqlCalibrationProposalStore(session)
+    return DecideOnProposal(
+        proposals,
+        ApplyProposal(params, build_regimes(session), proposals, clock=_now),
+        access,
+        clock=_now,
+    )
+
+
 BuildShadowReportDep = Annotated[BuildShadowReport, Depends(get_shadow_report)]
 LetDoreaSpeakDep = Annotated[LetDoreaSpeak, Depends(get_let_dorea_speak)]
+ListProposalsDep = Annotated[ListProposals, Depends(get_list_proposals)]
+DecideOnProposalDep = Annotated[DecideOnProposal, Depends(get_decide_on_proposal)]

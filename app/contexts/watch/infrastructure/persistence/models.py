@@ -358,6 +358,36 @@ class ScheduledCheckModel(Base):
     )
 
 
+class CalibrationProposalModel(Base):
+    """Ce que la boucle froide propose. **Une table à elle, hors du journal.**
+
+    Elle n'a pas de `subject_id`, et ce n'est pas un oubli : le grain le plus fin de la
+    calibration est `(église, paramètre)`. Le seul identifiant de personne est celui de qui a
+    tranché — l'auteur d'une décision, jamais le sujet d'une mesure.
+    """
+
+    __tablename__ = "watch_calibration_proposals"
+
+    __table_args__ = (
+        # L'écran du pasteur : ce qui attend une décision, chez lui.
+        Index("ix_watch_calibration_pending", "tenant_id", "status", "param"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid)
+    param: Mapped[str] = mapped_column(String)
+    current_value: Mapped[int] = mapped_column(Integer)
+    proposed_value: Mapped[int] = mapped_column(Integer)
+    # La phrase que le pasteur lit et peut contester. Une proposition qu'on ne sait pas justifier
+    # est une proposition qu'on applique par confiance, et la confiance ne se calibre pas.
+    evidence: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String)
+    decided_by_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class CareMemoryModel(Base):
     """La mémoire du lien — ce qui a été porté, à rendre **une fois** à qui cela console.
 

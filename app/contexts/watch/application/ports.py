@@ -289,8 +289,32 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
-    async def concern_outcomes(self, *, tenant_id: UUID, since: datetime) -> list[str]:
-        """Les issues des inquiétudes **closes**. Agrégat de calibration, jamais nominatif."""
+    async def closed_cases_since(
+        self, *, tenant_id: UUID, since: datetime
+    ) -> list[tuple[str, str]]:
+        """`(origine, issue)` des cas fermés **par un humain**. Deux chaînes, aucun identifiant.
+
+        Le type de retour n'est pas une commodité : c'est l'interdit de la calibration rendu
+        structurel. Ce port **ne peut pas** rendre une personne, donc rien de ce qui se calcule
+        au-dessus ne pourra jamais descendre à quelqu'un.
+
+        La clôture humaine est le filtre, et c'est le sens même de « vérité terrain » : une
+        extinction système ferait noter la machine par la machine. Une inquiétude close parce que
+        la personne est revenue d'elle-même n'a jamais été vérifiée par personne — la compter
+        comme une intuition juste gonflerait la précision d'un tenant sans qu'un seul contact ait
+        eu lieu. Les rétractées sont hors du compte pour la même raison qu'ailleurs : un cas
+        devenu faux n'a rien résolu."""
+        ...
+
+    @abstractmethod
+    async def ignored_ratio(
+        self, *, tenant_id: UUID, older_than: datetime
+    ) -> tuple[int, int]:
+        """`(jamais ouverts, portés)` — deux entiers, sur les cas plus vieux que cette date.
+
+        Le seul indicateur qui **anticipe** : il monte avant l'abandon, quand le délai de contact
+        a encore l'air normal parce que les cas traités le sont vite et que les autres ne sont
+        simplement jamais ouverts."""
         ...
 
     @abstractmethod

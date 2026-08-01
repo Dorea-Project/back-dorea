@@ -493,17 +493,33 @@ class SqlSignalStore(SignalStore):
         rows = (await self._session.execute(stmt)).all()
         return [(owner, contacted is not None) for owner, contacted in rows]
 
-    async def concern_outcomes(self, *, tenant_id: UUID, since: datetime) -> list[str]:
+    async def closed_cases_since(
+        self, *, tenant_id: UUID, since: datetime
+    ) -> list[tuple[str, str]]:
         # Les rétractées sont hors du calcul : un cas devenu faux n'a rien résolu, et le compter
         # comme une intuition ratée punirait le déclarant d'une erreur du système.
-        stmt = select(SignalModel.outcome).where(
+        stmt = select(SignalModel.origin, SignalModel.outcome).where(
             SignalModel.tenant_id == tenant_id,
-            SignalModel.origin == CasePriority.CONCERN.value,
             SignalModel.status == SignalStatus.CLOSED.value,
             SignalModel.closed_at >= since,
             SignalModel.outcome.is_not(None),
+            SignalModel.closed_by_account_id.is_not(None),
         )
-        return list((await self._session.execute(stmt)).scalars().all())
+        return [(o, u) for o, u in (await self._session.execute(stmt)).all()]
+
+    async def ignored_ratio(
+        self, *, tenant_id: UUID, older_than: datetime
+    ) -> tuple[int, int]:
+        stmt = select(
+            func.count().filter(SignalModel.first_seen_at.is_(None)),
+            func.count(),
+        ).where(
+            SignalModel.tenant_id == tenant_id,
+            SignalModel.status.in_(_ON_SHOULDERS),
+            SignalModel.opened_at <= older_than,
+        )
+        ignored, borne = (await self._session.execute(stmt)).one()
+        return int(ignored or 0), int(borne or 0)
 
     async def human_traces(self, tenant_id: UUID) -> HumanTraces:
         """Un COUNT par nature d'acte. Cinq scalaires, lus une seule fois avant une purge."""
