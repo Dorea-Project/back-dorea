@@ -56,8 +56,16 @@ class GratitudeDepositedV1:
         # écarterait un `EnrichCase` orphelin, mais le dire ici évite d'écrire un effet qui ne
         # veut rien dire : quelqu'un qui va bien et rend grâce n'a produit aucun événement de
         # veille, et c'est très bien ainsi.
-        if not state.has_open_case(fact.subject_id):
+        case = state.case_of(fact.subject_id)
+        if case is None:
             return []
+
+        # **Ce qu'elle a demandé passe avant ce qu'elle raconte.** Un cas né de sa propre parole
+        # — « rappelez-moi », un rythme qu'elle a choisi — ne redescend pas parce qu'elle rend
+        # grâce par ailleurs. Sans ce garde, quelqu'un qui demande un appel *et* dit merci se
+        # retrouve derrière tout le monde : le produit punirait la gratitude, et il existe
+        # précisément pour l'inverse.
+        asked_for_it = CasePriority(case.origin) is CasePriority.DECLARED
         return [
             EnrichCase(
                 subject_id=fact.subject_id,
@@ -68,8 +76,8 @@ class GratitudeDepositedV1:
                 ),
                 # **Abaisser, pas éteindre.** Le cas reste, le responsable rappellera — mais
                 # après ceux dont personne n'a de nouvelles.
-                priority=CasePriority.ABSENCE,
-                downgrade=True,
+                priority=None if asked_for_it else CasePriority.ABSENCE,
+                downgrade=not asked_for_it,
                 life_sign=True,
                 at=fact.occurred_at,
             )

@@ -33,16 +33,21 @@ class _Accounts:
 
 
 class _Directory:
-    """Les gens des groupes du viewer, et qui veille sur qui."""
+    """Les gens des groupes du viewer, et qui veille sur qui.
+
+    `lookups` compte les résolutions de référent : chacune coûte une douzaine de requêtes en
+    vrai, et l'encart ne doit pas en lancer une par membre de mes groupes."""
 
     def __init__(self, rows, referents=None):
         self._rows = rows
         self._referents = referents or {}
+        self.lookups = 0
 
     async def candidates(self, *, viewer_account_id, tenant_id):
         return self._rows
 
     async def referent_of(self, account_id, tenant_id):
+        self.lookups += 1
         return self._referents.get(account_id)
 
 
@@ -186,6 +191,36 @@ async def test_nobody_wishes_himself_a_happy_birthday():
         viewer_account_id=awa, tenant_id=uuid4()
     )
     assert shown == []
+
+
+async def test_nobodys_referent_is_resolved_for_a_birthday_in_november():
+    """**On écarte sur la date avant d'interroger quoi que ce soit.**
+
+    Résoudre un référent coûte une douzaine de requêtes ; le faire pour chaque membre de mes
+    groupes reviendrait à en lancer des centaines pour n'afficher, la plupart des jours, personne.
+    """
+    directory = _Directory([_row(uuid4(), day=3, month=11) for _ in range(40)])
+
+    shown = await BirthdaysToday(directory, clock=lambda: _TODAY).execute(
+        viewer_account_id=uuid4(), tenant_id=uuid4()
+    )
+
+    assert shown == []
+    assert directory.lookups == 0
+
+
+async def test_the_referent_is_resolved_only_for_the_few_that_could_show():
+    """Un seul candidat du jour parmi trente : une seule résolution."""
+    awa = uuid4()
+    rows = [_row(uuid4(), day=3, month=11) for _ in range(30)]
+    rows.append(_row(awa, day=12, month=6, scope=BirthdayScope.REFERENT_ONLY))
+    directory = _Directory(rows, {awa: uuid4()})
+
+    await BirthdaysToday(directory, clock=lambda: _TODAY).execute(
+        viewer_account_id=uuid4(), tenant_id=uuid4()
+    )
+
+    assert directory.lookups == 1
 
 
 # --- Ce que l'anniversaire n'est pas -----------------------------------------------------

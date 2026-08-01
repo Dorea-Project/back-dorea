@@ -128,16 +128,27 @@ class BirthdaysToday:
             birthday = Birthday(day=day, month=month)
 
             is_today = birthday.falls_on(today)
-            # **J-1 est réservé au référent.** Prévenir la veille est utile à celui qui prépare un
-            # geste ; à tout le groupe, ça devient un rappel de plus.
-            is_referent = await self._is_referent(viewer_account_id, account_id, tenant_id)
-            shows_tomorrow = is_referent and birthday.falls_on(tomorrow)
-            if not (is_today or shows_tomorrow):
-                continue
-            if visibility is BirthdayScope.REFERENT_ONLY and not is_referent:
+            # **On écarte avant d'interroger.** La date et l'identité du viewer se lisent sans
+            # aucune requête ; résoudre le référent en coûte une douzaine, et le faire pour tous
+            # les membres de ses groupes reviendrait à en lancer des centaines pour n'afficher,
+            # la plupart des jours, personne.
+            if not (is_today or birthday.falls_on(tomorrow)):
                 continue
             if account_id == viewer_account_id:
                 continue  # on ne se souhaite pas son propre anniversaire
+
+            # **J-1 est réservé au référent.** Prévenir la veille est utile à celui qui prépare un
+            # geste ; à tout le groupe, ça devient un rappel de plus.
+            needs_referent = not is_today or visibility is BirthdayScope.REFERENT_ONLY
+            is_referent = (
+                await self._is_referent(viewer_account_id, account_id, tenant_id)
+                if needs_referent
+                else False
+            )
+            if not is_today and not is_referent:
+                continue
+            if visibility is BirthdayScope.REFERENT_ONLY and not is_referent:
+                continue
 
             found.append(
                 BirthdayOfTheDay(

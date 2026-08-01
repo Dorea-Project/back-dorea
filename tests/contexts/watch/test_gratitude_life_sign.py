@@ -125,6 +125,28 @@ async def test_a_case_nobody_had_seen_yet_is_retracted():
     assert case.counts_as_resolved is False
 
 
+async def test_what_she_asked_for_outranks_what_she_tells():
+    """**Un cas né de sa propre parole ne redescend pas parce qu'elle rend grâce par ailleurs.**
+
+    Sans ce garde, quelqu'un qui demande « rappelez-moi » *et* dépose un merci se retrouve
+    derrière tout le monde : le produit punirait la gratitude, alors qu'il existe pour l'inverse.
+    """
+    tenant, member = uuid4(), uuid4()
+    intake, signals = _engine()
+    case = Signal(
+        id=uuid4(), tenant_id=tenant, subject_id=member, origin=CasePriority.DECLARED,
+        reason="Rappelez-moi.", opened_at=_NOW - timedelta(days=3),
+        status=SignalStatus.ASSIGNED, owner_account_id=uuid4(),
+        priority=CasePriority.DECLARED,
+    )
+    signals.rows.append(case)
+
+    await intake.submit(_gratitude(tenant, member))
+
+    assert case.priority is CasePriority.DECLARED  # sa demande reste en tête de file
+    assert any("reconnaissance" in a for a in case.annotations)  # et le signe est bien noté
+
+
 # --- Ce qu'il ne fait jamais --------------------------------------------------------------
 
 

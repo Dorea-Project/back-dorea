@@ -27,6 +27,7 @@ from app.contexts.watch.infrastructure.persistence.models import (
     FactLedgerModel,
     SignalModel,
 )
+from app.contexts.watch.infrastructure.persistence.signals import SqlSignalStore
 from app.core.database import Base
 
 _NOW = datetime(2026, 8, 5, tzinfo=UTC)
@@ -58,7 +59,9 @@ def _fired(tenant, *, occurrences, threshold=3, seq=1):
     )
 
 
-def _absence_case(tenant, *, fact, outcome=None, origin=CasePriority.ABSENCE, days_old=10):
+def _absence_case(
+    tenant, *, fact, outcome=None, origin=CasePriority.ABSENCE, days_old=10
+) -> SignalModel:
     return SignalModel(
         id=uuid4(), tenant_id=tenant, subject_id=uuid4(), origin=origin.value,
         status=SignalStatus.CLOSED.value if outcome else SignalStatus.ASSIGNED.value,
@@ -68,6 +71,26 @@ def _absence_case(tenant, *, fact, outcome=None, origin=CasePriority.ABSENCE, da
         priority=origin.value, annotations=[],
         outcome=outcome.value if outcome else None,
         closed_at=_NOW - timedelta(days=1) if outcome else None,
+        # Fermé **par quelqu'un** : c'est la signature qui fait la vérité terrain.
+        closed_by_account_id=uuid4() if outcome else None,
+        episode_id=uuid4(), occurrence_number=1, gestures_count=0,
+    )
+
+
+def _system_closed(tenant):
+    """Un cas éteint par le moteur : `closed_by_account_id` est nul, personne n'a rien vérifié."""
+    case = _absence_case(tenant, fact=None, outcome=SignalOutcome.EXPLAINED_BY_ANNOUNCEMENT)
+    case.closed_by_account_id = None
+    return case
+
+
+def _borne_case(tenant, *, seen, days_old=30, status=SignalStatus.ASSIGNED):
+    return SignalModel(
+        id=uuid4(), tenant_id=tenant, subject_id=uuid4(),
+        origin=CasePriority.ABSENCE.value, status=status.value, reason="…",
+        opened_at=_NOW - timedelta(days=days_old), owner_account_id=uuid4(),
+        source_refs=[], priority=CasePriority.ABSENCE.value, annotations=[],
+        first_seen_at=_NOW - timedelta(days=1) if seen else None,
         episode_id=uuid4(), occurrence_number=1, gestures_count=0,
     )
 
@@ -125,6 +148,47 @@ async def test_another_church_is_not_read(session):
     assert await SqlAbsenceEvidenceReader(session).absence_evidence(
         tenant_id=tenant, since=_SINCE
     ) == []
+
+
+async def test_ground_truth_reads_human_closures_only(session):
+    """Les deux lectures qui alimentent toute la boucle froide, contre une vraie base.
+
+    Elles n'avaient aucun test SQL : `closed_cases_since` filtre sur la clôture humaine, et
+    `ignored_ratio` s'appuie sur un `COUNT(*) FILTER (WHERE …)` — deux choses qu'on ne vérifie
+    pas en relisant du Python."""
+    tenant = uuid4()
+    human = _fired(tenant, occurrences=4, seq=1)
+    session.add_all([
+        human,
+        _absence_case(tenant, fact=human, outcome=SignalOutcome.NOTHING_TO_REPORT),
+        # Clôturé par le système : la vérité terrain ne l'écoute pas.
+        _system_closed(tenant),
+    ])
+    await session.flush()
+
+    rows = await SqlSignalStore(session).closed_cases_since(
+        tenant_id=tenant, since=_SINCE
+    )
+
+    assert rows == [(CasePriority.ABSENCE.value, SignalOutcome.NOTHING_TO_REPORT.value)]
+
+
+async def test_the_ignored_ratio_counts_what_weighs_on_someone(session):
+    """Numérateur : jamais ouverts. Dénominateur : ce qui pèse — donc pas les retenus, qui ne
+    sont précisément pas encore sur les épaules de quelqu'un."""
+    tenant = uuid4()
+    session.add_all([
+        _borne_case(tenant, seen=True),
+        _borne_case(tenant, seen=False),
+        _borne_case(tenant, seen=False),
+        _borne_case(tenant, seen=False, days_old=1),  # trop récent
+        _borne_case(tenant, seen=False, status=SignalStatus.HELD),  # retenu ≠ porté
+    ])
+    await session.flush()
+
+    assert await SqlSignalStore(session).ignored_ratio(
+        tenant_id=tenant, older_than=_NOW - timedelta(days=7)
+    ) == (2, 3)
 
 
 def _proposal(tenant, *, param=WatchParam.OPEN_CASES_CAP, proposed=4):
