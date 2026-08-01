@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -13,6 +13,8 @@ from app.core.database import Base
 
 class SermonModel(Base):
     __tablename__ = "sermons"
+
+    __table_args__ = (Index("ix_sermons_tenant", "tenant_id"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
@@ -46,6 +48,8 @@ class CompanionSessionModel(Base):
     """La conversation privée d'un membre avec un sermon (S-3)."""
 
     __tablename__ = "companion_sessions"
+
+    __table_args__ = (Index("ix_companion_member_sermon", "member_account_id", "sermon_id"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     sermon_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("sermons.id"))

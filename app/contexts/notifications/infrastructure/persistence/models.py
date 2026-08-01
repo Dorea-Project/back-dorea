@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, String, Text, Uuid
+from sqlalchemy import JSON, DateTime, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -13,6 +13,8 @@ from app.core.database import Base
 
 class DeviceModel(Base):
     __tablename__ = "devices"
+
+    __table_args__ = (Index("ix_devices_account", "account_id"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_id: Mapped[UUID] = mapped_column(Uuid)
@@ -24,6 +26,9 @@ class DeviceModel(Base):
 
 class ScheduledNotificationModel(Base):
     __tablename__ = "scheduled_notifications"
+
+    # L'index du worker : ce qui est du, pas encore parti.
+    __table_args__ = (Index("ix_scheduled_notifications_due", "status", "scheduled_for"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_ids: Mapped[list[str]] = mapped_column(JSON)  # comptes cibles (UUID en str)

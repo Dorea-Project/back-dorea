@@ -79,6 +79,11 @@ class MembershipModel(Base):
 class MemberTransferModel(Base):
     __tablename__ = "member_transfers"
 
+    __table_args__ = (
+        Index("ix_member_transfers_from_tenant", "from_tenant_id"),
+        Index("ix_member_transfers_to_tenant", "to_tenant_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("accounts.id"))
     from_tenant_id: Mapped[UUID] = mapped_column(Uuid)
@@ -93,6 +98,8 @@ class MemberTransferModel(Base):
 
 class ChurchInvitationModel(Base):
     __tablename__ = "church_invitations"
+
+    __table_args__ = (Index("ix_church_invitations_tenant", "tenant_id"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)

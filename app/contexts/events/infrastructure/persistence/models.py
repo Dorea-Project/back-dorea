@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, Uuid
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -13,6 +23,8 @@ from app.core.database import Base
 
 class EventModel(Base):
     __tablename__ = "events"
+
+    __table_args__ = (Index("ix_events_tenant_status", "tenant_id", "status"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
@@ -36,6 +48,14 @@ class EventModel(Base):
 class EventParticipantModel(Base):
     __tablename__ = "event_participants"
 
+    __table_args__ = (
+        # **Une seule participation par personne.** La contrainte existait en base et pas ici :
+        # la base de test, construite depuis ces modèles, ne l'avait donc jamais — et un
+        # double-envoi concurrent aurait compté deux fois quelqu'un dans le tableau de bord.
+        UniqueConstraint("event_id", "account_id", name="uq_event_participant"),
+        Index("ix_event_participants_event", "event_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     event_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("events.id"))
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
@@ -45,6 +65,11 @@ class EventParticipantModel(Base):
 
 class EventReactionModel(Base):
     __tablename__ = "event_reactions"
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "account_id", name="uq_event_reaction"),
+        Index("ix_event_reactions_event", "event_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     event_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("events.id"))
@@ -56,6 +81,12 @@ class EventReactionModel(Base):
 class EventViewModel(Base):
     __tablename__ = "event_views"
 
+    __table_args__ = (
+        # Une vue par personne : le rayonnement compte des gens, pas des ouvertures d'écran.
+        UniqueConstraint("event_id", "viewer_account_id", name="uq_event_view"),
+        Index("ix_event_views_event", "event_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     event_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("events.id"))
     viewer_account_id: Mapped[UUID] = mapped_column(Uuid)
@@ -65,6 +96,13 @@ class EventViewModel(Base):
 
 class EventReportModel(Base):
     __tablename__ = "event_reports"
+
+    __table_args__ = (
+        # Un signalement par personne : sans elle, dix clics d'un même compte pèseraient dix fois
+        # sur la modération.
+        UniqueConstraint("event_id", "reporter_account_id", name="uq_event_report"),
+        Index("ix_event_reports_event", "event_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     event_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("events.id"))

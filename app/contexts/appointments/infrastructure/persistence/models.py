@@ -14,6 +14,11 @@ from app.core.database import Base
 class AppointmentModel(Base):
     __tablename__ = "appointments"
 
+    __table_args__ = (
+        Index("ix_appointments_tenant_status", "tenant_id", "status"),
+        Index("ix_appointments_requester", "requester_account_id", "tenant_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
     # Émetteur : membre (compte) OU walk-in au bureau (nom + tél, sans compte).
@@ -90,6 +95,11 @@ class PastorOverrideModel(Base):
 
 class AvailabilityRuleModel(Base):
     __tablename__ = "availability_rules"
+
+    __table_args__ = (
+        Index("ix_availability_pastor", "pastor_account_id", "tenant_id"),
+        Index("ix_availability_tenant_active", "tenant_id", "active"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)

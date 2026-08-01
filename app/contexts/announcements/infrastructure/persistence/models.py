@@ -18,6 +18,11 @@ from app.core.database import Base
 class AnnouncementModel(Base):
     __tablename__ = "announcements"
 
+    __table_args__ = (
+        Index("ix_announcements_tenant", "tenant_id"),
+        Index("ix_announcements_concerns", "concerns_account_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)  # None = plateforme
     category: Mapped[str] = mapped_column(String)
@@ -67,6 +72,11 @@ class AnnouncementSubjectModel(Base):
 class AnnouncementEngagementModel(Base):
     __tablename__ = "announcement_responses"  # « je viens / je sers / je porte »
 
+    __table_args__ = (
+        UniqueConstraint("announcement_id", "account_id", name="uq_response_per_account"),
+        Index("ix_announcement_responses_announcement", "announcement_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     announcement_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("announcements.id"))
     account_id: Mapped[UUID] = mapped_column(Uuid)
@@ -75,6 +85,13 @@ class AnnouncementEngagementModel(Base):
 
 class AnnouncementReactionModel(Base):
     __tablename__ = "announcement_reactions"  # un emoji de la palette du type
+
+    __table_args__ = (
+        # Un emoji par personne et par annonce : c'est ce qui empêche la réaction de devenir un
+        # compteur qu'on gonfle en cliquant.
+        UniqueConstraint("announcement_id", "account_id", name="uq_reaction_per_account"),
+        Index("ix_announcement_reactions_announcement", "announcement_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     announcement_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("announcements.id"))

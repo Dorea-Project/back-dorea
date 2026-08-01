@@ -14,6 +14,11 @@ from app.core.database import Base
 class MissionLinkModel(Base):
     __tablename__ = "mission_links"
 
+    __table_args__ = (
+        Index("ix_mission_links_account", "inviter_account_id"),
+        Index("ix_mission_links_group", "inviter_group_id"),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
     inviter_account_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
@@ -32,7 +37,11 @@ class MissionLinkModel(Base):
 class SeekerModel(Base):
     __tablename__ = "seekers"
 
-    __table_args__ = (Index("ix_seekers_person", "person_account_id"),)
+    __table_args__ = (
+        Index("ix_seekers_person", "person_account_id"),
+        Index("ix_seekers_inviter_account", "inviter_account_id"),
+        Index("ix_seekers_inviter_group", "inviter_group_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid)
@@ -56,6 +65,8 @@ class SeekerModel(Base):
 
 class MissionReactionModel(Base):
     __tablename__ = "mission_reactions"
+
+    __table_args__ = (Index("ix_mission_reactions_link", "link_id"),)
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     link_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("mission_links.id"))
