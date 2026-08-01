@@ -27,6 +27,7 @@ from app.contexts.watch.calibration.judge import (
     GroundTruth,
     OutcomeJudge,
 )
+from app.contexts.watch.calibration.ports import AbsenceEvidence
 from app.contexts.watch.calibration.proposal import (
     BOUNDS,
     MIN_EVIDENCE,
@@ -42,6 +43,7 @@ from app.contexts.watch.calibration.review import (
     ProposalOutOfBoundsError,
     RunCalibrationPass,
 )
+from app.contexts.watch.calibration.simulator import Simulator
 from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 from app.contexts.watch.domain.parameters import DEFAULTS, WatchParam
 from app.contexts.watch.domain.regime import DEFAULT_REGIME, TenantRegime
@@ -498,6 +500,136 @@ async def test_changing_a_threshold_asks_the_authority_that_enrols_the_staff():
     )
 
     assert access.asked == [Permission.MANAGE_STAFF]
+
+
+# --- Ce que la proposition coûterait ------------------------------------------------------
+
+_SINCE = _NOW - timedelta(days=30)
+
+
+class _Evidence:
+    """Les tirs d'absence, tels que le journal les porte : `occurrences`, `threshold`, l'issue."""
+
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    async def absence_evidence(self, *, tenant_id, since):
+        return self.rows
+
+
+def _shot(occurrences, outcome=None, threshold=3):
+    return AbsenceEvidence(
+        occurrences=occurrences, threshold=threshold,
+        outcome=outcome.value if outcome else None,
+    )
+
+
+async def test_raising_a_threshold_is_measured_exactly():
+    """Vers le haut, le nouvel ensemble est un **sous-ensemble** de ce qui s'est ouvert — et pour
+    ceux-là on sait déjà qu'aucune neutralisation ne courait. Rien à estimer."""
+    evidence = _Evidence([
+        _shot(3, SignalOutcome.NOTHING_TO_REPORT),
+        _shot(3, SignalOutcome.NOTHING_TO_REPORT),
+        _shot(3, SignalOutcome.FOLLOWED),
+        _shot(5, SignalOutcome.FOLLOWED),
+    ])
+
+    result = await Simulator(evidence).execute(
+        tenant_id=uuid4(), candidate=4, since=_SINCE
+    )
+
+    assert result.exact is True
+    assert (result.opened_now, result.opened_then) == (4, 1)
+    assert result.spared_noise == 2
+    assert result.missed_real == 1  # le prix, et il est nommé
+
+
+async def test_lowering_a_threshold_can_only_be_bounded():
+    """Vers le bas, on ne sait pas qui un deuil ou un voyage aurait étouffé : le journal ne porte
+    pas les neutralisations. Un nombre dont on ne sait plus s'il est une mesure ou une estimation
+    finit toujours par être lu comme une mesure."""
+    result = await Simulator(_Evidence([_shot(3, SignalOutcome.FOLLOWED)])).execute(
+        tenant_id=uuid4(), candidate=2, since=_SINCE
+    )
+
+    assert result.exact is False
+    assert "au plus" in result.sentence
+
+
+async def test_a_case_still_alive_counts_for_nothing():
+    """Personne ne sait encore ce qu'il valait, et on ne devine pas à la place de celui qui
+    l'appellera."""
+    result = await Simulator(_Evidence([_shot(2, None)])).execute(
+        tenant_id=uuid4(), candidate=5, since=_SINCE
+    )
+
+    assert (result.spared_noise, result.missed_real) == (0, 0)
+
+
+async def test_the_sentence_ends_on_what_is_lost():
+    """L'ordre d'une phrase est ce qu'on en retient. Une proposition qui ne dit que ce qu'elle
+    fait gagner est une publicité."""
+    evidence = _Evidence([
+        _shot(3, SignalOutcome.NOTHING_TO_REPORT),
+        _shot(3, SignalOutcome.FOLLOWED),
+    ])
+
+    sentence = (
+        await Simulator(evidence).execute(
+            tenant_id=uuid4(), candidate=4, since=_SINCE
+        )
+    ).sentence
+
+    assert sentence.index("rien à signaler") < sentence.index("confirmés")
+    assert sentence.rstrip(".").endswith("qui se sont confirmés")
+
+
+async def test_the_proposal_carries_what_it_would_cost():
+    signals, tenant = FakeSignals(), uuid4()
+    _noisy(signals, tenant)
+    evidence = _Evidence([
+        _shot(3, SignalOutcome.NOTHING_TO_REPORT),
+        _shot(3, SignalOutcome.FOLLOWED),
+    ])
+
+    truth = await _judge(signals).execute(tenant_id=tenant)
+    (proposal,) = await Proposer(_Params(), Simulator(evidence)).execute(truth=truth)
+
+    assert "se sont fermés sur" in proposal.evidence  # la mesure rétrospective
+    assert "ne se seraient pas ouverts" in proposal.evidence  # le contrefactuel
+
+
+async def test_the_simulator_never_picks_the_candidate():
+    """Il chiffre ; il ne choisit pas. Un simulateur qui choisirait arbitrerait en silence
+    « moins de bruit contre des gens qu'on ne voit plus » — un compromis qui n'est pas le sien.
+
+    La preuve est structurelle : la proposition vaut `+1` quelle que soit la simulation, y compris
+    quand celle-ci dit que le seuil coûterait cher."""
+    signals, tenant = FakeSignals(), uuid4()
+    _noisy(signals, tenant)
+    ruinous = _Evidence([_shot(3, SignalOutcome.FOLLOWED) for _ in range(20)])
+
+    truth = await _judge(signals).execute(tenant_id=tenant)
+    (proposal,) = await Proposer(_Params(), Simulator(ruinous)).execute(truth=truth)
+
+    assert proposal.proposed == DEFAULTS[WatchParam.ABSENCE_OCCURRENCES_THRESHOLD] + 1
+    assert "20 qui se sont confirmés" in proposal.evidence
+
+
+async def test_the_cap_gets_no_invented_counterfactual():
+    """Le plafond n'aurait pas empêché des cas d'exister, seulement retardé leur sortie. On
+    n'écrit pas une phrase pour faire symétrique."""
+    signals, tenant, jean = FakeSignals(), uuid4(), uuid4()
+    for _ in range(6):
+        _borne(signals, tenant=tenant, owner=jean, seen=False)
+
+    truth = await _judge(signals).execute(tenant_id=tenant)
+    (proposal,) = await Proposer(
+        _Params(), Simulator(_Evidence([_shot(3, SignalOutcome.FOLLOWED)]))
+    ).execute(truth=truth)
+
+    assert proposal.param is WatchParam.OPEN_CASES_CAP
+    assert "ne se seraient pas ouverts" not in proposal.evidence
 
 
 # --- Les quatre interdits, lus dans le paquet ---------------------------------------------

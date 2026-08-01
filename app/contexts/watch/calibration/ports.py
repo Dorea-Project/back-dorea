@@ -13,6 +13,8 @@ Pas de `subject_id`, pas de cas, pas d'effet. C'est **tout** son pouvoir d'écri
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -29,6 +31,34 @@ class WatchParameterWriter(ABC):
 
         Une boucle froide qui pourrait écrire la ligne `tenant_id IS NULL` recalibrerait toutes
         les églises à partir de ce qu'une seule a vécu."""
+        ...
+
+
+@dataclass(frozen=True)
+class AbsenceEvidence:
+    """Ce qu'un cas d'absence a coûté et rapporté — **sans dire de qui il s'agissait**.
+
+    Trois nombres et une issue. Pas d'identifiant : c'est le contrefactuel qui intéresse la
+    calibration, pas la personne qu'il concernait."""
+
+    occurrences: int  # rencontres tenues et manquées au moment du tir
+    threshold: int  # le seuil **en vigueur ce jour-là**, tel que le fait le porte
+    outcome: str | None  # None si le cas est encore vivant
+
+
+class AbsenceEvidenceReader(ABC):
+    """Le pont entre le journal et les issues, réduit à ce que la simulation a besoin de savoir.
+
+    Il existe parce que `CheckFiredV1` écrit `occurrences` et `threshold` dans le payload du fait
+    — pour rester pur, pas pour la calibration. Le contrefactuel se lit donc sans rejouer le
+    moteur ; c'est le simulateur lourd qu'on n'a pas eu à construire."""
+
+    @abstractmethod
+    async def absence_evidence(
+        self, *, tenant_id: UUID, since: datetime
+    ) -> list[AbsenceEvidence]:
+        """La fenêtre est **donnée**, jamais lue en base : la mesure et le contrefactuel doivent
+        porter sur exactement les mêmes cas, donc sur exactement le même instant."""
         ...
 
 

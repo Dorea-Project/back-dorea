@@ -34,6 +34,7 @@ from app.contexts.watch.calibration.ports import (
     CalibrationProposalStore,
     WatchParameterWriter,
 )
+from app.contexts.watch.calibration.simulator import Simulator
 from app.contexts.watch.domain.effects import CasePriority
 from app.contexts.watch.domain.parameters import WatchParam
 from app.contexts.watch.domain.regime import TenantRegime
@@ -99,10 +100,22 @@ class CalibrationProposal:
 
 
 class Proposer:
-    """Croise la vérité terrain et les seuils courants. **Trois règles, pas un modèle.**"""
+    """Croise la vérité terrain et les seuils courants. **Trois règles, pas un modèle.**
 
-    def __init__(self, params: WatchParameterRepository, *, id_factory=uuid4) -> None:
+    Le simulateur, s'il est là, ne change **aucune** de ces trois règles : il ajoute à la phrase
+    ce que la proposition coûterait. Le laisser choisir le candidat en ferait un optimiseur, et
+    un optimiseur arbitrerait en silence « moins de bruit contre des gens qu'on ne voit plus » —
+    un compromis qui n'est pas le sien."""
+
+    def __init__(
+        self,
+        params: WatchParameterRepository,
+        simulator: Simulator | None = None,
+        *,
+        id_factory=uuid4,
+    ) -> None:
         self._params = params
+        self._simulator = simulator
         self._new_id = id_factory
 
     async def execute(self, *, truth: GroundTruth) -> list[CalibrationProposal]:
@@ -165,7 +178,30 @@ class Proposer:
                     "par leur destinataire.",
                 )
             )
-        return proposals
+        return [await self._with_counterfactual(p, truth.since) for p in proposals]
+
+    async def _with_counterfactual(
+        self, proposal: CalibrationProposal, since: datetime
+    ) -> CalibrationProposal:
+        """Ajoute ce que la proposition **coûterait** — jamais seulement ce qu'elle ferait gagner.
+
+        Seul le seuil d'absence se simule : c'est le seul paramètre dont le journal porte la
+        décision (`occurrences` et `threshold` sont dans le payload du tir). Le plafond de débit
+        n'a pas de contrefactuel lisible — il n'aurait pas empêché des cas d'exister, seulement
+        retardé leur sortie — et on n'invente pas une phrase pour faire symétrique."""
+        if (
+            self._simulator is None
+            or proposal.param is not WatchParam.ABSENCE_OCCURRENCES_THRESHOLD
+        ):
+            return proposal
+        result = await self._simulator.execute(
+            tenant_id=proposal.tenant_id,
+            candidate=proposal.proposed,
+            since=since,
+        )
+        if result.opened_now == 0:
+            return proposal
+        return replace(proposal, evidence=f"{proposal.evidence} {result.sentence}")
 
     def _proposal(
         self, tenant_id: UUID, param: WatchParam, current: int, proposed: int, why: str

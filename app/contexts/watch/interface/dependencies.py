@@ -90,6 +90,7 @@ from app.contexts.watch.calibration.review import (
     ListProposals,
     RunCalibrationPass,
 )
+from app.contexts.watch.calibration.simulator import Simulator
 from app.contexts.watch.domain.registry import default_registry
 from app.contexts.watch.infrastructure.attendance_context import (
     AttendanceCheckContext,
@@ -104,6 +105,7 @@ from app.contexts.watch.infrastructure.neutralization_store import (
     AttendanceNeutralizationStore,
 )
 from app.contexts.watch.infrastructure.persistence.calibration import (
+    SqlAbsenceEvidenceReader,
     SqlCalibrationProposalStore,
 )
 from app.contexts.watch.infrastructure.persistence.checks import SqlScheduledCheckStore
@@ -347,7 +349,7 @@ def build_calibration_pass(session) -> RunCalibrationPass:
     proposals = SqlCalibrationProposalStore(session)
     return RunCalibrationPass(
         OutcomeJudge(build_signals(session), params, clock=_now),
-        Proposer(params),
+        Proposer(params, Simulator(SqlAbsenceEvidenceReader(session))),
         proposals,
         ApplyProposal(params, build_regimes(session), proposals, clock=_now),
     )

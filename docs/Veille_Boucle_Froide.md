@@ -75,6 +75,41 @@ revient pas. Une proposition rejetée qui se represente chaque nuit est du harc�
 pasteur apprend à tout accepter pour que ça s'arrête. Une seule proposition en attente par
 `(église, paramètre)`, pour la même raison.
 
+## Ce qu'une proposition coûterait
+
+`calibration/simulator.py` — `Simulator`, `SimulationResult`.
+
+> *« À 4 rencontres, 19 des 31 cas ne se seraient pas ouverts : 5 des 6 fermés sur "rien à
+> signaler" — et 1 qui s'est confirmé. »*
+
+Une proposition qui ne dit que ce qu'elle fait gagner est une publicité. La phrase **finit** par
+ce qu'on perd, parce que l'ordre d'une phrase est ce qu'on en retient. Un seuil plus haut fait
+toujours moins de bruit ; la vraie question est qui on ne va plus voir, et personne ne peut y
+répondre à la place du pasteur.
+
+**Le simulateur lourd n'a pas été nécessaire.** Le plan prévoyait de rejouer le journal contre des
+seuils alternatifs, avec des dépôts en mémoire de qualité production. Inutile : `CheckFiredV1`
+écrit `occurrences` et `threshold` **dans le payload du fait**, précisément pour rester pur et
+déterministe. Le contrefactuel se lit donc dans le journal, sans rejouer quoi que ce soit — la
+discipline d'un interpreter sans I/O a payé une seconde fois, là où on ne l'attendait pas.
+
+| Sens | Ce qu'on peut dire |
+| :-- | :-- |
+| seuil **plus haut** | **exact** — sous-ensemble de ce qui s'est ouvert, et pour ceux-là on sait qu'aucune neutralisation ne courait |
+| seuil **plus bas** | **une borne haute** — certains auraient été étouffés par un deuil ou un voyage, que le payload ne porte pas |
+
+Le champ `exact` porte cette différence jusqu'à l'écran : un nombre dont on ne sait plus s'il est
+une mesure ou une estimation finit toujours par être lu comme une mesure.
+
+**Le simulateur ne choisit pas.** Il chiffre ; les trois règles du `Proposer` sont inchangées, et
+un test le verrouille — la proposition reste `+1` même quand la simulation dit qu'elle coûterait
+vingt vrais cas. Le laisser choisir en ferait un optimiseur, et un optimiseur arbitrerait en
+silence « moins de bruit contre des gens qu'on ne voit plus », un compromis qui n'est pas le sien.
+
+Seul le seuil d'absence se simule : le plafond de débit n'a pas de contrefactuel lisible — il
+n'aurait pas empêché des cas d'exister, seulement retardé leur sortie — et on n'invente pas une
+phrase pour faire symétrique.
+
 ## Les quatre interdits — structurels, pas des consignes
 
 `tests/contexts/watch/test_calibration.py` les lit **dans le paquet** :
@@ -108,6 +143,10 @@ du produit.
 
 ## Ce qui reste
 
-Le **simulateur** (rejouer un ledger contre des seuils alternatifs pour chiffrer une proposition
-avant de la poser) est reporté : il demande des stores en mémoire de qualité production, et le
-`Proposer` est utile sans lui. Le lot 2 (`ReferenceReplay`) en est le prérequis, et il est livré.
+Rien du lot 6. Le simulateur, dernier point ouvert, est livré — et sous une forme plus légère que
+prévue : le contrefactuel se lisait déjà dans le journal.
+
+Le seul prolongement identifié n'est pas un manque mais une décision à prendre au pilote : le
+`Proposer` ne balaie aujourd'hui qu'un seul candidat (`±1`). Élargir le balayage à toute la plage
+des `BOUNDS` et présenter deux ou trois options chiffrées au pasteur serait possible — mais c'est
+un choix de produit (offrir un curseur plutôt qu'une proposition), pas une dette technique.

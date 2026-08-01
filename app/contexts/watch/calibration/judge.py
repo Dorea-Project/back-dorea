@@ -24,7 +24,7 @@ qui est déjà le grain le plus fin qui ait du sens : on calibre une détection,
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from app.contexts.watch.application.concern_watchdog import UNCONFIRMED_OUTCOMES
@@ -62,6 +62,10 @@ class GroundTruth:
 
     tenant_id: UUID
     window_days: int
+    # Le début de la fenêtre, calculé **une fois**. Tout ce qui suit dans la passe — la simulation
+    # comprise — travaille sur le même instant : deux lectures d'horloge à quelques secondes
+    # d'écart suffiraient à ce que le contrefactuel ne porte pas sur les mêmes cas que la mesure.
+    since: datetime
     by_origin: tuple[OriginVerdict, ...] = ()
     missed_detections: int = 0  # un tiers a vu avant le moteur
     ignored: int = 0  # jamais ouverts par leur destinataire
@@ -114,6 +118,7 @@ class OutcomeJudge:
         return GroundTruth(
             tenant_id=tenant_id,
             window_days=window,
+            since=since,
             by_origin=tuple(
                 OriginVerdict(
                     origin=origin, closed=c[0], confirmed=c[1], false_positives=c[2]
