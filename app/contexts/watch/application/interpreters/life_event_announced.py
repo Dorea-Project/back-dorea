@@ -37,13 +37,37 @@ from app.contexts.watch.domain.role_rules import (
     neutralization_window,
     resolve_effects,
 )
+from app.contexts.watch.domain.signal import spoken_date
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+# La phrase de chaque rôle, **en toutes lettres**. Elle porte son propre accord — « naissance
+# annoncée », « mariage annoncé » — parce qu'un gabarit unique aurait fini par écrire « naissance
+# annoncé » à quelqu'un qui vient d'avoir un enfant.
+#
+# Ce n'est pas de la cosmétique : sur un deuil sans cas préexistant, cette phrase **est** le motif
+# du cas, écrit à l'ouverture et jamais réécrit. C'est la première chose que le responsable lit
+# avant d'appeler. Elle a rendu `bereaved annoncé le 2026-07-30` jusqu'au 02/08/2026 — une valeur
+# d'enum anglaise et une date ISO, sur l'écran d'un responsable de cellule à Abidjan.
+_ROLE_REASONS: dict[SubjectRole, str] = {
+    SubjectRole.DECEASED: "Décès annoncé le {when}.",
+    SubjectRole.BEREAVED: "Deuil annoncé le {when}.",
+    SubjectRole.SICK: "Maladie annoncée le {when}.",
+    SubjectRole.NEW_PARENT: "Naissance annoncée le {when}.",
+    SubjectRole.NEWLYWED: "Mariage annoncé le {when}.",
+    SubjectRole.TRAVELER: "Voyage annoncé le {when}.",
+    SubjectRole.HONOREE: "Célébration annoncée le {when}.",
+}
+
+
 def _reason(role: SubjectRole, event_date: datetime) -> str:
-    """La raison **en clair**, écrite une fois — jamais reconstruite à l'affichage."""
-    return f"{role.value} annoncé le {event_date.date().isoformat()}"
+    """La raison **en clair**, écrite une fois — jamais reconstruite à l'affichage.
+
+    « Deuil annoncé le 30 juillet. » — la même langue et la même forme de date que partout
+    ailleurs (`spoken_date`), pour que le responsable lise une situation et pas un code d'état.
+    """
+    return _ROLE_REASONS[role].format(when=spoken_date(event_date))
 
 
 class LifeEventAnnouncedV1:

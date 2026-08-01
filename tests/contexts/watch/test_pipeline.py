@@ -421,3 +421,38 @@ async def test_a_rebuild_never_erases_what_a_member_declared():
 
     declared = [a for a in absences.rows if a.source is AbsenceSource.SELF_DECLARED]
     assert len(declared) == 1 and declared[0].account_id == member
+
+
+# --- Ce que le responsable lit, et dans quelle langue ------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("role", "attendu"),
+    [
+        (Role.BEREAVED, "Deuil annoncé le 1er mai."),
+        (Role.SICK, "Maladie annoncée le 1er mai."),
+        (Role.NEW_PARENT, "Naissance annoncée le 1er mai."),
+        (Role.NEWLYWED, "Mariage annoncé le 1er mai."),
+        (Role.TRAVELER, "Voyage annoncé le 1er mai."),
+        (Role.DECEASED, "Décès annoncé le 1er mai."),
+    ],
+)
+def test_the_motive_is_written_in_the_language_of_the_person_who_reads_it(role, attendu):
+    """**Le motif d'un cas est la première chose qu'un responsable lit avant d'appeler.**
+
+    Sur un deuil sans cas préexistant, cette phrase *est* le motif — écrite à l'ouverture et
+    jamais réécrite. Elle a rendu `bereaved annoncé le 2026-07-30` jusqu'au 02/08/2026 : une
+    valeur d'enum anglaise et une date ISO, sur l'écran d'un responsable de cellule à Abidjan.
+
+    Chaque rôle porte son propre accord — un gabarit unique aurait fini par écrire « naissance
+    annoncé » à quelqu'un qui vient d'avoir un enfant."""
+    from app.contexts.watch.application.interpreters.life_event_announced import _reason
+
+    assert _reason(role, _NOW) == attendu
+
+
+def test_every_role_has_a_sentence():
+    """Ajouter un rôle sans sa phrase ferait retomber le produit dans le code d'état."""
+    from app.contexts.watch.application.interpreters.life_event_announced import _ROLE_REASONS
+
+    assert set(_ROLE_REASONS) == set(Role)
