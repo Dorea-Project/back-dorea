@@ -24,6 +24,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-#Documentation
-docs/
+# La documentation est **versionnee** : 25 documents l'etaient deja quand `docs/` a ete
+# ignore, ce qui creait une frontiere invisible ou les specs recentes disparaissaient.
+# Pour des notes de travail, utiliser `docs/scratch/`.
+docs/scratch/
 .claude

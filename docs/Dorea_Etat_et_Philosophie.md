@@ -41,18 +41,24 @@ des choix délibérés (voir §5).
 onboarding d'église, groupes/cellules, présence, intelligence pastorale (lecture seule),
 annonces, événements, mission/évangélisation, rendez-vous, sermons, notifications.
 
-**Le cœur — la chaîne de veille — n'est PAS encore bouclé.** La chaîne se lit ainsi :
+**Le cœur — la chaîne de veille — est bouclé depuis le 31 juillet 2026.** La chaîne se lit
+ainsi :
 
 ```
 captation → qualification → détection → attribution → contact → résolution
-   FAIT        PARTIEL        FAIT        À FAIRE      À FAIRE    À FAIRE
-                                        (+ mémoire relationnelle : À FAIRE)
-                                        (+ couverture : calculée, non branchée)
+   FAIT         FAIT          FAIT         FAIT         FAIT      FAIT
+                                        (+ mémoire relationnelle : FAIT)
+                                        (+ couverture : écrite et consignée)
 ```
 
-Autrement dit : **on sait capter la présence et détecter qui s'éloigne, mais on ne sait pas
-encore transformer cette détection en un cas qu'on attribue à un humain, qu'on suit jusqu'au
-contact, et qu'on referme.** C'est le chantier central qui reste.
+Autrement dit : une **parole** (une présence, une adhésion) arme une échéance au rythme du groupe ;
+l'échéance tombe, compte les rencontres réellement tenues, et ouvre *« Awa, trois rencontres, sans
+nouvelles »* ; le cas part à un destinataire nommé, jamais à personne ; le responsable l'ouvre,
+appelle, écrit ce qu'il s'engage à faire, et le referme avec une issue **choisie**. Chacun de ces
+gestes entre au journal, donc se rejoue.
+
+Ce qui reste n'est plus le maillon central : c'est le pilote qui donnera à la calibration de quoi
+apprendre, et les écrans qui rendront tout cela visible côté mobile.
 
 ---
 
@@ -194,20 +200,26 @@ c'est là que Dorea deviendra pleinement ce qu'il promet.
 
 *Les zones où le projet est fragile, incomplet, ou aveugle sur lui-même. Sans complaisance.*
 
-1. **La chaîne de veille est coupée après la détection.** Le produit *voit* qui s'éloigne
-   (M7), mais il n'existe encore **aucun objet « cas de veille »** : pas d'attribution à un
-   référent, pas de journal de contact, pas de cycle ouvert→fermé, pas de mémoire relationnelle.
-   Tant que ce maillon manque, **la promesse centrale n'est pas opérationnelle de bout en bout.**
+1. ~~La chaîne de veille est coupée après la détection.~~ **Fermée** (31/07/2026). L'objet
+   `Signal` existe, son destinataire est obligatoire, la boucle de contact est écrite au départ,
+   et l'issue est choisie par un humain. Ce qui reste de fragile n'est plus le maillon : c'est
+   qu'aucune église n'a encore utilisé tout ça.
 
-2. **Le silence est ambigu — et l'indicateur qui le lèverait n'est pas branché.** La couverture
-   (« cette cellule est-elle aveugle ? ») est *calculée* mais **injoignable via l'API**. Résultat :
-   aujourd'hui, « zéro alerte » peut vouloir dire *tout va bien* **ou** *personne ne saisit rien*,
-   sans moyen de trancher. La promesse est structurellement **invérifiable** en l'état.
+2. ~~Le silence est ambigu, et l'indicateur qui le lèverait n'est pas branché.~~ **Levé.** Le
+   groupe qui ne saisit aucune rencontre est consigné en `CoverageGap.BLIND`, sur le **groupe** et
+   jamais sur ses membres — accuser quelqu'un d'un silence qui est le nôtre serait l'erreur
+   inverse. « Zéro alerte » se distingue désormais de « personne ne saisit rien ».
 
-3. **Personne ne peut « qualifier » une absence.** La distinction reine de Dorea — *absence sans
-   nouvelles* vs *absence expliquée* — repose sur un champ qui existe dans le code mais **qu'aucune
-   action n'écrit**. L'état « sans nouvelles » (le seul qui alerte) ne peut donc pas être posé
-   aujourd'hui.
+3. ~~Personne ne peut « qualifier » une absence.~~ **Autrement résolu.** La qualification manuelle
+   existe toujours, mais l'état « sans nouvelles » ne dépend plus d'elle : il se pose tout seul,
+   quand une échéance tombe et compte les rencontres **réellement tenues** depuis la dernière
+   parole. Une rencontre qui n'a pas eu lieu n'existe pas dans la table — le problème de
+   l'acquittement se dissout au lieu d'être traité.
+
+3 bis. **Le nouvel angle mort, et il est honnête : rien de tout ça n'a rencontré une vraie
+   église.** Les seuils (trois occurrences, plafond de cinq cas) sont des paris défendables *a
+   priori*, pas des mesures. C'est précisément pourquoi toute église démarre en **rodage** : elle
+   observe, le pasteur lit ce que Dorea aurait dit, et c'est lui qui décide de la laisser parler.
 
 4. **De la fonctionnalité invisible.** La brique cadence/couverture est écrite, testée, migrée…
    mais non exposée. Du travail réel, mais **inatteignable** — donc, pour l'utilisateur, inexistant.

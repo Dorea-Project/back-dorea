@@ -168,11 +168,20 @@ Quatre règles **compilées dans les transitions**, pas validées par l'applicat
 `HELD` est un état à part entière, distinct d'`OPEN` : confondre « retenu » et « ouvert » ferait
 mentir toutes les mesures du plafond au moment précis où elles comptent.
 
-**Décision en attente :** `ExtinguishCause.LIFE_SIGN` existe au vocabulaire mais **n'est pas**
-dans `SYSTEM_CLOSURE_CAUSES`. Autoriser une reconnaissance déposée à fermer un cas serait la
-seconde clôture système du produit — c'est un arbitrage à prendre, pas un détail d'implémentation.
-Tant qu'il n'est pas pris, le cas reste ouvert : c'est le côté prudent de l'erreur. Une ligne à
-changer le jour venu, et un test qui le dit.
+**Décision prise (30/07/2026) :** il n'existe **aucune** cause « signe de vie », et un invariant
+balaie l'enum pour que ça le reste. Déposer une reconnaissance prouve qu'on est vivant, pas qu'on
+est revenu en cellule : éteindre le cas là-dessus serait la même erreur que fermer un deuil parce
+que la personne est venue au culte — confondre une présence avec un état.
+
+Ce que le signe de vie fait, à la place : il **enrichit** le cas et en abaisse la priorité, pour
+que le responsable lise « absente depuis 4 semaines, a déposé un sujet de reconnaissance le
+12 avril » et comprenne immédiatement de quoi il s'agit.
+
+Une seule exception, et elle n'efface rien de ce qui a été vu : sur un cas encore `HELD`, il le
+**rétracte**. Personne ne l'avait lu, aucune promesse n'avait été faite — et faire appeler
+quelqu'un qui vient de donner de ses nouvelles serait le contraire de ce qu'on cherche. La cause
+est stockée (`SUPERSEDED_BY_LIFE_SIGN`) : un cas rétracté par signe de vie n'est pas un cas faux,
+il est sans objet, et le pilote a besoin de lire la différence.
 
 ### R — Le Referent ([referent.py](../app/contexts/watch/domain/referent.py))
 
@@ -342,58 +351,75 @@ reprojection effacerait des neutralisations légitimes sans savoir les reconstru
 
 ## 9. La suite
 
+*Mis à jour le 31 juillet 2026 — cette section était la plus fausse du document : elle annonçait
+comme « prochain » ce qui est livré depuis, et présentait comme « à trancher » deux décisions
+prises.*
+
 | Bloc | Contenu | État |
 |---|---|---|
 | 1 | Ledger, registre, intake, interprétation, reprojection | **livré** |
 | 2 | Machine à états du `Signal`, arbitrage complet, mémoire du lien | **livré** |
 | **R** | `Referent` — cascade, lien primaire dérivé, trous datés, désignation | **livré** |
-| 3 | `Episode`, `owner_id` NOT NULL, escalade horaire, `ContactAttempt` + boomerang | prochain |
-| 4 | `SCHEDULE_CHECK`, worker, rétraction, réévaluation des retenus | après 3 |
-| 5 | Notification, budget de parole, écran Veille (API) | après 3 |
-| 6 | Compagnon (8 sous-blocs) | après 4 et 5 |
+| 3 | `Episode`, `owner_id` NOT NULL, escalade, `ContactAttempt` + boomerang | **livré** |
+| 4 | `SCHEDULE_CHECK`, worker, rétraction, réévaluation des retenus | **livré** |
+| 4bis | Détection d'absence, entrée en groupe, groupes aveugles | **livré** |
+| 4ter | Les gestes du responsable au journal, régime de rodage | **livré** |
+| 5 | Notification, budget de parole, écran Veille (API mobile) | partiel — l'API existe |
+| 6 | Compagnon, et la boucle froide de calibration | pendant le pilote |
 
-### Deux dettes ouvertes par les documents Referent et Signal
+### Les dettes de ce document, et ce qu'elles sont devenues
 
-**Le propriétaire d'un signal n'est pas le référent.** `Signal.owner_account_id` est aujourd'hui
-nullable — c'est exactement la confusion que le module Referent interdit. Le référent **peut**
-être nul (« personne ne connaît cette personne » est une donnée) ; le propriétaire d'un cas
-**jamais** (sinon le cas n'a personne pour le traiter). La colonne devient NOT NULL une fois
-`resolve_signal_owner` écrit, avec son motif d'escalade stocké.
+**Le propriétaire d'un signal n'est pas le référent — et la colonne est NOT NULL.** La cascade se
+termine désormais sur le propriétaire de l'église : il existe toujours, donc la contrainte tient
+sans qu'aucune inquiétude ne se perde faute de configuration. Le référent, lui, peut toujours être
+nul — « personne ne connaît cette personne » reste une donnée, et c'est le contraire d'un manque.
 
-**`owner_id` reste nullable en base.** La colonne devient NOT NULL au bloc 3, quand tout signal
-passera par `ResolveSignalOwner` à l'ouverture. Le résolveur existe déjà ; il n'est pas encore
-branché sur la matérialisation.
+**`case.gravity` ne sera pas défini** (décision du 30/07/2026). Deux raisons. Elle contredirait
+l'arbitrage : la priorité vient de *l'origine du dire*, et **personne ici ne note la gravité d'une
+vie** — une gravité de cas réintroduirait exactement le classement que `CasePriority` évite. Et son
+seul besoin est retombé : elle était réclamée par l'extinction conditionnelle par signe de vie, que
+la décision ci-dessous a écartée. On retire du même geste la porte par laquelle un scoring
+rentrerait un jour.
 
-**Le rang des types de groupe est réglé** — il est en table (§ R), pas dans le code. La question
-« quels types mettre dans le rang » ne se pose plus au niveau du code : c'est une ligne à
-insérer, par église si besoin.
+À ne pas confondre avec `AbsenceGravity` (`attendance/domain/gravity.py`), qui est **légitime et
+utilisée** : elle gradue un motif d'absence que la personne a énoncé elle-même — un voyage revient,
+un déménagement est structurel. Elle ne note pas quelqu'un ; elle lit ce qu'il a dit.
 
-### Ce qui reste suspendu, et ce que ça bloque
+### Les deux contradictions — tranchées
+
+*La transparence.* La promesse a été **refondée, pas allongée** : le membre peut lister ce qui
+découle de ses **propres actes** ; il ne peut pas lister ce qu'un tiers a ressenti à son sujet,
+parce que cette donnée décrit l'engagement du tiers. Ajouter une seconde exception aurait
+transformé la transparence en liste d'exceptions — et une liste d'exceptions n'est plus une
+promesse. La règle vit en domaine (`watch/domain/transparency.py`), pas dans la route qui n'existe
+pas encore.
+
+En contrepartie, et c'est ce qui tient l'éthique : le membre dispose d'un **arrêt d'urgence
+inconditionnel** (`StopContactingMe`), sans motif et absorbant. Il n'a pas besoin de voir le
+dossier pour être protégé.
+
+*La clôture système.* Il n'existe **aucune** cause « signe de vie », et un invariant balaie l'enum
+pour que ça le reste. Déposer une reconnaissance prouve qu'on est vivant, pas qu'on est revenu :
+éteindre le cas là-dessus serait confondre une présence avec un état. Le signe de vie **enrichit**
+le cas et en abaisse la priorité.
+
+Une seule exception, et elle n'efface rien de ce qui a été vu : sur un cas encore `HELD`, que
+personne n'avait lu et sur lequel aucune promesse n'avait été faite, le signe de vie le **rétracte**
+(`RetractionCause.SUPERSEDED_BY_LIFE_SIGN`) — faire appeler quelqu'un qui vient précisément de
+donner de ses nouvelles serait le contraire de ce qu'on cherche.
+
+### Ce qui reste réellement en attente
 
 | En attente | Nature | Bloque |
 |---|---|---|
-| `Referent` + lien primaire | fondation P1 | propriétaire du cas, escalade, plafond par personne réelle, `COVERAGE_SIGNAL`, carte du Compagnon |
-| Étape 0 terrain (3 cellules) | observation | calibration de `open_cases_cap` et des seuils |
-| `LIFE_SIGN` comme clôture système | **décision produit** | l'interpreter gratitude du Compagnon |
-| Invariant 15 vs `THIRD_PARTY_CONCERN` §6 | **décision produit** | le greffon « le tiers » |
-| `case.gravity` | définition manquante | l'extinction conditionnelle par signe de vie |
-| Identité du déclarant dans le `ConsentProof` | **décision produit** | le greffon « le tiers » |
+| Étape 0 terrain (3 cellules) | observation | la calibration des seuils — et c'est le rodage qui la rendra lisible |
+| Interpreter gratitude du Compagnon | greffon | rien : le mécanisme du signe de vie l'attend, prêt |
+| Identité du déclarant dans le `ConsentProof` | **décision produit** | le greffon « le tiers », dans sa forme complète |
+| Écrans mobiles (rodage, restitution, anniversaire) | surface | l'adoption, pas le moteur |
 
-**Les deux contradictions à trancher, formulées nettement :**
-
-*La transparence.* L'invariant 15 promet que le membre peut lister tout ce que le moteur sait de
-lui. L'algorithme du Compagnon promet que la personne n'apprend jamais qu'un tiers a parlé
-d'elle. Les deux ne peuvent pas être vrais. Il existe déjà une exception déclarée (« pas les
-notes du référent ») ; en ajouter une seconde transforme la transparence en liste d'exceptions.
-
-*La clôture système.* Une reconnaissance déposée qui éteint un cas serait la deuxième clôture
-sans humain. La justification est la même que pour l'annonce — le cas n'était pas réel — mais
-chaque exception affaiblit la règle qui protège du « nettoyage automatique ».
-
-**Le Compagnon** ne doit pas être construit avant le bloc 3. Il porte sa condamnation dans ses
-propres métriques : *« % de passations sans réponse à 72h > 10 % → fermer le canal plutôt qu'il
-ne mente »*. Un canal de passation branché sur un moteur qui ne sait pas encore escalader est à
-100 % dès le premier jour.
+**Le Compagnon** peut désormais être construit : le moteur sait escalader, et sa métrique de
+condamnation — *« % de passations sans réponse à 72 h > 10 % → fermer le canal plutôt qu'il ne
+mente »* — a de quoi être mesurée.
 
 ---
 
@@ -440,7 +466,7 @@ une règle générale.
 
 > *La capsule va partout. La veille s'engage là où un référent existe.*
 
-Voir [Mission_Threshold.md](Mission_Threshold.md). Le point qui concerne le moteur : dès qu'un
+Voir [M9_Mission.md](M9_Mission.md). Le point qui concerne le moteur : dès qu'un
 contact est laissé, la personne **existe en base** avec le statut `INVITED`, et son référent est
 l'inviteur — par l'origine `INVITER` de la cascade, sans une ligne de plus dans le résolveur.
 
