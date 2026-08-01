@@ -16,6 +16,7 @@ from fastapi import APIRouter, status
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.watch.interface.dependencies import (
     AnswerContactDep,
+    CaseContextDep,
     CloseCaseDep,
     ListMyCasesDep,
     PendingAttemptsDep,
@@ -26,6 +27,7 @@ from app.contexts.watch.interface.dependencies import (
 )
 from app.contexts.watch.interface.schemas import (
     AnswerContactBody,
+    CaseContextView,
     CaseListView,
     CaseView,
     CloseCaseBody,
@@ -198,3 +200,22 @@ async def stop_contacting_me(
         tenant_id=tenant_id, actor_account_id=actor.account_id
     )
     return ConcernAckView(message=stopped.message)
+
+
+@router.get(
+    "/tenants/{tenant_id}/cases/{case_id}/context",
+    response_model=CaseContextView,
+    summary="Ce que vous relisez avant d'appeler — que du déjà-écrit, aucune conclusion",
+)
+async def case_context(
+    tenant_id: UUID, case_id: UUID, actor: CurrentActor, query: CaseContextDep
+) -> CaseContextView:
+    """Six mois de lien en quatre lignes, assemblés par gabarits depuis des champs.
+
+    Servi au **propriétaire du cas** et à personne d'autre : le même contrôle que le reste de
+    l'écran, rien de nouveau à sécuriser."""
+    return CaseContextView.of(
+        await query.execute(
+            signal_id=case_id, tenant_id=tenant_id, actor_account_id=actor.account_id
+        )
+    )

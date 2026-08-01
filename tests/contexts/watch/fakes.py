@@ -318,6 +318,10 @@ class FakeSignals(SignalStore):
                 outcome=SignalOutcome(outcome), at=at, closed_by_account_id=by_account_id
             )
 
+    async def accompanied_since(self, *, subject_id, tenant_id):
+        dates = [m[3] for m in self.memory if m[0] == tenant_id and m[1] == subject_id]
+        return min(dates) if dates else None
+
     async def retract_held(self, *, subject_id, tenant_id, at):
         from app.contexts.watch.domain.signal import RetractionCause
 
@@ -427,6 +431,16 @@ class FakeContactAttempts(ContactAttemptStore):
             for a in self.rows
             if a.signal_id == signal_id and a.result is ContactResult.NOT_REACHED
         )
+
+    async def recent_for(self, *, signal_id, limit=3):
+        from app.contexts.watch.domain.contact import ContactResult
+
+        done = [
+            a for a in self.rows
+            if a.signal_id == signal_id and a.result is not ContactResult.PENDING
+        ]
+        done.sort(key=lambda a: a.attempted_at, reverse=True)
+        return done[:limit]
 
     async def pending_for(self, *, account_id, tenant_id, since):
         return [

@@ -159,16 +159,16 @@ _OUTCOME_LABELS: dict[SignalOutcome, str] = {
     SignalOutcome.DESIGNATED: "un référent a été désigné",
 }
 
-_MONTHS: tuple[str, ...] = (
+MONTHS: tuple[str, ...] = (
     "janvier", "février", "mars", "avril", "mai", "juin",
     "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 )
 
 
-def _spoken_date(at: datetime) -> str:
+def spoken_date(at: datetime) -> str:
     """« 3 février » — une date qui se lit, pas un horodatage qu'on déchiffre."""
     day = "1er" if at.day == 1 else str(at.day)
-    return f"{day} {_MONTHS[at.month - 1]}"
+    return f"{day} {MONTHS[at.month - 1]}"
 
 
 class Signal(AggregateRoot):
@@ -276,7 +276,7 @@ class Signal(AggregateRoot):
         if self.previous_outcome is None or self.previous_closed_at is None:
             return None
         return (
-            f"Cas précédent clos le {_spoken_date(self.previous_closed_at)} — "
+            f"Cas précédent clos le {spoken_date(self.previous_closed_at)} — "
             f"{_OUTCOME_LABELS[self.previous_outcome]}."
         )
 

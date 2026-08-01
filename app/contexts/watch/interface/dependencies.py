@@ -76,6 +76,7 @@ from app.contexts.watch.application.referent_resolution import (
     ResolveSignalOwner,
 )
 from app.contexts.watch.application.release_held import ReleaseHeldCases
+from app.contexts.watch.application.restitution import GetCaseContext
 from app.contexts.watch.application.shadow_report import (
     BuildShadowReport,
     LetDoreaSpeak,
@@ -356,6 +357,10 @@ async def get_see_case(session: DbSession) -> SeeCase:
     return SeeCase(build_signals(session), build_case_acts(session), clock=_now)
 
 
+async def get_case_context(session: DbSession) -> GetCaseContext:
+    return GetCaseContext(build_signals(session), build_contacts(session), clock=_now)
+
+
 async def get_close_case(session: DbSession) -> CloseCase:
     return CloseCase(
         build_signals(session), build_case_acts(session), build_checks(session), clock=_now
@@ -391,6 +396,7 @@ RaiseConcernDep = Annotated[RaiseConcern, Depends(get_raise_concern)]
 ListMyCasesDep = Annotated[ListMyCases, Depends(get_my_cases)]
 SeeCaseDep = Annotated[SeeCase, Depends(get_see_case)]
 CloseCaseDep = Annotated[CloseCase, Depends(get_close_case)]
+CaseContextDep = Annotated[GetCaseContext, Depends(get_case_context)]
 StartContactDep = Annotated[StartContact, Depends(get_start_contact)]
 AnswerContactDep = Annotated[AnswerContact, Depends(get_answer_contact)]
 PendingAttemptsDep = Annotated[PendingAttempts, Depends(get_pending_attempts)]

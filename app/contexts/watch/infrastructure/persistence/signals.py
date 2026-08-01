@@ -415,6 +415,20 @@ class SqlSignalStore(SignalStore):
         )
         await self.save_case(signal)
 
+    async def accompanied_since(
+        self, *, subject_id: UUID, tenant_id: UUID
+    ) -> datetime | None:
+        stmt = (
+            select(CareMemoryModel.occurred_at)
+            .where(
+                CareMemoryModel.tenant_id == tenant_id,
+                CareMemoryModel.subject_id == subject_id,
+            )
+            .order_by(CareMemoryModel.occurred_at)
+            .limit(1)
+        )
+        return _aware((await self._session.execute(stmt)).scalars().first())
+
     async def retract_held(
         self, *, subject_id: UUID, tenant_id: UUID, at: datetime
     ) -> None:

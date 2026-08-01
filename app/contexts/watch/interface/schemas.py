@@ -187,3 +187,29 @@ class LetDoreaSpeakBody(BaseModel):
 class RegimeView(BaseModel):
     regime: str
     emits: bool  # ce régime laisse-t-il un cas atteindre un responsable ?
+
+
+class ContextSegmentView(BaseModel):
+    """Une ligne du bloc, et la source qu'on peut déplier pour vérifier."""
+
+    kind: str  # episode | link | present | last_contact | commitment
+    text: str
+    at: datetime | None
+    source: str | None
+
+
+class CaseContextView(BaseModel):
+    """Ce que le responsable relit avant d'appeler. Vide si le cas n'a pas d'histoire."""
+
+    case_id: UUID
+    segments: list[ContextSegmentView]
+
+    @classmethod
+    def of(cls, dto) -> "CaseContextView":
+        return cls(
+            case_id=dto.case_id,
+            segments=[
+                ContextSegmentView(kind=s.kind, text=s.text, at=s.at, source=s.source)
+                for s in dto.segments
+            ],
+        )

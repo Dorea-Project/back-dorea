@@ -328,6 +328,14 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def accompanied_since(self, *, subject_id: UUID, tenant_id: UUID):
+        """La date de la **première** entrée de mémoire du lien, ou None.
+
+        « Vous l'accompagnez depuis février » : une phrase que le responsable ne peut pas
+        reconstruire de tête, et qui change complètement la façon d'ouvrir un appel."""
+        ...
+
+    @abstractmethod
     async def retract_held(self, *, subject_id: UUID, tenant_id: UUID, at: datetime) -> None:
         """Retire un cas **encore retenu**, dépassé par un signe de vie.
 
@@ -478,6 +486,14 @@ class ContactAttemptStore(ABC):
     @abstractmethod
     async def count_not_reached(self, signal_id: UUID) -> int:
         """Combien de fois on a essayé sans joindre — le compteur de la péremption dure."""
+        ...
+
+    @abstractmethod
+    async def recent_for(self, *, signal_id: UUID, limit: int = 3) -> list:
+        """Les dernières tentatives **résolues** de ce cas, la plus récente d'abord.
+
+        Elles portent la date, le canal, l'issue — et l'engagement que le responsable avait écrit.
+        C'est du déjà-écrit, cité tel quel : citer n'est pas résumer."""
         ...
 
     @abstractmethod
