@@ -195,6 +195,103 @@ class GuardAgainstDumping:
         return flagged
 
 
+@dataclass(frozen=True)
+class UnopenedRatio:
+    """Ce qu'un responsable porte, et ce qu'il n'a jamais ouvert."""
+
+    owner_id: UUID
+    borne: int
+    unopened: int
+
+    @property
+    def unopened_rate(self) -> float:
+        return self.unopened / self.borne if self.borne else 0.0
+
+
+class WatchForUnopenedCases:
+    """**Le seul indicateur qui anticipe** — et il n'a de sens que nommé.
+
+    Il monte *avant* l'abandon, quand tout le reste a encore l'air normal : les cas traités le
+    sont vite, donc le délai de contact reste bon, et les autres ne sont simplement jamais
+    ouverts. Le jour où quelqu'un s'en aperçoit, la personne est partie depuis six semaines.
+
+    **Pourquoi ici, et pas dans la calibration.** Le taux d'ignorés existait, agrégé à l'église,
+    et il servait à proposer de baisser `OPEN_CASES_CAP`. Deux erreurs dans une : le plafond
+    s'applique par responsable, donc un seul responsable noyé le faisait baisser pour tout le
+    monde ; et surtout, baisser le plafond ne répare rien — ça retient davantage de cas en amont
+    pour que l'indicateur cesse de monter. Le symptôme disparaît, la personne qu'on n'appelle pas
+    reste sans nouvelles.
+
+    Ce qui répare, c'est **quelqu'un qui vient aider**. Ça demande de savoir qui, donc un nom,
+    donc la boucle chaude — là où nommer quelqu'un déclenche une action sur lui, et pas un
+    réglage sur les autres.
+
+    Le tell est le **ratio**, comme pour le déversoir : trente cas portés et vingt-huit ouverts,
+    c'est un excellent responsable, et un seuil sur le volume le punirait le premier.
+    """
+
+    def __init__(
+        self,
+        signals: SignalStore,
+        gaps: CoverageGapStore,
+        params: WatchParameterRepository,
+        *,
+        clock,
+        id_factory=uuid4,
+    ) -> None:
+        self._signals = signals
+        self._gaps = gaps
+        self._params = params
+        self._clock = clock
+        self._new_id = id_factory
+
+    async def ratios(self, *, tenant_id: UUID) -> list[UnopenedRatio]:
+        now = self._clock()
+        days = await self._params.get_int(
+            tenant_id, WatchParam.CASE_UNOPENED_AFTER_DAYS
+        )
+        rows = await self._signals.ignored_by_owner(
+            tenant_id=tenant_id, older_than=now - timedelta(days=days)
+        )
+        return [
+            UnopenedRatio(owner_id=owner, borne=borne, unopened=unopened)
+            for owner, unopened, borne in rows
+            if owner is not None
+        ]
+
+    async def execute(self, *, tenant_id: UUID) -> list[UUID]:
+        now = self._clock()
+        floor = await self._params.get_int(tenant_id, WatchParam.UNOPENED_VOLUME_FLOOR)
+        rate_floor = (
+            await self._params.get_int(
+                tenant_id, WatchParam.UNOPENED_RATE_FLOOR_PERCENT
+            )
+            / 100
+        )
+
+        flagged: list[UUID] = []
+        for ratio in await self.ratios(tenant_id=tenant_id):
+            if ratio.borne < floor or ratio.unopened_rate < rate_floor:
+                continue
+            created = await self._gaps.record_once(
+                CoverageGapRecord(
+                    id=self._new_id(),
+                    tenant_id=tenant_id,
+                    scope=CoverageScope.PERSON,
+                    subject_id=ratio.owner_id,  # **le responsable** — jamais le membre
+                    gap=CoverageGap.CASES_NOT_OPENED,
+                    reason=(
+                        f"{ratio.unopened} des {ratio.borne} situations qui lui sont confiées "
+                        "n'ont jamais été ouvertes. A probablement besoin d'aide."
+                    ),
+                    observed_at=now,
+                )
+            )
+            if created:
+                flagged.append(ratio.owner_id)
+        return flagged
+
+
 # Une intuition s'est révélée **juste** dès lors que le cas s'est clos sur autre chose que « j'ai
 # pris contact, tout allait bien ». C'est la seule issue du vocabulaire qui dit que la croyance
 # préalable était fausse ; toutes les autres décrivent une situation réelle qu'il a fallu porter.

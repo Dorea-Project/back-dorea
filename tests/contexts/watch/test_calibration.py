@@ -255,37 +255,52 @@ async def test_a_detection_that_cries_too_loud_raises_its_own_threshold():
     assert "6 cas d'absence sur 6" in proposal.evidence
 
 
-async def test_an_overflowing_queue_lowers_the_cap_it_never_raises_it():
-    """**Le contre-intuitif du module.** Une file qui déborde n'est pas un plafond trop bas.
+async def test_the_cold_loop_never_touches_the_cap():
+    """**Une file qui déborde ne fait plus bouger le plafond**, et c'est une décision.
 
-    Remonter le plafond ferait disparaître l'indicateur en noyant le responsable — c'est-à-dire
-    en supprimant exactement la protection dont l'indicateur signale le besoin."""
+    Le plafond s'applique par responsable ; le taux d'ignorés se mesure à l'église. Le calibrer
+    d'après l'autre faisait baisser le plafond de tout le monde à cause d'un seul responsable
+    noyé — et n'aurait rien réparé : retenir plus de cas en amont fait taire l'indicateur, pas le
+    silence de la personne qu'on n'appelle pas.
+
+    Ce qui agit porte un nom et vit dans la boucle chaude (`WatchForUnopenedCases`)."""
     signals, tenant, jean = FakeSignals(), uuid4(), uuid4()
     for _ in range(6):
         _borne(signals, tenant=tenant, owner=jean, seen=False)
 
     truth = await _judge(signals).execute(tenant_id=tenant)
-    (proposal,) = await Proposer(_Params()).execute(truth=truth)
 
-    assert proposal.param is WatchParam.OPEN_CASES_CAP
-    assert proposal.proposed < proposal.current
+    assert truth.ignored_rate == 1.0  # la mesure existe toujours…
+    assert await Proposer(_Params()).execute(truth=truth) == []  # …elle ne propose rien
 
 
-async def test_a_noisy_detection_is_fixed_before_the_queue_is_touched():
-    """Quand les deux symptômes sont là, on corrige la **cause**.
+async def test_no_rule_of_this_module_can_reach_the_cap():
+    """Le vocabulaire est fermé : ce module ne propose que des **seuils de détection**.
 
-    Une file qui déborde de faux positifs se soigne au seuil de détection ; toucher au plafond
-    d'abord reviendrait à traiter la fièvre en cassant le thermomètre."""
+    Ajouter une règle qui toucherait au plafond demanderait de venir désactiver cette ligne,
+    donc de le décider."""
     signals, tenant, jean = FakeSignals(), uuid4(), uuid4()
     for _ in range(6):
         _closed(signals, tenant=tenant, origin=CasePriority.ABSENCE,
                 outcome=SignalOutcome.NOTHING_TO_REPORT)
         _borne(signals, tenant=tenant, owner=jean, seen=False)
+    for _ in range(6):
+        _closed(signals, tenant=tenant, origin=CasePriority.CONCERN,
+                outcome=SignalOutcome.FOLLOWED)
 
     truth = await _judge(signals).execute(tenant_id=tenant)
     proposals = await Proposer(_Params()).execute(truth=truth)
 
-    assert [p.param for p in proposals] == [WatchParam.ABSENCE_OCCURRENCES_THRESHOLD]
+    assert {p.param for p in proposals} <= {WatchParam.ABSENCE_OCCURRENCES_THRESHOLD}
+
+
+async def test_the_cap_bound_survives_even_though_nothing_proposes_it():
+    """La borne dit ce qu'on **accepterait**, pas ce qu'on suggère.
+
+    Le jour où un humain écrit 20 à la main, `ApplyProposal` refuse — c'est exactement ce à quoi
+    une borne dure sert, et la retirer parce qu'aucune règle ne l'emprunte plus rouvrirait la
+    porte sans que personne s'en aperçoive."""
+    assert WatchParam.OPEN_CASES_CAP in BOUNDS
 
 
 async def test_it_proposes_nothing_on_a_handful_of_cases():
@@ -616,20 +631,24 @@ async def test_the_simulator_never_picks_the_candidate():
     assert "20 qui se sont confirmés" in proposal.evidence
 
 
-async def test_the_cap_gets_no_invented_counterfactual():
-    """Le plafond n'aurait pas empêché des cas d'exister, seulement retardé leur sortie. On
-    n'écrit pas une phrase pour faire symétrique."""
-    signals, tenant, jean = FakeSignals(), uuid4(), uuid4()
-    for _ in range(6):
-        _borne(signals, tenant=tenant, owner=jean, seen=False)
+async def test_only_the_absence_threshold_gets_a_counterfactual():
+    """Seul le seuil d'absence se simule : c'est le seul paramètre dont le journal porte la
+    décision (`occurrences` et `threshold` voyagent dans le payload du tir).
 
-    truth = await _judge(signals).execute(tenant_id=tenant)
-    (proposal,) = await Proposer(
+    Pour tout autre paramètre, on n'invente pas une phrase pour faire symétrique. On appelle le
+    garde directement : aucune règle ne propose plus le plafond, donc `execute` ne peut plus
+    atteindre cette branche — et un garde qu'on ne peut plus tester est un garde qui tombera."""
+    proposer = Proposer(
         _Params(), Simulator(_Evidence([_shot(3, SignalOutcome.FOLLOWED)]))
-    ).execute(truth=truth)
+    )
+    ailleurs = CalibrationProposal(
+        id=uuid4(), tenant_id=uuid4(), param=WatchParam.OPEN_CASES_CAP,
+        current=5, proposed=4, evidence="…",
+    )
 
-    assert proposal.param is WatchParam.OPEN_CASES_CAP
-    assert "ne se seraient pas ouverts" not in proposal.evidence
+    unchanged = await proposer._with_counterfactual(ailleurs, _SINCE)
+
+    assert unchanged.evidence == "…"
 
 
 # --- Les quatre interdits, lus dans le paquet ---------------------------------------------

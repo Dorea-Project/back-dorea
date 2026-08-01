@@ -10,7 +10,14 @@ dépend du régime de l'église.
 > pas que le plafond est trop bas. C'est que **les seuils de détection sont trop sensibles.**
 
 Un arriéré permanent est le symptôme d'une détection trop bavarde. On remonte alors le seuil — on
-ne remonte **pas** le plafond, sinon on noie le responsable pour faire disparaître un indicateur.
+ne touche **pas** au plafond, ni dans un sens ni dans l'autre.
+
+**Ce fichier ne propose donc que des seuils de détection, jamais le plafond de débit.** Le plafond
+s'applique par responsable ; le taux d'ignorés se mesure à l'église. Le calibrer d'après l'autre
+faisait baisser le plafond de tout le monde à cause d'un seul responsable noyé — et n'aurait de
+toute façon rien réparé : retenir plus de cas en amont fait taire l'indicateur, pas le silence de
+la personne qu'on n'appelle pas. Ce qui répare porte un nom et vit dans la boucle chaude
+(`WatchForUnopenedCases`) : quelqu'un vient aider ce responsable.
 
 **Les bornes sont dures.** Une proposition hors bornes n'est jamais appliquée seule, quel que soit
 le régime : elle attend un humain. C'est ce qui empêche une dérive lente de mener quelque part où
@@ -52,6 +59,10 @@ class ProposalStatus(StrEnum):
 # Elles ne sont pas décoratives : `ABSENCE_OCCURRENCES_THRESHOLD` à 1 ferait crier le moteur sur
 # une seule absence, à 12 il ne dirait plus jamais rien. `OPEN_CASES_CAP` à 20 noierait le
 # responsable que le plafond existe pour protéger.
+#
+# Le plafond y figure alors qu'aucune règle ne le propose : la borne dit ce qu'on accepterait,
+# pas ce qu'on suggère. Le jour où un humain écrit 20 à la main, `ApplyProposal` refusera — et
+# c'est très exactement ce à quoi une borne dure sert.
 BOUNDS: dict[WatchParam, tuple[int, int]] = {
     WatchParam.ABSENCE_OCCURRENCES_THRESHOLD: (2, 6),
     WatchParam.OPEN_CASES_CAP: (3, 10),
@@ -61,8 +72,6 @@ BOUNDS: dict[WatchParam, tuple[int, int]] = {
 MIN_EVIDENCE = 5
 # Une détection qui se trompe plus d'une fois sur deux crie trop fort.
 PRECISION_FLOOR = 0.5
-# Un cas sur trois jamais ouvert : le responsable est débordé, pas indifférent.
-IGNORED_CEILING = 0.33
 
 
 @dataclass(frozen=True)
@@ -123,8 +132,6 @@ class Proposer:
         threshold = await self._params.get_int(
             tenant_id, WatchParam.ABSENCE_OCCURRENCES_THRESHOLD
         )
-        cap = await self._params.get_int(tenant_id, WatchParam.OPEN_CASES_CAP)
-
         proposals: list[CalibrationProposal] = []
         absence = truth.verdict_for(CasePriority.ABSENCE)
 
@@ -158,26 +165,20 @@ class Proposer:
                 )
             )
 
-        # 3 — le débit, et **seulement** quand la détection est juste. Sinon on remonterait le
-        # plafond pour absorber du bruit, c'est-à-dire qu'on noierait le responsable pour faire
-        # disparaître un indicateur.
-        rate = truth.ignored_rate
-        if (
-            rate is not None
-            and rate > IGNORED_CEILING
-            and truth.on_shoulders >= MIN_EVIDENCE
-            and not proposals
-        ):
-            proposals.append(
-                self._proposal(
-                    tenant_id,
-                    WatchParam.OPEN_CASES_CAP,
-                    cap,
-                    cap - 1,
-                    f"{truth.ignored} cas sur {truth.on_shoulders} n'ont jamais été ouverts "
-                    "par leur destinataire.",
-                )
-            )
+        # **Il n'y a pas de troisième règle, et son absence est une décision.**
+        #
+        # Le taux d'ignorés proposait autrefois de baisser `OPEN_CASES_CAP`. Deux erreurs dans
+        # une. Le plafond s'applique **par responsable** alors que le taux est mesuré à l'église :
+        # un seul responsable noyé le faisait baisser pour tout le monde, y compris pour ceux qui
+        # ouvraient tout. Et surtout, baisser le plafond ne répare rien — ça retient davantage de
+        # cas en amont pour que l'indicateur cesse de monter. Le symptôme s'efface, la personne
+        # qu'on n'appelle pas reste sans nouvelles.
+        #
+        # `truth.ignored_rate` reste **mesuré** : c'est la santé de l'église, et une part de la
+        # clause d'arrêt de cette boucle. Ce qui agit, c'est `WatchForUnopenedCases`, dans la
+        # boucle chaude, qui nomme le responsable et appelle la seule chose qui répare — quelqu'un
+        # pour l'aider. Nommer quelqu'un doit déclencher une action sur lui, jamais un réglage
+        # sur les autres.
         return [await self._with_counterfactual(p, truth.since) for p in proposals]
 
     async def _with_counterfactual(

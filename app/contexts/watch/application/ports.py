@@ -307,6 +307,17 @@ class SignalStore(ABC):
         ...
 
     @abstractmethod
+    async def ignored_by_owner(
+        self, *, tenant_id: UUID, older_than: datetime
+    ) -> list[tuple[UUID | None, int, int]]:
+        """`(responsable, jamais ouverts, portés)` — la version **nominative** du taux d'ignorés.
+
+        Elle vit dans la boucle chaude, et c'est délibéré : ce qui nomme quelqu'un doit produire
+        une action sur lui — ici, quelqu'un qui vient l'aider. La boucle froide, elle, n'en lit
+        que l'agrégat (`ignored_ratio`), parce qu'un seuil ne se calibre pas sur une personne."""
+        ...
+
+    @abstractmethod
     async def ignored_ratio(
         self, *, tenant_id: UUID, older_than: datetime
     ) -> tuple[int, int]:

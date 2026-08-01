@@ -13,9 +13,13 @@ vivaient que dans un script. Un service qu'aucune surface n'atteint ne tourne nu
    « Retenu ≠ perdu » n'est vrai que si quelque chose les relâche.
 5. **Les groupes aveugles** — celui qui ne saisit aucune rencontre ne détecte personne, et son
    silence ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
+6. **Ceux qui reçoivent et n'ouvrent pas** — le seul indicateur qui *anticipe* : il monte avant
+   l'abandon, quand le délai de contact a encore l'air normal. Il nomme le responsable, parce que
+   ce qui répare est que quelqu'un vienne l'aider.
 
 L'ordre compte : les échéances d'abord, pour que l'escalade voie l'état du jour et non celui
-d'hier.
+d'hier ; les cas non ouverts en dernier, après la relève — un cas relâché ce soir n'est pas un cas
+qu'on a laissé dormir.
 
 À part, sur sa propre cadence : **la boucle froide** (`/watch/calibrate`). Elle ne décide d'aucun
 cas — elle mesure les seuils contre ce que les responsables ont constaté et propose. Mensuelle,
@@ -43,6 +47,7 @@ from app.contexts.watch.interface.dependencies import (
     build_fire_checks,
     build_release_held,
     build_shadow_digest,
+    build_unopened_watch,
 )
 
 router = APIRouter(dependencies=[Depends(require_platform_token)])
@@ -75,6 +80,9 @@ class WatchRunResult(BaseModel):
     # Groupes dont aucune rencontre n'est saisie : ils ne détectent personne, et leur écran vide
     # ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
     blind_groups: int
+    # Responsables qui reçoivent des cas et ne les ouvrent pas. **Le seul indicateur qui
+    # anticipe** : il monte avant l'abandon, quand le délai de contact a encore l'air normal.
+    unopened: int
     # Ce qui reste retenu. Un arriéré permanent n'est pas un problème de plafond : c'est une
     # détection trop bavarde, et c'est le seuil qu'on remonte alors, jamais le plafond.
     still_held: int
@@ -159,8 +167,10 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
     fire = build_fire_checks(session)
     escalate, guard = build_escalate_concerns(session), build_dumping_guard(session)
     release, blind = build_release_held(session), build_blind_groups(session)
+    unopened_watch = build_unopened_watch(session)
 
     fired = deferred = escalated = overloaded = released = still_held = blind_groups = 0
+    unopened = 0
     for each in tenants:
         report = await fire.execute(tenant_id=each)
         fired += report.fired
@@ -173,9 +183,12 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
         released += freed.released
         still_held += freed.still_held
         blind_groups += (await blind.execute(tenant_id=each)).recorded
+        # Après la relève : un cas relâché ce soir n'est pas un cas qu'on a laissé dormir.
+        unopened += len(await unopened_watch.execute(tenant_id=each))
 
     return WatchRunResult(
         tenants=len(tenants), fired=fired, deferred=deferred,
         escalated=escalated, overloaded=overloaded,
         released=released, still_held=still_held, blind_groups=blind_groups,
+        unopened=unopened,
     )

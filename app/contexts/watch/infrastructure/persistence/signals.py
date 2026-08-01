@@ -507,6 +507,27 @@ class SqlSignalStore(SignalStore):
         )
         return [(o, u) for o, u in (await self._session.execute(stmt)).all()]
 
+    async def ignored_by_owner(
+        self, *, tenant_id: UUID, older_than: datetime
+    ) -> list[tuple[UUID | None, int, int]]:
+        stmt = (
+            select(
+                SignalModel.owner_account_id,
+                func.count().filter(SignalModel.first_seen_at.is_(None)),
+                func.count(),
+            )
+            .where(
+                SignalModel.tenant_id == tenant_id,
+                SignalModel.status.in_(_ON_SHOULDERS),
+                SignalModel.opened_at <= older_than,
+            )
+            .group_by(SignalModel.owner_account_id)
+        )
+        return [
+            (owner, int(ignored or 0), int(borne or 0))
+            for owner, ignored, borne in (await self._session.execute(stmt)).all()
+        ]
+
     async def ignored_ratio(
         self, *, tenant_id: UUID, older_than: datetime
     ) -> tuple[int, int]:

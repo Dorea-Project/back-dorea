@@ -301,6 +301,22 @@ class FakeSignals(SignalStore):
             and s.closed_by_account_id is not None
         ]
 
+    async def ignored_by_owner(self, *, tenant_id, older_than):
+        from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES
+
+        tally: dict = {}
+        for s in self.rows:
+            if (
+                s.tenant_id != tenant_id
+                or s.status not in ON_SHOULDERS_STATUSES
+                or s.opened_at > older_than
+            ):
+                continue
+            counts = tally.setdefault(s.owner_account_id, [0, 0])
+            counts[0] += 1 if s.first_seen_at is None else 0
+            counts[1] += 1
+        return [(owner, i, b) for owner, (i, b) in tally.items()]
+
     async def ignored_ratio(self, *, tenant_id, older_than):
         from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES
 

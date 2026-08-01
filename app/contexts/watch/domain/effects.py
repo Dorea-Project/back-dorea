@@ -124,6 +124,16 @@ class CoverageGap(StrEnum):
     # le volume punirait exactement les meilleurs responsables — dix intuitions et dix contacts,
     # c'est l'excellence, et il ne faut surtout pas la freiner.
     LEADER_OVERLOADED = "leader_overloaded"
+    # **Reçoit des cas et ne les ouvre pas.** Le seul indicateur du produit qui *anticipe* :
+    # il monte avant l'abandon, quand le délai de contact a encore l'air normal — parce que les
+    # cas traités le sont vite, et que les autres ne sont simplement jamais ouverts.
+    #
+    # Il vit ici, sur l'écran de couverture, et **pas** dans la calibration. Un taux d'ignorés
+    # agrégé à l'église ferait baisser le plafond de tout le monde à cause d'un seul responsable
+    # noyé ; nommé, il appelle la seule action qui répare vraiment — quelqu'un pour l'aider.
+    # C'est aussi pourquoi il est formulé comme un besoin d'aide : un responsable qui n'ouvre
+    # plus rien est presque toujours un responsable débordé, pas un responsable indifférent.
+    CASES_NOT_OPENED = "cases_not_opened"
 
 
 class OwnerKind(StrEnum):

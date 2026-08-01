@@ -55,6 +55,17 @@ class WatchParam(StrEnum):
     # La marge après la rencontre attendue avant de regarder. Sans elle, l'échéance tombe pendant
     # que le responsable est encore en train de saisir sa feuille de présence.
     ABSENCE_CHECK_GRACE_DAYS = "absence_check_grace_days"
+    # **Au bout de combien de jours un cas non ouvert est un cas ignoré**, et non un cas récent.
+    # Une seule définition pour les deux lectures qui s'en servent — le défaut de couverture qui
+    # nomme le responsable, et la mesure agrégée de la boucle froide. Deux constantes auraient
+    # divergé, et l'une aurait fini par contredire l'autre sur le même écran.
+    CASE_UNOPENED_AFTER_DAYS = "case_unopened_after_days"
+    # Ses deux bornes, même patron que le garde anti-déversoir : un plancher de lisibilité (en
+    # dessous, le ratio porte sur trop peu pour vouloir dire), et le taux au-delà duquel on
+    # consigne. Le tell est le **ratio** — un responsable qui porte trente cas et en ouvre
+    # vingt-huit travaille bien, et un seuil sur le volume le punirait.
+    UNOPENED_VOLUME_FLOOR = "unopened_volume_floor"
+    UNOPENED_RATE_FLOOR_PERCENT = "unopened_rate_floor_percent"
 
 
 DEFAULTS: dict[WatchParam, int] = {
@@ -69,4 +80,7 @@ DEFAULTS: dict[WatchParam, int] = {
     WatchParam.CHECK_BURST_CAP: 20,
     WatchParam.ABSENCE_OCCURRENCES_THRESHOLD: 3,
     WatchParam.ABSENCE_CHECK_GRACE_DAYS: 2,
+    WatchParam.CASE_UNOPENED_AFTER_DAYS: 7,
+    WatchParam.UNOPENED_VOLUME_FLOOR: 4,
+    WatchParam.UNOPENED_RATE_FLOOR_PERCENT: 50,
 }

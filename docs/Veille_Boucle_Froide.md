@@ -42,18 +42,34 @@ Le port `concern_outcomes` a disparu au profit de `closed_cases_since`.
 
 `calibration/proposal.py` — `Proposer`, `CalibrationProposal`, `BOUNDS`, `ApplyProposal`.
 
-Un **balayage borné**, pas un optimiseur : l'espace tient en trois entiers, et une descente de
-gradient dessus serait de la mise en scène. Trois règles, dans cet ordre :
+Un **balayage borné**, pas un optimiseur : l'espace tient en deux entiers, et une descente de
+gradient dessus serait de la mise en scène. Deux règles, dans cet ordre :
 
 1. précision d'absence sous 50 % sur ≥ 5 cas → **monter** `ABSENCE_OCCURRENCES_THRESHOLD` ;
-2. sinon, ≥ 5 inquiétudes confirmées → **descendre** le même seuil ;
-3. sinon, plus d'un tiers de cas jamais ouverts → **descendre** `OPEN_CASES_CAP`.
+2. sinon, ≥ 5 inquiétudes confirmées → **descendre** le même seuil.
 
 > **Le contre-intuitif du module.** Si huit signaux arrivent par semaine pour une capacité de
 > trois, le problème n'est pas que le plafond est trop bas : c'est que la détection est trop
-> bavarde. On remonte le seuil. Remonter le plafond ferait disparaître l'indicateur en noyant le
-> responsable — c'est-à-dire en supprimant exactement la protection dont l'indicateur signale le
-> besoin. C'est pourquoi la règle 3 ne se déclenche que si la règle 1 ne s'est pas déclenchée.
+> bavarde. On remonte le seuil, et on ne touche pas au plafond.
+
+**Il n'y a pas de troisième règle, et son absence est une décision (01/08/2026).** Le taux
+d'ignorés proposait autrefois de baisser `OPEN_CASES_CAP`. Deux erreurs dans une :
+
+- le plafond s'applique **par responsable**, le taux se mesure **à l'église** — un seul
+  responsable noyé le faisait baisser pour tout le monde, y compris pour ceux qui ouvraient tout ;
+- baisser le plafond ne répare rien : ça retient davantage de cas en amont pour que l'indicateur
+  cesse de monter. Le symptôme s'efface, la personne qu'on n'appelle pas reste sans nouvelles.
+
+`ignored_rate` reste **mesuré** — c'est la santé de l'église et une part de la clause d'arrêt de
+cette boucle. Ce qui *agit* est passé dans la boucle chaude : `WatchForUnopenedCases` consigne un
+`CoverageGap.CASES_NOT_OPENED` **sur le responsable**, formulé comme un besoin d'aide, et le
+pasteur le lit sur son écran de couverture. Nommer quelqu'un doit déclencher une action sur lui,
+jamais un réglage sur les autres — et c'est précisément parce que la boucle froide s'interdit les
+noms qu'elle n'était pas le bon endroit.
+
+`OPEN_CASES_CAP` garde sa borne dure dans `BOUNDS` alors qu'aucune règle ne le propose : la borne
+dit ce qu'on **accepterait**, pas ce qu'on suggère. Le jour où un humain écrit 20 à la main,
+`ApplyProposal` refuse.
 
 Les **bornes sont dures** : hors bornes, une proposition n'est jamais appliquée seule, même
 approuvée. Un humain peut toujours écrire la valeur à la main, mais il le fera en le sachant.

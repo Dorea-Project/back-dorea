@@ -34,6 +34,7 @@ from app.contexts.watch.application.concern_watchdog import (
     EscalateStaleConcerns,
     GuardAgainstDumping,
     MeasureConcernPrecision,
+    WatchForUnopenedCases,
 )
 from app.contexts.watch.application.contact_loop import (
     AnswerContact,
@@ -346,6 +347,16 @@ def build_concern_precision(session) -> MeasureConcernPrecision:
         build_signals(session),
         SqlWatchParameterRepository(session),
         clock=lambda: datetime.now(UTC),
+    )
+
+
+def build_unopened_watch(session) -> WatchForUnopenedCases:
+    """Le seul indicateur qui anticipe — et il n'agit qu'en nommant le responsable."""
+    return WatchForUnopenedCases(
+        build_signals(session),
+        SqlCoverageGapStore(session),
+        SqlWatchParameterRepository(session),
+        clock=_now,
     )
 
 

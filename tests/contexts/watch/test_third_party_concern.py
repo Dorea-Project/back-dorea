@@ -17,6 +17,7 @@ from app.contexts.watch.application.concern_watchdog import (
     EscalateStaleConcerns,
     GuardAgainstDumping,
     MeasureConcernPrecision,
+    WatchForUnopenedCases,
 )
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import (
@@ -577,3 +578,100 @@ def test_the_vocabulary_can_say_that_an_intuition_was_wrong():
     """Sans cette issue, la calibration mesurerait le vide : aucune autre ne dit
     « j'ai pris contact, tout allait bien »."""
     assert SignalOutcome.NOTHING_TO_REPORT in SignalOutcome
+
+
+# --- Bloc 9 : celui qui reçoit et n'ouvre pas ---------------------------------------------------
+
+
+def _assigned(*, tenant, owner, seen, days_old=10) -> Signal:
+    return Signal(
+        id=uuid4(), tenant_id=tenant, subject_id=uuid4(), origin=CasePriority.ABSENCE,
+        reason="Sans nouvelles.", opened_at=_NOW - timedelta(days=days_old),
+        status=SignalStatus.ASSIGNED, owner_account_id=owner,
+        first_seen_at=_NOW - timedelta(days=1) if seen else None,
+    )
+
+
+def _unopened_watch(signals, gaps):
+    return WatchForUnopenedCases(signals, gaps, _Params(), clock=lambda: _NOW)
+
+
+async def test_a_responsable_who_never_opens_anything_is_named():
+    """**Le seul indicateur qui anticipe.** Il monte avant l'abandon, quand le délai de contact a
+    encore l'air normal — les cas traités le sont vite, les autres ne sont jamais ouverts.
+
+    Il porte sur le **responsable**, comme l'escalade : ce n'est pas un problème de membre."""
+    signals, gaps, jean, tenant = FakeSignals(), _Gaps(), uuid4(), uuid4()
+    for _ in range(5):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False))
+
+    flagged = await _unopened_watch(signals, gaps).execute(tenant_id=tenant)
+
+    assert flagged == [jean]
+    assert gaps.rows[0].gap is CoverageGap.CASES_NOT_OPENED
+    assert gaps.rows[0].subject_id == jean
+    assert "besoin d'aide" in gaps.rows[0].reason  # un appel à l'aide, pas un reproche
+
+
+async def test_the_tell_is_the_ratio_never_the_volume():
+    """Trente cas portés et vingt-huit ouverts, c'est un excellent responsable.
+
+    Un seuil sur le volume le punirait le premier — la même erreur que le garde anti-déversoir
+    existe pour éviter."""
+    signals, gaps, jean, tenant = FakeSignals(), _Gaps(), uuid4(), uuid4()
+    for _ in range(28):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=True))
+    for _ in range(2):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False))
+
+    assert await _unopened_watch(signals, gaps).execute(tenant_id=tenant) == []
+
+
+async def test_a_case_opened_yesterday_is_not_a_case_ignored():
+    """Sous le délai, un cas non ouvert est un cas récent. Consigner là-dessus ferait du défaut
+    de couverture un rappel quotidien, et le bruit se désapprend en trois semaines."""
+    signals, gaps, jean, tenant = FakeSignals(), _Gaps(), uuid4(), uuid4()
+    for _ in range(6):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False, days_old=1))
+
+    assert await _unopened_watch(signals, gaps).execute(tenant_id=tenant) == []
+
+
+async def test_below_the_readable_floor_it_says_nothing():
+    """Deux cas non ouverts ne disent rien : le ratio porterait sur trop peu."""
+    signals, gaps, jean, tenant = FakeSignals(), _Gaps(), uuid4(), uuid4()
+    for _ in range(2):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False))
+
+    assert await _unopened_watch(signals, gaps).execute(tenant_id=tenant) == []
+
+
+async def test_one_drowning_responsable_does_not_speak_for_the_others():
+    """Le défaut est **nominatif**, et c'est tout le sujet du déplacement.
+
+    Agrégé à l'église, ce même signal faisait baisser le plafond de tout le monde — y compris de
+    ceux qui ouvraient tout. Nommer quelqu'un doit déclencher une action sur lui, jamais un
+    réglage sur les autres."""
+    signals, gaps, tenant = FakeSignals(), _Gaps(), uuid4()
+    jean, marie = uuid4(), uuid4()
+    for _ in range(5):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False))
+        signals.rows.append(_assigned(tenant=tenant, owner=marie, seen=True))
+
+    flagged = await _unopened_watch(signals, gaps).execute(tenant_id=tenant)
+
+    assert flagged == [jean]
+    assert [r.subject_id for r in gaps.rows] == [jean]
+
+
+async def test_the_same_gap_is_not_recorded_twice():
+    """Un rappel qui revient chaque nuit devient du bruit."""
+    signals, gaps, jean, tenant = FakeSignals(), _Gaps(), uuid4(), uuid4()
+    for _ in range(5):
+        signals.rows.append(_assigned(tenant=tenant, owner=jean, seen=False))
+    watch = _unopened_watch(signals, gaps)
+
+    await watch.execute(tenant_id=tenant)
+
+    assert await watch.execute(tenant_id=tenant) == []
+    assert len(gaps.rows) == 1
