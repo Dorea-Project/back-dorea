@@ -17,6 +17,7 @@ from app.contexts.sermon.interface.dependencies import (
     AdvanceCompanionDep,
     AnswerAttendanceDep,
     ApproveSermonDep,
+    DepositGratitudeDep,
     DepositSermonDep,
     GetSermonDep,
     ListTenantSermonsDep,
@@ -26,7 +27,9 @@ from app.contexts.sermon.interface.dependencies import (
 from app.contexts.sermon.interface.schemas import (
     AnswerAttendanceBody,
     CompanionCardView,
+    DepositGratitudeBody,
     DepositSermonBody,
+    GratitudeDepositedView,
     SermonListView,
     SermonView,
 )
@@ -190,3 +193,27 @@ async def advance_companion(
 ) -> CompanionCardView:
     dto = await command.execute(actor_account_id=actor.account_id, session_id=session_id)
     return CompanionCardView.from_dto(dto)
+
+
+@router.post(
+    "/tenants/{tenant_id}/gratitude",
+    response_model=GratitudeDepositedView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Déposer un sujet de reconnaissance — la seule parole du membre qui dit que ça va",
+)
+async def deposit_gratitude(
+    tenant_id: UUID,
+    payload: DepositGratitudeBody,
+    actor: CurrentActor,
+    command: DepositGratitudeDep,
+) -> GratitudeDepositedView:
+    """**Aucun identifiant de sujet dans la route** : on ne rend pas grâce à la place de quelqu'un.
+
+    Le texte entre au journal et n'en ressort pas : le responsable lira « a déposé un sujet de
+    reconnaissance le 12 avril », jamais ce qui a été écrit. Ce que ça change pour lui est
+    considérable et tient en une ligne — il ouvrira son appel autrement.
+    """
+    accepted = await command.execute(
+        actor_account_id=actor.account_id, tenant_id=tenant_id, subject=payload.subject
+    )
+    return GratitudeDepositedView(is_life_sign=accepted)

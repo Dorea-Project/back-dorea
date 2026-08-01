@@ -57,10 +57,28 @@ class BirthdayDirectory(ABC):
         ...
 
 
+class BirthdayStore(ABC):
+    """L'écriture, réduite à une méthode — un port étroit plutôt qu'un dépôt de plus.
+
+    `AccountRepository` sert à lire un compte entier ; y ajouter une écriture obligerait chaque
+    double de test du produit à la déclarer, pour un geste qui ne concerne que cet écran."""
+
+    @abstractmethod
+    async def set_birthday(
+        self,
+        *,
+        account_id: UUID,
+        day: int,
+        month: int,
+        year: int | None,
+        scope: str,
+    ) -> None: ...
+
+
 class SetMyBirthday:
     """Sa date, posée par elle. Le service ne prend pas d'identifiant de sujet."""
 
-    def __init__(self, accounts, *, clock=None) -> None:
+    def __init__(self, accounts: BirthdayStore, *, clock=None) -> None:
         self._accounts = accounts
         self._clock = clock
 

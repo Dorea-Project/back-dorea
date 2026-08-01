@@ -130,13 +130,21 @@ def test_there_is_only_one_kind_for_both_gestures():
     assert FactKind.THIRD_PARTY_CONCERN in FactKind
 
 
-def test_both_surfaces_speak_the_same_kind_and_nothing_else():
+def test_both_surfaces_speak_the_same_kind_for_this_gesture():
+    """Un seul `FactKind` pour l'inquiétude, quelle que soit la surface d'où elle part.
+
+    Le compagnon en porte un second — le sujet de reconnaissance — et l'écran du responsable ne
+    l'aura jamais : c'est une parole à la **première personne**, et un responsable qui pourrait
+    déposer « elle va bien » à la place de quelqu'un ferait taire un cas avec son impression."""
     registry = default_registry()
     for surface in (WATCH_UI, COMPANION):
-        assert registry.get(surface).kinds == frozenset({FactKind.THIRD_PARTY_CONCERN})
+        assert registry.accepts(surface, FactKind.THIRD_PARTY_CONCERN) is True
         # Aucune clé obligatoire : la nuance est optionnelle, et le propriétaire peut
         # légitimement manquer. Ce vide est la spécification, pas un oubli.
         assert registry.get(surface).required_payload_keys == frozenset()
+
+    assert registry.get(WATCH_UI).kinds == frozenset({FactKind.THIRD_PARTY_CONCERN})
+    assert registry.accepts(WATCH_UI, FactKind.GRATITUDE_DEPOSITED) is False
 
 
 def test_no_nuance_describes_a_supposed_inner_state():

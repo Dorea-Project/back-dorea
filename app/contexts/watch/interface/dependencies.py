@@ -54,6 +54,9 @@ from app.contexts.watch.application.interpreters.case_acts import (
     ContactAttemptedV1,
 )
 from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
+from app.contexts.watch.application.interpreters.gratitude_deposited import (
+    GratitudeDepositedV1,
+)
 from app.contexts.watch.application.interpreters.joined_group import JoinedGroupV1
 from app.contexts.watch.application.interpreters.life_event_announced import (
     LifeEventAnnouncedV1,
@@ -133,6 +136,9 @@ INTERPRETERS.register(PresenceRecordedV1())
 # V1 : le passe ne change jamais de sens.
 INTERPRETERS.register(PresenceRecordedV2())
 INTERPRETERS.register(AppointmentRequestedV1())
+# Le signe de vie : tout son mecanisme existait (rétractation d'un cas retenu, baisse de
+# priorite) et n'avait aucun emetteur.
+INTERPRETERS.register(GratitudeDepositedV1())
 INTERPRETERS.register(SelfDeclarationV1())
 INTERPRETERS.register(ThirdPartyConcernV1())
 # Sans lui, le worker écrit des échéances tombées au ledger et il ne se passe rien : le temps

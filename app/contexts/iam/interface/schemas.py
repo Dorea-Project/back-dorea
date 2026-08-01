@@ -20,6 +20,7 @@ from app.contexts.iam.application.dtos import (
     TransferListDTO,
     TransitionResult,
 )
+from app.contexts.iam.domain.birthday import DEFAULT_SCOPE, BirthdayScope
 from app.contexts.iam.domain.enums import (
     MembershipClosureReason,
     MembershipTransitionEvent,
@@ -284,3 +285,41 @@ class MembershipStatusResponse(BaseModel):
             is_owner=dto.is_owner,
             permissions=dto.permissions,
         )
+
+
+class SetMyBirthdayRequest(BaseModel):
+    """Jour, mois, et le cercle. L'année est **optionnelle et ne ressort jamais**."""
+
+    day: int = Field(ge=1, le=31, examples=[12])
+    month: int = Field(ge=1, le=12, examples=[6])
+    year: int | None = Field(
+        default=None,
+        description=(
+            "Facultative, et affichée nulle part : l'âge de quelqu'un n'est pas une donnée "
+            "d'église. Elle n'existe que si le membre la donne."
+        ),
+    )
+    scope: BirthdayScope = Field(
+        default=DEFAULT_SCOPE,
+        description="groups | referent_only | hidden — « hidden » éteint tout, sans exception",
+    )
+
+
+class BirthdayResponse(BaseModel):
+    """Ce que le membre a posé, tel qu'il pourra le relire. Toujours sans l'année."""
+
+    day: int
+    month: int
+    scope: str
+
+
+class BirthdayOfTheDayResponse(BaseModel):
+    """Un nom, et si c'est aujourd'hui. **Pas de champ pour l'âge**, ni pour souhaiter.
+
+    Aucun message ne part de Dorea : l'encart porte le bouton d'appel standard, celui de partout
+    ailleurs. Dorea rappelle aux humains d'aimer ; il n'aime jamais à leur place."""
+
+    account_id: UUID
+    first_name: str | None
+    last_name: str | None
+    is_today: bool = Field(description="False = demain, et seul le référent le voit")

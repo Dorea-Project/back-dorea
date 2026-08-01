@@ -147,6 +147,18 @@ def default_registry() -> SourceRegistry:
         registry.register(
             RegisteredSource(id=surface, kinds=frozenset({FactKind.THIRD_PARTY_CONCERN}))
         )
+    # Le compagnon dit **aussi** ce que la personne dépose d'elle-même : le signe de vie. Il
+    # s'ajoute à `COMPANION` et pas à `WATCH_UI`, et l'asymétrie est le fond du sujet — une
+    # reconnaissance ne se dépose qu'à la première personne. Un responsable qui pourrait déposer
+    # « elle va bien » à la place de quelqu'un ferait taire un cas avec sa propre impression.
+    registry.register(
+        RegisteredSource(
+            id=COMPANION,
+            kinds=frozenset(
+                {FactKind.THIRD_PARTY_CONCERN, FactKind.GRATITUDE_DEPOSITED}
+            ),
+        )
+    )
     # L'écran du responsable dit aussi ce qu'il **fait** : il a ouvert le cas, il l'a fermé avec
     # une issue. Ces gestes n'étaient écrits que sur la projection — donc perdus au premier rejeu,
     # avec les deux métriques du pilote. Les clés qu'ils exigent tiennent au type de fait

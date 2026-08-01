@@ -15,6 +15,7 @@ from app.contexts.groups.infrastructure.persistence.repositories import (
     SqlGroupMembershipRepository,
 )
 from app.contexts.iam.application.access_control import AccessControl
+from app.contexts.iam.application.birthdays import BirthdaysToday, SetMyBirthday
 from app.contexts.iam.application.commands.bulk_enroll_members import BulkEnrollMembers
 from app.contexts.iam.application.commands.church_invitation import (
     CreateChurchInvitation,
@@ -39,6 +40,10 @@ from app.contexts.iam.application.queries.is_confirmed_member import IsConfirmed
 from app.contexts.iam.application.queries.list_transfers import ListTransfers
 from app.contexts.iam.domain.repositories import AccountRepository, MembershipRepository
 from app.contexts.iam.infrastructure.code_generator import SecureInvitationCodeGenerator
+from app.contexts.iam.infrastructure.persistence.birthday_directory import (
+    SqlBirthdayDirectory,
+    SqlBirthdayStore,
+)
 from app.contexts.iam.infrastructure.persistence.church_invitation_repository import (
     SqlChurchInvitationRepository,
 )
@@ -285,6 +290,20 @@ def get_is_confirmed_member_query(repo: MembershipRepositoryDep) -> IsConfirmedM
 def get_check_permission_query(repo: MembershipRepositoryDep) -> CheckPermission:
     return CheckPermission(repo)
 
+
+def get_set_my_birthday_command(session: DbSession) -> SetMyBirthday:
+    return SetMyBirthday(SqlBirthdayStore(session))
+
+
+def get_birthdays_today_query(session: DbSession) -> BirthdaysToday:
+    """L'encart se **calcule à la lecture** : pas d'échéance, pas de worker, pas de push."""
+    return BirthdaysToday(
+        SqlBirthdayDirectory(session), clock=lambda: datetime.now(UTC)
+    )
+
+
+SetMyBirthdayDep = Annotated[SetMyBirthday, Depends(get_set_my_birthday_command)]
+BirthdaysTodayDep = Annotated[BirthdaysToday, Depends(get_birthdays_today_query)]
 
 GetMembershipStatusDep = Annotated[GetMembershipStatus, Depends(get_membership_status_query)]
 GetMyMembershipsDep = Annotated[GetMyMemberships, Depends(get_my_memberships_query)]

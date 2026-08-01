@@ -664,3 +664,66 @@ async def test_pdf_extraction_handles_a_real_pdf_without_crashing():
     writer.write(buf)
     # Une page blanche n'a pas de texte : l'extraction rend "" sans planter (intégration pypdf OK).
     assert await CompositeTextExtractor().extract(buf.getvalue(), kind=SermonSourceKind.PDF) == ""
+
+
+# --- Le sujet de reconnaissance : la seule parole du membre qui dit que ça va -------------
+
+
+class _Intake:
+    def __init__(self, accepted=True):
+        self.submitted = []
+        self._accepted = accepted
+
+    async def submit(self, fact):
+        from app.contexts.watch.application.intake import IntakeResult
+
+        self.submitted.append(fact)
+        return IntakeResult(accepted=self._accepted)
+
+
+async def test_gratitude_is_deposited_for_oneself_and_never_for_another():
+    """Le service ne prend **aucun identifiant de sujet** — même règle que l'anniversaire.
+
+    Un responsable qui pourrait déposer « elle va bien » à la place de quelqu'un ferait taire un
+    cas avec sa propre impression."""
+    from app.contexts.sermon.application.commands.gratitude import DepositGratitude
+    from app.contexts.watch.domain.facts import FactKind
+    from app.contexts.watch.domain.registry import COMPANION
+
+    intake, awa, tenant = _Intake(), uuid4(), uuid4()
+    now = datetime(2026, 4, 12, tzinfo=UTC)
+
+    accepted = await DepositGratitude(intake, clock=lambda: now).execute(
+        actor_account_id=awa, tenant_id=tenant, subject="Mon fils a retrouvé du travail."
+    )
+
+    (fact,) = intake.submitted
+    assert accepted is True
+    assert fact.subject_id == awa  # le sujet **est** l'acteur, il n'y a pas d'autre chemin
+    assert (fact.kind, fact.source) == (FactKind.GRATITUDE_DEPOSITED, COMPANION)
+    assert fact.payload["subject"] == "Mon fils a retrouvé du travail."
+
+
+async def test_thanking_twice_is_two_gestures():
+    """Rendre grâce deux fois n'est pas un doublon : le second signe de vie vaut le premier."""
+    from app.contexts.sermon.application.commands.gratitude import DepositGratitude
+
+    intake, awa, tenant = _Intake(), uuid4(), uuid4()
+    now = datetime(2026, 4, 12, tzinfo=UTC)
+    command = DepositGratitude(intake, clock=lambda: now)
+
+    await command.execute(actor_account_id=awa, tenant_id=tenant, subject="Merci.")
+    await command.execute(actor_account_id=awa, tenant_id=tenant, subject="Merci encore.")
+
+    first, second = intake.submitted
+    assert first.fact_id != second.fact_id
+
+
+async def test_a_disconnected_engine_never_blocks_the_gesture():
+    """Ce que la personne a voulu dire ne dépend pas de l'état d'un greffon."""
+    from app.contexts.sermon.application.commands.gratitude import DepositGratitude
+
+    now = datetime(2026, 4, 12, tzinfo=UTC)
+    assert await DepositGratitude(None, clock=lambda: now).execute(
+        actor_account_id=uuid4(), tenant_id=uuid4(), subject="Merci."
+    ) is False

@@ -413,9 +413,18 @@ donner de ses nouvelles serait le contraire de ce qu'on cherche.
 | En attente | Nature | Bloque |
 |---|---|---|
 | Étape 0 terrain (3 cellules) | observation | la calibration des seuils — et c'est le rodage qui la rendra lisible |
-| Interpreter gratitude du Compagnon | greffon | rien : le mécanisme du signe de vie l'attend, prêt |
 | Identité du déclarant dans le `ConsentProof` | **décision produit** | le greffon « le tiers », dans sa forme complète |
-| Écrans mobiles (rodage, restitution, anniversaire) | surface | l'adoption, pas le moteur |
+| Écrans mobiles (rodage, restitution) | surface | l'adoption, pas le moteur |
+
+**Livré depuis (01/08/2026) :** l'interpreter gratitude du Compagnon (`GratitudeDepositedV1`) et
+son émetteur (`DepositGratitude`, `POST /api/mobile/sermons/tenants/{id}/gratitude`). Le signe de
+vie avait tout son mécanisme et aucune source ; il en a une, et elle est réservée au compagnon —
+une reconnaissance ne se dépose qu'à la **première personne**. Le texte déposé entre au journal et
+n'en ressort pas : l'annotation dit qu'un sujet a été déposé et quand, jamais ce qu'il contient.
+
+Il n'existe ni mur ni fil des reconnaissances, et c'est l'invariant anti-compteur d'engagement qui
+le décide : une production rafraîchissable dont le destinataire est son propre auteur est
+exactement la boucle d'habitude que le produit refuse de fabriquer.
 
 **Le Compagnon** peut désormais être construit : le moteur sait escalader, et sa métrique de
 condamnation — *« % de passations sans réponse à 72 h > 10 % → fermer le canal plutôt qu'il ne
