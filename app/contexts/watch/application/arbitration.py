@@ -136,7 +136,7 @@ def arbitrate(
                     )
                 )
                 continue
-        if isinstance(effect, OpenCase) and state.has_open_case(effect.subject_id):
+        if isinstance(effect, OpenCase) and state.has_live_case(effect.subject_id):
             fused.append(
                 EnrichCase(
                     subject_id=effect.subject_id,

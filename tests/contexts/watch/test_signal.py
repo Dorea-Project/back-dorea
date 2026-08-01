@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from app.contexts.watch.application.arbitration import ArbitrationPolicy, arbitrate
-from app.contexts.watch.application.interpretation import OpenCaseView, WatchStateView
+from app.contexts.watch.application.interpretation import LiveCaseView, WatchStateView
 from app.contexts.watch.domain.effects import (
     SYSTEM_CLOSURE_CAUSES,
     CasePriority,
@@ -217,8 +217,8 @@ def test_a_second_case_on_the_same_person_enriches_instead_of_duplicating():
     """Sinon deux responsables appellent la même personne le même soir, chacun se croyant seul."""
     person = uuid4()
     state = WatchStateView(
-        open_cases=(
-            OpenCaseView(id=uuid4(), subject_id=person, owner_id=None, origin="announcement"),
+        live_cases=(
+            LiveCaseView(id=uuid4(), subject_id=person, owner_id=None, origin="announcement"),
         )
     )
     proposed = [
@@ -240,10 +240,10 @@ def test_the_cap_holds_the_surplus_instead_of_dropping_it():
     Tant que `Referent` n'existe pas, tous les cas sans propriétaire partagent le même budget.
     C'est volontairement le côté prudent : on ne fait pas semblant d'avoir réparti la charge."""
     saturated = tuple(
-        OpenCaseView(id=uuid4(), subject_id=uuid4(), owner_id=None, origin="absence")
+        LiveCaseView(id=uuid4(), subject_id=uuid4(), owner_id=None, origin="absence")
         for _ in range(2)
     )
-    state = WatchStateView(open_cases=saturated)
+    state = WatchStateView(live_cases=saturated)
     newcomer = uuid4()  # personne sans cas : il faudrait en ouvrir un
     proposed = [
         OpenCase(
@@ -262,11 +262,11 @@ def test_a_declared_case_never_waits_behind_the_cap():
     """On ne fait pas attendre quelqu'un qui a levé la main pour lui-même."""
     owner = uuid4()
     saturated = tuple(
-        OpenCaseView(id=uuid4(), subject_id=uuid4(), owner_id=owner, origin="absence")
+        LiveCaseView(id=uuid4(), subject_id=uuid4(), owner_id=owner, origin="absence")
         for _ in range(9)
     )
     asker = uuid4()
-    state = WatchStateView(open_cases=saturated)
+    state = WatchStateView(live_cases=saturated)
     proposed = [
         OpenCase(
             subject_id=asker, reason="A demandé qu'on l'appelle.",
@@ -284,8 +284,8 @@ def test_a_held_case_does_not_weigh_on_its_owner_yet():
     """Un cas retenu n'est pas sur les épaules du responsable : il ne consomme pas son budget."""
     owner = uuid4()
     state = WatchStateView(
-        open_cases=(
-            OpenCaseView(
+        live_cases=(
+            LiveCaseView(
                 id=uuid4(), subject_id=uuid4(), owner_id=owner,
                 origin="absence", is_held=True,
             ),

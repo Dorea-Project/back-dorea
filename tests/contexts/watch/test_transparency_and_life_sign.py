@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from app.contexts.watch.application.arbitration import arbitrate
 from app.contexts.watch.application.interpretation import (
-    OpenCaseView,
+    LiveCaseView,
     WatchStateView,
 )
 from app.contexts.watch.application.stop_contacting_me import StopContactingMe
@@ -178,8 +178,8 @@ def _life_sign(subject):
 
 def _state(*, subject, held):
     return WatchStateView(
-        open_cases=(
-            OpenCaseView(
+        live_cases=(
+            LiveCaseView(
                 id=uuid4(), subject_id=subject, owner_id=uuid4(),
                 origin=CasePriority.ABSENCE.value, is_held=held,
             ),

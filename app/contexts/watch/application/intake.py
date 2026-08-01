@@ -29,8 +29,8 @@ from app.contexts.watch.application.arbitration import (
 )
 from app.contexts.watch.application.interpretation import (
     InterpreterRegistry,
+    LiveCaseView,
     NeutralizationView,
-    OpenCaseView,
     WatchStateView,
 )
 from app.contexts.watch.application.materialization import (
@@ -240,7 +240,7 @@ async def load_state(
             for row in neutralizations
         ),
         case=(
-            OpenCaseView(
+            LiveCaseView(
                 id=case[0], subject_id=case[1], owner_id=case[2], origin=case[3], is_held=case[4]
             )
             if case is not None
@@ -267,8 +267,8 @@ async def load_full_state(
             )
             for row in neutralizations
         ),
-        open_cases=tuple(
-            OpenCaseView(
+        live_cases=tuple(
+            LiveCaseView(
                 id=row[0], subject_id=row[1], owner_id=row[2], origin=row[3], is_held=row[4]
             )
             for row in cases

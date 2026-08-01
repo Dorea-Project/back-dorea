@@ -226,7 +226,7 @@ async def test_the_reduced_view_answers_exactly_like_the_materialized_one(
     full = await load_full_state(store, signals, tenant)
 
     assert reduced.is_excluded(member) == full.is_excluded(member)
-    assert reduced.has_open_case(member) == full.has_open_case(member)
+    assert reduced.has_live_case(member) == full.has_live_case(member)
     assert reduced.owner_of(member) == full.owner_of(member)
     assert [n.id for n in reduced.neutralizations_of(member)] == [
         n.id for n in full.neutralizations_of(member)
@@ -255,7 +255,7 @@ async def test_asking_the_reduced_view_about_someone_else_raises():
     with pytest.raises(StateScopeError):
         state.is_excluded(uuid4())
     with pytest.raises(StateScopeError):
-        state.has_open_case(uuid4())
+        state.has_live_case(uuid4())
     with pytest.raises(StateScopeError):
         state.neutralizations_of(uuid4())
 

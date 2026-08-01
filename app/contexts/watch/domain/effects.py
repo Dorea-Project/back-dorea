@@ -188,6 +188,11 @@ class EnrichCase(_Effect):
     raison d'origine. `downgrade` abaisse la priorité : ce qui vient d'arriver rend le cas moins
     urgent sans le rendre inexistant."""
 
+    # **Lu par `_rank`, et par lui seul** — via un `getattr(effect, "origin", None)` qui range les
+    # effets d'un même fait par urgence d'origine. Aucun `EnrichCase.origin` n'apparaît donc dans
+    # une recherche textuelle, et il est très facile de le croire mort et de le retirer : l'ordre
+    # de matérialisation changerait alors sans qu'aucun test ne bronche. Il est utilisé. Ne pas
+    # le supprimer sans traiter `arbitration._rank` d'abord.
     origin: CasePriority
     extend_to: datetime | None = None
     annotation: str | None = None

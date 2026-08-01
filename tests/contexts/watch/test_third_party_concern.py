@@ -21,7 +21,7 @@ from app.contexts.watch.application.concern_watchdog import (
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import (
     InterpreterRegistry,
-    OpenCaseView,
+    LiveCaseView,
     WatchStateView,
 )
 from app.contexts.watch.application.interpreters.third_party_concern import (
@@ -356,10 +356,10 @@ def test_a_concern_waits_behind_the_cap_unlike_a_self_declaration():
     Celui qui demande de l'aide passe devant tout ; celui qui s'organise reste dans la file."""
     jean = uuid4()
     saturated = tuple(
-        OpenCaseView(id=uuid4(), subject_id=uuid4(), owner_id=jean, origin="absence")
+        LiveCaseView(id=uuid4(), subject_id=uuid4(), owner_id=jean, origin="absence")
         for _ in range(5)
     )
-    state = WatchStateView(open_cases=saturated)
+    state = WatchStateView(live_cases=saturated)
     concern = OpenCase(
         subject_id=uuid4(), reason=SELF_ENGAGEMENT, origin=CasePriority.CONCERN,
         opened_at=_NOW, owner_account_id=jean,

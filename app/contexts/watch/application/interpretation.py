@@ -39,8 +39,16 @@ class NeutralizationView:
 
 
 @dataclass(frozen=True)
-class OpenCaseView:
-    """Un cas en cours, en lecture seule.
+class LiveCaseView:
+    """Un cas **vivant**, en lecture seule — `HELD` compris, et c'est tout l'objet du nom.
+
+    Il s'est appelé `OpenCaseView` jusqu'au 01/08/2026, avec `open_cases` et `has_open_case`
+    autour. Le code était juste et le mot mentait : `HELD` n'est pas `OPEN`, la machine à états en
+    fait un état distinct exprès, et `has_open_case()` rendait `True` sur un cas précisément pas
+    ouvert. Un nom qui contredit le modèle finit toujours par produire la ligne qui le suit.
+
+    `is_held` porte la nuance là où elle compte : `open_cases_of_owner` garde son nom parce qu'il
+    compte, lui, les cas réellement **émis** — ce qui pèse sur quelqu'un.
 
     `owner_id` est nullable pour relire une ligne d'avant le 30/07/2026 ; plus aucun chemin n'en
     écrit. « Personne ne connaît cette personne » est une donnée du **référent**, pas du
@@ -74,7 +82,7 @@ class WatchStateView:
 
     excluded_subject_ids: frozenset[UUID] = frozenset()
     open_neutralizations: tuple[NeutralizationView, ...] = ()
-    open_cases: tuple[OpenCaseView, ...] = ()
+    live_cases: tuple[LiveCaseView, ...] = ()
     subject_id: UUID | None = None  # None = vue complète
     owner_case_counts: Mapping[UUID | None, int] | None = None
     # Le régime de rodage de l'église. Par défaut `STEADY` : une vue construite à la main —
@@ -89,14 +97,14 @@ class WatchStateView:
         *,
         excluded: bool,
         neutralizations: tuple[NeutralizationView, ...] = (),
-        case: OpenCaseView | None = None,
+        case: LiveCaseView | None = None,
         regime: TenantRegime = TenantRegime.STEADY,
     ) -> WatchStateView:
         """La vue **réduite** : ce qu'on sait de cette personne-là, et rien d'autre."""
         return cls(
             excluded_subject_ids=frozenset({subject_id}) if excluded else frozenset(),
             open_neutralizations=neutralizations,
-            open_cases=(case,) if case is not None else (),
+            live_cases=(case,) if case is not None else (),
             subject_id=subject_id,
             regime=regime,
         )
@@ -120,13 +128,13 @@ class WatchStateView:
         self._in_scope(subject_id)
         return tuple(n for n in self.open_neutralizations if n.subject_id == subject_id)
 
-    def has_open_case(self, subject_id: UUID) -> bool:
+    def has_live_case(self, subject_id: UUID) -> bool:
         self._in_scope(subject_id)
-        return any(c.subject_id == subject_id for c in self.open_cases)
+        return any(c.subject_id == subject_id for c in self.live_cases)
 
-    def case_of(self, subject_id: UUID) -> OpenCaseView | None:
+    def case_of(self, subject_id: UUID) -> LiveCaseView | None:
         self._in_scope(subject_id)
-        return next((c for c in self.open_cases if c.subject_id == subject_id), None)
+        return next((c for c in self.live_cases if c.subject_id == subject_id), None)
 
     def owner_of(self, subject_id: UUID) -> UUID | None:
         """À qui reviendrait un cas sur cette personne — celui de son cas en cours, s'il existe."""
@@ -142,7 +150,7 @@ class WatchStateView:
         n'apprend rien sur personne."""
         if self.owner_case_counts is not None:
             return self.owner_case_counts.get(owner_id, 0)
-        return sum(1 for c in self.open_cases if c.owner_id == owner_id and not c.is_held)
+        return sum(1 for c in self.live_cases if c.owner_id == owner_id and not c.is_held)
 
 
 class Interpreter(Protocol):
