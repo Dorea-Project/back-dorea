@@ -916,3 +916,80 @@ async def test_a_capped_mobilization_shows_the_count_because_it_has_a_denominato
     assert dto.engagement_count == 1  # le compte, **avec** son dénominateur
     assert dto.slots_needed == 15
     assert dto.slots_remaining == 14
+
+
+# --- Le vocabulaire des types, et ce qui doit rester exhaustif ---------------------------
+
+
+def test_every_category_carries_a_profile():
+    """**Un type sans profil lève un `KeyError` à la publication**, pas à la revue de code.
+
+    `profile_of` indexe directement le dictionnaire : ajouter « fête » à l'enum sans lui donner
+    sa couleur, ses emojis et son intention faisait planter la première annonce publiée. Rien
+    ne le disait — ce test le dit."""
+    from app.contexts.announcements.domain.category import profile_of
+
+    for category in AnnouncementCategory:
+        profil = profile_of(category)
+        assert profil.emojis, category  # une palette vide n'autoriserait aucune réaction
+
+
+def test_every_category_says_whether_it_names_someone():
+    """Chaque type est **soit** sans sujet, **soit** porteur de rôles — jamais ni l'un ni l'autre.
+
+    Un trou ici ne casse rien visiblement : le type accepterait des sujets sans qu'aucun rôle ne
+    lui soit proposé, et le publicateur se retrouverait devant une liste vide sans comprendre."""
+    from app.contexts.announcements.domain.watch_rules import (
+        SUBJECTLESS_CATEGORIES,
+        accepts_subjects,
+        roles_for,
+    )
+
+    for category in AnnouncementCategory:
+        if category in SUBJECTLESS_CATEGORIES:
+            assert not accepts_subjects(category), category
+            assert roles_for(category) == (), category
+        else:
+            assert roles_for(category), f"{category} accepte un sujet sans proposer de rôle"
+
+
+async def test_a_church_can_announce_a_feast():
+    """La fête manquait. Le catalogue disait les grands passages de la vie et le formel, et rien
+    de ce qui réjouit une communauté sans marquer une étape — alors que c'est ce qu'une église
+    annonce le plus souvent après le culte."""
+    secretary, tenant = uuid4(), uuid4()
+    church = _FakeChurch([_church(secretary, tenant, _role(RoleCode.SECRETARY, group_id=None))])
+    pub = PublishAnnouncement(
+        _FakeAnnouncements(), _FakeGroups(), _access(church), clock=lambda: _NOW
+    )
+
+    dto = await pub.execute(
+        actor_account_id=secretary, tenant_id=tenant, category=Cat.CELEBRATION,
+        title="Les 20 ans de l'église", event_at=_NOW + timedelta(days=30),
+    )
+
+    assert dto.tone == "celebration"
+    # **Une fête convoque** : elle n'existe que si les gens viennent. C'est la différence avec un
+    # baptême ou un mariage, qu'on annonce d'abord pour le faire savoir.
+    assert dto.intent == "convene"
+
+    # Et convoquer **exige une date** : on ne convie personne à un moment non dit. La règle
+    # existait ; c'est le choix de `CONVENE` pour ce type qui la rend obligatoire ici.
+    with pytest.raises(InvalidAnnouncementError):
+        await pub.execute(
+            actor_account_id=secretary, tenant_id=tenant, category=Cat.CELEBRATION,
+            title="Les 20 ans de l'église",
+        )
+
+
+def test_a_feast_may_name_the_one_it_honours_without_touching_their_watch():
+    """« Les vingt ans de ministère du pasteur Kouassi » : on peut le nommer.
+
+    `HONOREE` n'a aucun effet de veille — on célèbre, on ne surveille pas — et c'est ce qui rend
+    l'ouverture sans risque."""
+    from app.contexts.announcements.domain.watch_rules import roles_for
+    from app.contexts.watch.domain.role_rules import WatchEffect, resolve_effects
+
+    (role,) = roles_for(Cat.CELEBRATION)
+
+    assert resolve_effects(role) == (WatchEffect.NONE,)

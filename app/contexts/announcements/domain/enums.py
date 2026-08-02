@@ -35,6 +35,11 @@ class AnnouncementCategory(StrEnum):
     BIRTH = "birth"  # naissance
     WEDDING = "wedding"  # mariage
     BAPTISM = "baptism"  # baptême
+    # **La fête** — anniversaire de l'église, jubilé d'un ministère, fin d'année, kermesse.
+    # Le catalogue couvrait les grands passages de la vie (naissance, mariage, deuil) et le
+    # formel (culte, réunion, appel), et rien de ce qui réjouit une communauté sans marquer
+    # une étape. C'est pourtant ce qu'une église annonce le plus souvent après le culte.
+    CELEBRATION = "celebration"
     SICKNESS = "sickness"  # maladie / hospitalisation
     TRAVEL = "travel"  # voyage / absence prolongée annoncée
     SERVICE = "service"  # culte

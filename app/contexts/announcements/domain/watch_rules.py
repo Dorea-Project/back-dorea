@@ -58,6 +58,10 @@ ROLES_FOR_CATEGORY: dict[AnnouncementCategory, tuple[SubjectRole, ...]] = {
     C.BIRTH: (R.NEW_PARENT,),
     C.WEDDING: (R.NEWLYWED,),
     C.BAPTISM: (R.HONOREE,),
+    # « Les vingt ans de ministère du pasteur Kouassi » : on peut nommer celui qu'on fête. Le rôle
+    # `HONOREE` n'a **aucun effet de veille** — on célèbre, on ne surveille pas — et c'est ce qui
+    # rend l'ouverture sans risque : nommer quelqu'un dans une fête ne touche pas à sa veille.
+    C.CELEBRATION: (R.HONOREE,),
     C.SICKNESS: (R.SICK,),
     C.TRAVEL: (R.TRAVELER,),
     C.PRAYER: (R.SICK, R.BEREAVED, R.TRAVELER),  # « portons X » — le rôle précise pourquoi

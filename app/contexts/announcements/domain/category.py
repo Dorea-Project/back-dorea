@@ -33,6 +33,9 @@ CATEGORY_PROFILE: dict[AnnouncementCategory, CategoryProfile] = {
     C.BIRTH: CategoryProfile(T.JOY, Intent.INFORM, ("🎉", "❤️", "👶")),
     C.WEDDING: CategoryProfile(T.CELEBRATION, Intent.INFORM, ("🎉", "❤️", "👏")),
     C.BAPTISM: CategoryProfile(T.CELEBRATION, Intent.INFORM, ("🎉", "🙏", "👏")),
+    # Une fête **convoque** : elle n'existe que si les gens viennent. C'est la différence avec un
+    # baptême, qu'on annonce d'abord pour le faire savoir — ici, « je viens » est le geste utile.
+    C.CELEBRATION: CategoryProfile(T.CELEBRATION, Intent.CONVENE, ("🎉", "🙌", "👏")),
     # La maladie appelle à porter, pas à liker : intention « prier », palette sobre.
     C.SICKNESS: CategoryProfile(T.SOLEMN, Intent.PRAY, ("🙏", "❤️")),
     # Le voyage informe (« je serai loin N semaines ») — son effet est dans la veille, pas au fil.

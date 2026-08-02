@@ -1184,3 +1184,23 @@ async def test_confirming_twice_does_not_remind_twice():
     await confirmer.execute(actor_account_id=awa, event_id=events._e[0].id)
 
     assert len(scheduler.calls) == 1
+
+
+async def test_a_member_can_publish_a_shared_meal():
+    """« Agape » est le mot de l'Église pour un repas fraternel, en français comme en anglais.
+
+    Il dit plus précisément que « repas » : on mange ensemble parce qu'on est frères, pas au
+    restaurant. Le catalogue disait le formel — convention, séminaire, formation, culte — et rien
+    du convivial, alors que c'est ce qu'un membre ordinaire publie le plus souvent."""
+    tenant, yao = uuid4(), uuid4()
+    publier = PublishEvent(
+        _FakeEvents(), _FakeMemberships([_member(yao, tenant)]), _FakeBusiness(False),
+        clock=lambda: _NOW,
+    )
+
+    dto = await publier.execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+
+    assert dto.category == "agape"

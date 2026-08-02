@@ -46,8 +46,9 @@ class AnnouncementSubjectRequest(BaseModel):
 
 class PublishAnnouncementRequest(BaseModel):
     category: AnnouncementCategory = Field(
-        description="Le sujet : death | birth | wedding | baptism | sickness | travel | service | "
-        "meeting | call | prayer | testimony | info. Pilote couleur, emojis, intention par défaut."
+        description="Le sujet : death | birth | wedding | baptism | celebration | sickness | "
+        "travel | service | meeting | call | prayer | testimony | sermon | info. "
+        "Pilote couleur, emojis, intention par défaut."
     )
     title: str = Field(examples=["Rappel à Dieu de Frère Yao"])
     intent: AnnouncementIntent | None = Field(

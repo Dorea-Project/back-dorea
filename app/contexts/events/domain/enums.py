@@ -39,7 +39,12 @@ class EventCategory(StrEnum):
     CONCERT = "concert"
     SEMINAR = "seminar"  # séminaire
     SERVICE = "service"  # culte spécial
-    OUTING = "outing"  # sortie
+    OUTING = "outing"
+    # **Le repas fraternel.** Le catalogue disait le formel — convention, séminaire, formation,
+    # culte — et rien du convivial, alors que c'est ce qu'un membre ordinaire publie le plus
+    # souvent. « Agape » est le mot de l'Église pour ça, en français comme en anglais, et il dit
+    # plus précisément que « repas » : on mange ensemble parce qu'on est frères, pas au restaurant.
+    AGAPE = "agape"  # sortie
     TRAINING = "training"  # formation
     OTHER = "other"
 
