@@ -14,13 +14,14 @@ from uuid import UUID
 from app.contexts.events.application.dtos import EventDTO, ParticipantDTO
 from app.contexts.events.application.mapping import to_event_dto, to_participant_dto
 from app.contexts.events.application.ports import EventAudiencePort
-from app.contexts.events.domain.aggregates import Event
+from app.contexts.events.domain.aggregates import NEARBY_RADIUS_KM, Event
 from app.contexts.events.domain.enums import EventScope
 from app.contexts.events.domain.errors import (
     EventNotFoundError,
     NotAChurchMemberError,
     NotEventAuthorError,
 )
+from app.contexts.events.domain.geo import distance_km
 from app.contexts.events.domain.repositories import (
     EventParticipantRepository,
     EventReactionRepository,
@@ -117,6 +118,22 @@ class ListVisibleEvents:
         for e in await self._events.list_published_by_scope(EventScope.PLATFORM, None):
             by_id.setdefault(e.id, e)  # toute la plateforme
 
+        # **Le voisinage, vu depuis le spectateur.** C'est ici que la portée géographique devient
+        # réelle : elle n'a poussé aucune notification, elle apparaît quand on ouvre l'application.
+        #
+        # Le rayon est mesuré depuis le **lieu de l'événement** vers **mon église** — le même
+        # calcul que celui qui a défini l'audience à la publication, donc la même réponse. Le
+        # faire depuis ma position à moi rendrait le fil dépendant d'où je me trouve à cet
+        # instant, et un événement disparaîtrait parce que je suis parti au village.
+        me = await self._audience.location_of(tenant_id)
+        if me is not None:
+            my_lat, my_lon = me
+            for e in await self._events.list_published_by_scope(EventScope.NEARBY, None):
+                if e.latitude is None or e.id in by_id:
+                    continue
+                if distance_km(e.latitude, e.longitude, my_lat, my_lon) <= NEARBY_RADIUS_KM:
+                    by_id[e.id] = e
+
         ordered = sorted(by_id.values(), key=lambda e: e.starts_at)
         return [
             await _decorate(
@@ -154,12 +171,31 @@ class GetEvent:
 
     async def _ensure_can_view(self, event: Event, viewer_account_id: UUID) -> None:
         """La visibilité suit la portée : plateforme ouverte ; église → membre de l'église ;
-        dénomination → membre d'une église de la dénomination."""
+        voisinage → membre d'une église à portée ; dénomination → membre du même corps.
+
+        Le `else` valait « dénomination » tant qu'il n'existait que trois portées. Ajouter
+        `NEARBY` sans toucher à cette branche aurait fait juger un événement de voisinage sur la
+        dénomination de son auteur — donc invisible pour précisément ceux qu'il vise."""
         if event.scope is EventScope.PLATFORM:
             return
         if event.scope is EventScope.CHURCH:
             if await self._memberships.get_active(viewer_account_id, event.tenant_id) is not None:
                 return
+        elif event.scope is EventScope.NEARBY:
+            if event.latitude is not None:
+                near = set(
+                    await self._audience.tenants_near(
+                        latitude=event.latitude,
+                        longitude=event.longitude,
+                        radius_km=NEARBY_RADIUS_KM,
+                    )
+                )
+                mine = {
+                    m.tenant_id
+                    for m in await self._memberships.list_active_by_account(viewer_account_id)
+                }
+                if mine & near:
+                    return
         else:  # DENOMINATION
             denomination = await self._audience.denomination_of(event.tenant_id)
             if denomination is not None:

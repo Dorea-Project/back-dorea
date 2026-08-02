@@ -29,6 +29,30 @@ class EventAudiencePort(ABC):
         ...
 
     @abstractmethod
+    async def location_of(self, tenant_id: UUID) -> tuple[float, float] | None:
+        """Les coordonnées d'une église, ou None si elle ne les a pas renseignées.
+
+        Une église sans coordonnées ne voit aucun événement de voisinage, et n'apparaît dans
+        l'audience d'aucun : c'est une donnée manquante, pas une exclusion — l'onboarding la
+        demande déjà."""
+        ...
+
+    @abstractmethod
+    async def tenants_near(
+        self, *, latitude: float, longitude: float, radius_km: float
+    ) -> list[UUID]:
+        """Les églises dans un rayon autour d'un point — **toutes dénominations confondues**.
+
+        C'est la seule question géographique du produit, et elle était absente : `country`,
+        `city`, `latitude` et `longitude` sont collectés à l'onboarding de chaque église, portés
+        par chaque événement, et n'ont jamais servi à choisir qui est atteint.
+
+        On interroge les coordonnées, pas la commune : `city` est du texte libre, et « Yopougon »
+        y sera saisi « Yopougon », « Abidjan » ou « Abidjan-Yopougon » selon la personne. Un rayon
+        se vérifie ; une chaîne de caractères se discute."""
+        ...
+
+    @abstractmethod
     async def member_account_ids(self, tenant_ids: list[UUID]) -> list[UUID]:
         """Les comptes des membres actifs d'un ensemble d'églises — la cible d'un broadcast."""
         ...

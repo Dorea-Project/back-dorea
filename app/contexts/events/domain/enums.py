@@ -6,12 +6,29 @@ from enum import StrEnum
 
 
 class EventScope(StrEnum):
-    """Le cercle qu'atteint l'événement — l'échelle du rayonnement.
+    """Le cercle qu'atteint l'événement — **deux axes, pas un**.
 
-    CHURCH est gratuit (le corps local) ; DENOMINATION et PLATFORM demandent le compte Business
-    (à venir) — rayonner plus loin est un acte institutionnel, pas un geste personnel."""
+    `CHURCH` et `NEARBY` sont gratuits : le corps local, et le quartier autour du lieu. Ils
+    décrivent *où* ça se passe.
+
+    `DENOMINATION` et `PLATFORM` demandent le compte Business **et** le mandat de l'église :
+    rayonner au-delà de son voisinage est un acte institutionnel, pas un geste personnel. Ils
+    décrivent *au nom de qui* on parle.
+
+    Confondre les deux axes coûtait cher : sans `NEARBY`, atteindre les églises voisines d'une
+    autre dénomination exigeait `PLATFORM`, c'est-à-dire toute la plateforme."""
 
     CHURCH = "church"  # les membres de mon église (gratuit)
+    # **Le voisinage** — les églises dans un rayon autour du lieu, quelle que soit leur
+    # dénomination. Les trois autres portées sont *institutionnelles* (mon église, mon corps, la
+    # plateforme) ; celle-ci est *géographique*, et elle manquait.
+    #
+    # Sans elle, un repas de quartier à Yopougon n'avait qu'une issue : `PLATFORM`, qui touche
+    # 11 000 personnes pour en viser 662 — dix-sept fois trop large. Le pasteur avait raison de
+    # refuser le mandat, et le geste légitime devenait impossible.
+    #
+    # Gratuite, comme `CHURCH` : c'est le corps local élargi, pas du rayonnement institutionnel.
+    NEARBY = "nearby"
     DENOMINATION = "denomination"  # toutes les églises de ma dénomination (Business, à venir)
     PLATFORM = "platform"  # toute la plateforme Dorea (Business, à venir)
 

@@ -24,6 +24,22 @@ from app.contexts.events.domain.errors import (
     WiderReachRequiresBusinessError,
 )
 
+# **Le rayon du voisinage, fixé par le produit — jamais par le publicateur.**
+#
+# C'est le point de sûreté de cette portée. Un rayon choisi à la publication serait une porte
+# dérobée : « autour de moi, dans 20 000 km » atteindrait toute la plateforme sans le compte
+# Business ni le mandat de l'église. Le publicateur choisit *où* a lieu son événement ; le produit
+# décide *jusqu'où* « autour » veut dire quelque chose.
+#
+# 10 km est un pari, comme les seuils du moteur de veille : à Abidjan c'est la commune et ses
+# voisines, en zone rurale c'est plusieurs villages. À calibrer au pilote, pas à deviner ici.
+NEARBY_RADIUS_KM = 10.0
+
+# Ce qui n'exige pas le compte Business : mon église, et le voisinage de mon événement.
+FREE_SCOPES: frozenset[EventScope] = frozenset(
+    {EventScope.CHURCH, EventScope.NEARBY}
+)
+
 
 class Event(AggregateRoot):
     def __init__(
@@ -93,8 +109,17 @@ class Event(AggregateRoot):
             raise InvalidEventError("La géolocalisation exige latitude ET longitude.")
         if ends_at is not None and ends_at < starts_at:
             raise InvalidEventError("La fin ne peut pas précéder le début.")
+        # **« Autour » exige un « ici ».** Une portée de voisinage sans coordonnées n'a aucun
+        # centre : elle ne désignerait aucune église, et l'auteur croirait rayonner.
+        if scope is EventScope.NEARBY and latitude is None:
+            raise InvalidEventError(
+                "Toucher les églises voisines demande le lieu de l'événement "
+                "(latitude et longitude)."
+            )
         # E-0 : au-delà de l'église, il faut le compte Business (le rayonnement institutionnel).
-        if scope is not EventScope.CHURCH and not business_active:
+        # `NEARBY` en est exempte : le voisinage n'est pas une institution, c'est le corps local
+        # élargi — faire payer un repas de quartier serait taxer ce qu'on veut encourager.
+        if scope not in FREE_SCOPES and not business_active:
             raise WiderReachRequiresBusinessError(
                 "Rayonner au-delà de ton église arrive avec le compte Business.",
                 details={"scope": scope.value},

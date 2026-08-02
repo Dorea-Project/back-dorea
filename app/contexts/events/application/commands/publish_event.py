@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from app.contexts.events.application.dtos import EventDTO
 from app.contexts.events.application.mapping import to_event_dto
 from app.contexts.events.application.ports import BusinessTierPort, EventAudiencePort
-from app.contexts.events.domain.aggregates import Event
+from app.contexts.events.domain.aggregates import FREE_SCOPES, Event
 from app.contexts.events.domain.enums import EventCategory, EventScope
 from app.contexts.events.domain.errors import (
     EventNotFoundError,
@@ -65,7 +65,14 @@ class PublishEvent:
 
     async def _broadcast(self, event: Event) -> None:
         """Prévenir l'audience atteinte (best-effort). Église/dénomination : envoi synchrone.
-        Plateforme : audience trop large → **enqueue** dans l'outbox (dispatché hors requête)."""
+        Plateforme : audience trop large → **enqueue** dans l'outbox (dispatché hors requête).
+
+        **Le voisinage ne pousse rien au-delà de l'église de l'auteur**, et c'est le cœur du
+        compromis. Rayonner et déranger sont deux choses différentes : les membres de Shalom
+        verront l'événement en ouvrant Dorea, personne ne verra son téléphone s'allumer. C'est ce
+        qui permet à cette portée d'être gratuite *et* sans mandat — un membre ordinaire ne peut
+        pas faire sonner six cents téléphones dans des églises qui ne sont pas la sienne.
+        """
         if self._audience is None:
             return
         notification = PushNotification(
@@ -78,7 +85,7 @@ class PublishEvent:
             return
         if self._notifier is None:
             return
-        if event.scope is EventScope.CHURCH:
+        if event.scope in (EventScope.CHURCH, EventScope.NEARBY):
             tenant_ids = [event.tenant_id]
         else:  # DENOMINATION
             denomination = await self._audience.denomination_of(event.tenant_id)
@@ -154,10 +161,14 @@ class PublishEvent:
             )
         # La porte du rayonnement : au-delà de l'église, il faut le compte Business de l'auteur
         # **et** le mandat de son église.
-        business_active = scope is not EventScope.CHURCH and await self._business.is_business(
-            actor_account_id
-        )
-        if scope is not EventScope.CHURCH:
+        #
+        # `NEARBY` ne franchit ni l'une ni l'autre. Elle n'engage pas l'institution — elle ne
+        # parle au nom de personne, elle dit « il se passe ça, ici » — et elle ne pousse aucune
+        # notification hors de l'église de l'auteur. Exiger le mandat pour un repas de quartier
+        # aurait reconduit exactement le blocage qu'elle existe pour lever.
+        needs_keys = scope not in FREE_SCOPES
+        business_active = needs_keys and await self._business.is_business(actor_account_id)
+        if needs_keys:
             await self._ensure_mandate(actor_account_id, tenant_id, scope)
         event = Event.publish(
             id=uuid4(),

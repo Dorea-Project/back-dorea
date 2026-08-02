@@ -184,13 +184,18 @@ class _FakeViews(EventViewRepository):
 
 class _FakeAudience(EventAudiencePort):
     def __init__(
-        self, denomination=None, member_count=0, peers=(), members=(), all_tenants=()
+        self, denomination=None, member_count=0, peers=(), members=(), all_tenants=(),
+        locations=None, near=None,
     ):
         self._denomination = denomination
         self._member_count = member_count
         self._peers = list(peers)
         self._members = list(members)
         self._all_tenants = list(all_tenants)
+        # `locations` : tenant -> (lat, lon). `near` : les églises à portée, si on veut les
+        # imposer sans passer par la géométrie.
+        self._locations = dict(locations or {})
+        self._near = list(near) if near is not None else None
 
     async def denomination_of(self, tenant_id):
         return self._denomination
@@ -206,6 +211,19 @@ class _FakeAudience(EventAudiencePort):
 
     async def member_account_ids(self, tenant_ids):
         return list(self._members)
+
+    async def location_of(self, tenant_id):
+        return self._locations.get(tenant_id)
+
+    async def tenants_near(self, *, latitude, longitude, radius_km):
+        if self._near is not None:
+            return list(self._near)
+        from app.contexts.events.domain.geo import distance_km
+
+        return [
+            t for t, (lat, lon) in self._locations.items()
+            if distance_km(latitude, longitude, lat, lon) <= radius_km
+        ]
 
 
 class _FakeBusiness(BusinessTierPort):
@@ -857,3 +875,198 @@ async def test_the_church_scope_needs_neither_card_nor_mandate():
 
     assert dto.scope == "church"
     assert mandate.asked == []  # on ne demande rien pour parler chez soi
+
+
+# --- Le voisinage : la portée géographique -----------------------------------------------
+#
+# Les trois portées d'origine sont **institutionnelles** (mon église, mon corps, la plateforme).
+# Celle-ci est **géographique**, et elle manquait : pour un repas de quartier à Yopougon, la seule
+# portée qui franchissait la dénomination touchait 11 272 personnes pour en viser 662.
+
+_YOPOUGON = (5.3364, -4.0761)
+_YOPOUGON_BIS = (5.3450, -4.0700)  # ~1 km — la même commune, une autre dénomination
+_COCODY = (5.3600, -3.9800)  # ~11 km — l'autre bout d'Abidjan
+_BOUAKE = (7.6900, -5.0300)  # ~300 km
+
+
+def _nearby(events, memberships, *, audience=None, mandate=None, notifier=None):
+    return PublishEvent(
+        events, memberships, _FakeBusiness(False), mandate, audience, notifier,
+        _FakeScheduler(), clock=lambda: _NOW,
+    )
+
+
+async def test_a_neighbourhood_event_needs_a_place():
+    """« Autour » exige un « ici ». Sans coordonnées, la portée ne désignerait aucune église —
+    et l'auteur croirait rayonner."""
+    tenant, yao = uuid4(), uuid4()
+    publier = _nearby(_FakeEvents(), _FakeMemberships([_member(yao, tenant)]))
+
+    with pytest.raises(InvalidEventError):
+        await publier.execute(
+            actor_account_id=yao, tenant_id=tenant, category=EventCategory.OUTING,
+            title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        )
+
+
+async def test_the_neighbourhood_costs_nothing_and_asks_no_mandate():
+    """Un membre ordinaire, sans compte Business et sans mandat, atteint son quartier.
+
+    C'est le geste que les trois portées institutionnelles rendaient impossible : pour Yopougon
+    il fallait `PLATFORM` — dix-sept fois trop large, et un pasteur qui a raison de refuser."""
+    tenant, yao = uuid4(), uuid4()
+    mandat = _FakeMandate(granted=False)  # même refusé, il ne doit pas être consulté
+    publier = _nearby(
+        _FakeEvents(), _FakeMemberships([_member(yao, tenant)]), mandate=mandat
+    )
+
+    dto = await publier.execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    assert dto.scope == "nearby"
+    assert mandat.asked == []  # aucun mandat demandé pour parler à son quartier
+
+
+async def test_the_neighbourhood_wakes_no_phone_outside_my_church():
+    """**Rayonner et déranger sont deux choses différentes.**
+
+    C'est ce qui permet à cette portée d'être gratuite *et* sans mandat : un membre ordinaire ne
+    peut pas faire sonner six cents téléphones dans des églises qui ne sont pas la sienne. Les
+    voisins la verront en ouvrant Dorea — un seul envoi, celui de son église."""
+    tenant, voisine, yao = uuid4(), uuid4(), uuid4()
+    notifier = _FakeNotifier()
+    audience = _FakeAudience(
+        members=[yao, uuid4(), uuid4()],
+        locations={tenant: _YOPOUGON, voisine: _YOPOUGON_BIS},
+    )
+    publier = _nearby(
+        _FakeEvents(), _FakeMemberships([_member(yao, tenant)]),
+        audience=audience, notifier=notifier,
+    )
+
+    await publier.execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    assert len(notifier.calls) == 1  # une seule diffusion : celle de l'église de l'auteur
+    assert yao not in notifier.calls[0][0]
+
+
+def test_the_radius_is_the_products_decision_not_the_publishers():
+    """**Le point de sûreté de cette portée.**
+
+    Un rayon choisi à la publication serait une porte dérobée : « autour de moi, dans 20 000 km »
+    atteindrait toute la plateforme sans compte Business ni mandat. Le publicateur dit *où* a lieu
+    son événement ; le produit dit *jusqu'où* « autour » veut dire quelque chose."""
+    import inspect
+
+    params = inspect.signature(PublishEvent.execute).parameters
+    assert not any("radius" in p or "rayon" in p for p in params)
+
+
+def test_what_counts_as_the_neighbourhood():
+    """Un kilomètre, c'est le quartier ; onze, c'est déjà l'autre bout d'Abidjan."""
+    from app.contexts.events.domain.aggregates import NEARBY_RADIUS_KM
+    from app.contexts.events.domain.geo import distance_km
+
+    assert distance_km(*_YOPOUGON, *_YOPOUGON_BIS) <= NEARBY_RADIUS_KM
+    assert distance_km(*_YOPOUGON, *_COCODY) > NEARBY_RADIUS_KM
+    assert distance_km(*_YOPOUGON, *_BOUAKE) > 250
+
+
+async def test_the_neighbours_see_it_without_being_of_my_denomination():
+    """Le fond du cas : Shalom est CMA, Hozana est AD-CI, et elles sont à trois rues."""
+    hozana, shalom, yao, awa = uuid4(), uuid4(), uuid4(), uuid4()
+    events = _FakeEvents()
+    audience = _FakeAudience(
+        denomination="CMA",  # celle de Shalom — sans rapport avec l'événement
+        locations={hozana: _YOPOUGON, shalom: _YOPOUGON_BIS},
+    )
+    memberships = _FakeMemberships([_member(yao, hozana), _member(awa, shalom)])
+    dto = await _nearby(events, memberships).execute(
+        actor_account_id=yao, tenant_id=hozana, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    fil = await ListVisibleEvents(
+        events, _FakeParticipants(), _FakeReactions(), audience, memberships
+    ).execute(tenant_id=shalom, viewer_account_id=awa)
+
+    assert [e.id for e in fil] == [dto.id]
+
+
+async def test_a_church_out_of_range_never_sees_it():
+    hozana, bouake, yao, kouassi = uuid4(), uuid4(), uuid4(), uuid4()
+    events = _FakeEvents()
+    audience = _FakeAudience(locations={hozana: _YOPOUGON, bouake: _BOUAKE})
+    memberships = _FakeMemberships([_member(yao, hozana), _member(kouassi, bouake)])
+    await _nearby(events, memberships).execute(
+        actor_account_id=yao, tenant_id=hozana, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    fil = await ListVisibleEvents(
+        events, _FakeParticipants(), _FakeReactions(), audience, memberships
+    ).execute(tenant_id=bouake, viewer_account_id=kouassi)
+
+    assert fil == []
+
+
+async def test_opening_a_neighbourhood_event_is_judged_on_distance_not_denomination():
+    """Le `else` de la visibilité valait « dénomination » tant qu'il n'existait que trois portées.
+
+    Sans cette branche, un événement de voisinage aurait été jugé sur la dénomination de son
+    auteur — donc invisible pour précisément ceux qu'il vise."""
+    hozana, shalom, yao, awa = uuid4(), uuid4(), uuid4(), uuid4()
+    events = _FakeEvents()
+    audience = _FakeAudience(
+        denomination="AD-CI",
+        peers=[hozana],  # Shalom n'en fait PAS partie
+        locations={hozana: _YOPOUGON, shalom: _YOPOUGON_BIS},
+    )
+    memberships = _FakeMemberships([_member(yao, hozana), _member(awa, shalom)])
+    dto = await _nearby(events, memberships).execute(
+        actor_account_id=yao, tenant_id=hozana, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    vu = await GetEvent(
+        events, _FakeParticipants(), _FakeReactions(), audience, memberships
+    ).execute(event_id=dto.id, viewer_account_id=awa)
+
+    assert vu.id == dto.id
+
+
+async def test_the_reach_follows_the_scope():
+    """**Un taux dont le dénominateur est faux est pire qu'une absence de taux : il rassure.**
+
+    `reach` ne comptait que l'église de l'auteur, quelle que soit la portée — un événement de
+    voisinage aurait affiché « 40 vues sur 42 » en en atteignant 662."""
+    hozana, shalom, yao = uuid4(), uuid4(), uuid4()
+    voisins = [uuid4() for _ in range(200)]
+    events = _FakeEvents()
+    audience = _FakeAudience(
+        member_count=42,  # l'église de l'auteur seule
+        members=[yao, *voisins],  # ce que rendent les églises à portée
+        locations={hozana: _YOPOUGON, shalom: _YOPOUGON_BIS},
+    )
+    memberships = _FakeMemberships([_member(yao, hozana)])
+    dto = await _nearby(events, memberships).execute(
+        actor_account_id=yao, tenant_id=hozana, category=EventCategory.OUTING,
+        title="HozanaBouf", starts_at=_SOON, scope=EventScope.NEARBY,
+        latitude=_YOPOUGON[0], longitude=_YOPOUGON[1],
+    )
+
+    stats = await GetEventStats(
+        events, _FakeViews(), _FakeParticipants(), _FakeReactions(), audience
+    ).execute(actor_account_id=yao, event_id=dto.id)
+
+    assert stats.reach == 201  # les voisins, pas les 42 de Hozana
