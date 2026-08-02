@@ -18,7 +18,11 @@ from uuid import uuid4
 
 from app.contexts.attendance.domain.cadence import CadenceFrequency, GroupCadence
 from app.contexts.groups.application.watch_facts import EmitJoinedGroupFact, fact_id_for
-from app.contexts.watch.application.blind_groups import DetectBlindGroups, GroupWatchRhythm
+from app.contexts.watch.application.blind_groups import (
+    DetectBlindGroups,
+    GroupWatchRhythm,
+    RhythmlessGroup,
+)
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.absence_watch import ABSENCE_WATCH_KIND
@@ -134,8 +138,18 @@ async def test_joining_a_group_arms_the_watch_for_someone_never_seen():
     assert signals.rows == []
 
 
-async def test_joining_a_group_without_a_cadence_arms_nothing():
-    """Sans rythme attendu, il n'y a rien à manquer — on n'arme pas sur une intuition."""
+async def test_joining_a_group_without_a_cadence_arms_nothing_but_is_still_written():
+    """Sans rythme attendu, il n'y a rien à manquer — on n'arme pas sur une intuition.
+
+    **Mais le fait entre au journal.** Il n'y entrait pas, et la conséquence était silencieuse :
+    quelqu'un inscrit dans une cellule sans rythme déclaré n'existait nulle part. Le jour où la
+    cellule déclarait enfin son rythme, un rejeu ne trouvait rien à rejouer — la personne restait
+    invisible pour toujours, sauf à venir d'elle-même. C'est-à-dire exactement la population que
+    ce fait a été créé pour couvrir : *celui qu'on n'a jamais vu*.
+
+    La règle du moteur vaut ici comme ailleurs : un fait garde son sens jusqu'à ce qu'on sache
+    l'écrire. Une source dit ce qui a eu lieu ; elle ne jette rien parce qu'un détail d'aval
+    manque."""
     tenant, member, group = uuid4(), uuid4(), uuid4()
     checks, ledger = FakeChecks(), FakeLedger()
     intake = _engine(checks, ledger=ledger)
@@ -145,8 +159,9 @@ async def test_joining_a_group_without_a_cadence_arms_nothing():
         joined_at=_NOW, recorded_at=_NOW,
     )
 
-    assert emitted is False
-    assert ledger.rows == []
+    assert emitted is True
+    assert len(ledger.rows) == 1
+    assert "check_absence_at" not in ledger.rows[0].payload  # rien à armer, et on le dit
     assert checks.rows == []
 
 
@@ -320,3 +335,89 @@ async def test_the_defect_is_not_repeated_every_night():
     assert first.recorded == 1
     assert second.detected == 1 and second.recorded == 0  # détecté encore, consigné une fois
     assert len(gaps.rows) == 1
+
+
+# --- Le groupe sans rythme : un cran avant l'aveugle -------------------------------------
+#
+# Un groupe aveugle a au moins dit **quand** il se réunit : le moteur sait qu'il devrait voir
+# quelque chose, et son silence est lisible. Un groupe sans cadence n'attend personne à aucune
+# date — aucune détection ne s'y arme jamais, personne n'y manque jamais.
+#
+# Il échappait aux deux filets à la fois : l'adhésion n'armait rien *et ne journalisait rien*, et
+# la détection des aveugles part des cadences, donc ne pouvait pas le voir. Son écran vide
+# ressemblait à la santé : la faute exacte que `BLIND` existe pour empêcher, un étage plus haut.
+
+
+class _RhythmsWithout:
+    """Un adaptateur qui connaît les deux questions : les groupes suivis, et ceux sans rythme."""
+
+    def __init__(self, watched=(), rhythmless=()):
+        self._watched = list(watched)
+        self._rhythmless = list(rhythmless)
+
+    async def watched_groups(self, *, tenant_id):
+        return list(self._watched)
+
+    async def groups_without_rhythm(self, *, tenant_id):
+        return list(self._rhythmless)
+
+
+async def test_a_group_with_members_and_no_rhythm_is_a_coverage_gap():
+    """Le défaut porte sur le **groupe**, comme `BLIND` : ce n'est pas une personne qui manque,
+    c'est le regard qui n'existe pas."""
+    tenant = uuid4()
+    gaps = _Gaps()
+    rhythms = _RhythmsWithout(
+        rhythmless=[RhythmlessGroup(group_id=uuid4(), label="la cellule Bethel", member_count=12)]
+    )
+
+    result = await DetectBlindGroups(rhythms, gaps, _Params(), clock=lambda: _NOW).execute(
+        tenant_id=tenant
+    )
+
+    assert result.rhythmless == 1
+    (record,) = gaps.rows
+    assert record.gap is CoverageGap.NO_RHYTHM
+    assert record.scope is CoverageScope.GROUP
+    assert "la cellule Bethel" in record.reason
+    assert "12 membres" in record.reason
+
+
+async def test_an_empty_group_is_not_reproached_for_having_no_rhythm():
+    """Un groupe fraîchement créé et encore vide n'a rien à déclarer.
+
+    Le signaler ferait du défaut de couverture un reproche de démarrage — et le bruit se
+    désapprend en trois semaines."""
+    gaps = _Gaps()
+    # L'adaptateur ne rend que les groupes **avec des membres** : c'est sa requête qui filtre.
+    rhythms = _RhythmsWithout(rhythmless=[])
+
+    result = await DetectBlindGroups(rhythms, gaps, _Params(), clock=lambda: _NOW).execute(
+        tenant_id=uuid4()
+    )
+
+    assert result.rhythmless == 0
+    assert gaps.rows == []
+
+
+async def test_the_same_rhythmless_group_is_not_recorded_twice():
+    """Un rappel qui revient chaque nuit devient du bruit."""
+    tenant = uuid4()
+    gaps = _Gaps()
+    rhythms = _RhythmsWithout(
+        rhythmless=[RhythmlessGroup(group_id=uuid4(), label="Bethel", member_count=4)]
+    )
+    detect = DetectBlindGroups(rhythms, gaps, _Params(), clock=lambda: _NOW)
+
+    await detect.execute(tenant_id=tenant)
+    second = await detect.execute(tenant_id=tenant)
+
+    assert second.rhythmless == 0
+    assert len(gaps.rows) == 1
+
+
+async def test_the_two_gaps_are_distinct_because_the_action_is_not_the_same():
+    """« Faites saisir vos rencontres » et « dites quand vous vous réunissez » ne sont pas la
+    même demande. Les confondre laisserait le pasteur sans savoir quoi faire."""
+    assert CoverageGap.NO_RHYTHM is not CoverageGap.BLIND
+    assert {CoverageGap.NO_RHYTHM, CoverageGap.BLIND} <= set(CoverageGap)

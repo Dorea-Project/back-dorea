@@ -47,16 +47,33 @@ class EmitJoinedGroupFact:
         joined_at: datetime,
         recorded_at: datetime,
     ) -> bool:
-        if self._intake is None or self._rhythm is None:
+        if self._intake is None:
             return False
 
-        due = await self._rhythm.next_check_at(
-            group_id=group_id, tenant_id=tenant_id, since=joined_at
+        # Un groupe sans cadence déclarée n'attend personne à une date connue : il n'y a rien à
+        # armer. **Ce n'est pas une raison de ne rien écrire.**
+        #
+        # Le fait partait jadis à la poubelle dans ce cas, et la conséquence était silencieuse :
+        # quelqu'un inscrit dans une cellule qui n'a pas déclaré son rythme n'existait nulle part
+        # dans le journal. Le jour où la cellule déclarait enfin son rythme, un rejeu ne trouvait
+        # rien à rejouer — la personne restait invisible pour toujours, sauf à venir d'elle-même.
+        # C'est-à-dire exactement la population que ce fait a été créé pour couvrir : *celui qu'on
+        # n'a jamais vu*.
+        #
+        # Le moteur a une règle pour ça, écrite et testée ailleurs : *un fait garde son sens
+        # jusqu'à ce qu'on sache l'écrire*. Une source ne jette pas un fait parce qu'un détail
+        # d'aval manque — elle dit ce qui a eu lieu, et l'engine fait ce qu'il peut. L'interpreter
+        # sait déjà se taire sans la date (`arm_absence_watch`).
+        due = (
+            await self._rhythm.next_check_at(
+                group_id=group_id, tenant_id=tenant_id, since=joined_at
+            )
+            if self._rhythm is not None
+            else None
         )
-        if due is None:
-            # Un groupe sans cadence déclarée n'attend personne à une date connue : il n'y a
-            # rien à armer, et on ne pose pas d'échéance sur une intuition.
-            return False
+        payload: dict = {"group_id": str(group_id)}
+        if due is not None:
+            payload["check_absence_at"] = due.isoformat()
 
         result = await self._intake.submit(
             Fact(
@@ -68,7 +85,7 @@ class EmitJoinedGroupFact:
                 kind=FactKind.JOINED_GROUP,
                 subject_kind=SubjectKind.PERSON,
                 subject_id=account_id,
-                payload={"group_id": str(group_id), "check_absence_at": due.isoformat()},
+                payload=payload,
             )
         )
         return result.accepted

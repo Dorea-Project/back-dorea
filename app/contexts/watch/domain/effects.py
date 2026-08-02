@@ -106,6 +106,16 @@ class CoverageGap(StrEnum):
 
     NO_REFERENT = "no_referent"  # personne ne connaît cette personne
     BLIND = "blind"  # aucune rencontre saisie : on ne sait rien
+    # **Aucun rythme déclaré.** Un cran avant `BLIND`, et plus grave : un groupe aveugle a au
+    # moins dit quand il se réunit, donc le moteur sait qu'il devrait voir quelque chose. Un
+    # groupe sans cadence n'attend personne à aucune date — personne n'y est jamais absent, et
+    # aucune détection ne s'y arme jamais.
+    #
+    # Il échappait aux deux filets à la fois : l'adhésion n'armait rien, et la détection des
+    # groupes aveugles part des cadences, donc ne le voyait pas non plus. Son écran vide
+    # ressemblait à la santé — la faute exacte que `BLIND` existe pour empêcher, reproduite un
+    # étage plus haut.
+    NO_RHYTHM = "no_rhythm"
     # Ni admin, ni pasteur : l'église n'a **personne** à qui adresser un cas. Sans ce défaut,
     # elle détecterait tout et n'émettrait rien — et son écran vide dirait « tout va bien »
     # alors qu'il dit « aucun destinataire n'existe ». C'est le faux silence que le produit

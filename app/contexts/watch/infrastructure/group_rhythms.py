@@ -20,13 +20,52 @@ from app.contexts.attendance.infrastructure.persistence.models import (
     GatheringModel,
     GroupCadenceModel,
 )
-from app.contexts.groups.infrastructure.persistence.models import GroupModel
-from app.contexts.watch.application.blind_groups import GroupWatchRhythm
+from app.contexts.groups.domain.enums import GroupStatus
+from app.contexts.groups.domain.membership import GroupMembershipStatus
+from app.contexts.groups.infrastructure.persistence.models import (
+    GroupMembershipModel,
+    GroupModel,
+)
+from app.contexts.watch.application.blind_groups import GroupWatchRhythm, RhythmlessGroup
 
 
 class SqlGroupRhythms:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def groups_without_rhythm(self, *, tenant_id: UUID) -> list[RhythmlessGroup]:
+        """Les groupes actifs **avec des membres** et **sans cadence active**.
+
+        `watched_groups` part des cadences : elle ne peut pas, par construction, voir un groupe
+        qui n'en a pas. C'est pourquoi cette requête part des **groupes**."""
+        with_cadence = select(GroupCadenceModel.group_id).where(
+            GroupCadenceModel.tenant_id == tenant_id,
+            GroupCadenceModel.canceled_at.is_(None),
+        )
+        stmt = (
+            select(
+                GroupModel.id,
+                GroupModel.name,
+                func.count(GroupMembershipModel.id),
+            )
+            .join(
+                GroupMembershipModel,
+                (GroupMembershipModel.group_id == GroupModel.id)
+                & (GroupMembershipModel.status == GroupMembershipStatus.ACTIVE.value),
+            )
+            .where(
+                GroupModel.tenant_id == tenant_id,
+                GroupModel.status == GroupStatus.ACTIVE.value,
+                GroupModel.id.not_in(with_cadence),
+            )
+            .group_by(GroupModel.id, GroupModel.name)
+        )
+        return [
+            RhythmlessGroup(
+                group_id=group_id, label=name or "ce groupe", member_count=int(count)
+            )
+            for group_id, name, count in (await self._session.execute(stmt)).all()
+        ]
 
     async def watched_groups(self, *, tenant_id: UUID) -> list[GroupWatchRhythm]:
         last_gathering = (

@@ -42,9 +42,22 @@ class GroupWatchRhythm:
 
 
 @dataclass(frozen=True)
+class RhythmlessGroup:
+    """Un groupe qui a des membres et n'a jamais dit quand il se réunit."""
+
+    group_id: UUID
+    label: str
+    member_count: int
+
+
+@dataclass(frozen=True)
 class BlindGroups:
     detected: int
     recorded: int  # ceux qui n'étaient pas déjà consignés — un rappel nocturne devient du bruit
+    # Ceux d'un cran avant : sans cadence du tout. Comptés à part parce que l'action du pasteur
+    # n'est pas la même — « faites saisir vos rencontres » d'un côté, « dites quand vous vous
+    # réunissez » de l'autre.
+    rhythmless: int = 0
 
 
 class DetectBlindGroups:
@@ -78,7 +91,43 @@ class DetectBlindGroups:
             if await self._gaps.record_once(self._record(rhythm, tenant_id, missed, now)):
                 recorded += 1
 
-        return BlindGroups(detected=detected, recorded=recorded)
+        return BlindGroups(
+            detected=detected,
+            recorded=recorded,
+            rhythmless=await self._record_rhythmless(tenant_id, now),
+        )
+
+    async def _record_rhythmless(self, tenant_id: UUID, now: datetime) -> int:
+        """Les groupes qui n'ont **jamais déclaré de rythme**, et qui ont des membres.
+
+        La boucle du dessus part des cadences : par construction, elle ne peut pas voir un groupe
+        qui n'en a pas. C'est le trou que ce passage ferme — et il est plus grave que celui qu'elle
+        couvre, parce qu'aucune détection ne s'arme jamais dans un tel groupe.
+
+        « Qui a des membres » est la condition : un groupe fraîchement créé et encore vide n'a
+        rien à déclarer, et le signaler ferait du défaut de couverture un reproche de démarrage.
+        """
+        if not hasattr(self._rhythms, "groups_without_rhythm"):
+            return 0  # adaptateur d'ancienne génération : on ne casse rien
+        recorded = 0
+        for group in await self._rhythms.groups_without_rhythm(tenant_id=tenant_id):
+            created = await self._gaps.record_once(
+                CoverageGapRecord(
+                    id=self._new_id(),
+                    tenant_id=tenant_id,
+                    scope=CoverageScope.GROUP,
+                    subject_id=group.group_id,
+                    gap=CoverageGap.NO_RHYTHM,
+                    reason=(
+                        f"{group.label} n'a déclaré aucun rythme de rencontre : ses "
+                        f"{group.member_count} membres ne sont attendus nulle part, et le moteur "
+                        "n'y verra jamais personne manquer."
+                    ),
+                    observed_at=now,
+                )
+            )
+            recorded += 1 if created else 0
+        return recorded
 
     def _expected_since(self, rhythm: GroupWatchRhythm, now: datetime) -> int:
         """Combien de rencontres auraient dû être saisies depuis la dernière qu'on connaisse.

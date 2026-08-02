@@ -12,7 +12,9 @@ vivaient que dans un script. Un service qu'aucune surface n'atteint ne tourne nu
 4. **La relève des retenus** — ce que le plafond avait retenu sort quand la place se libère.
    « Retenu ≠ perdu » n'est vrai que si quelque chose les relâche.
 5. **Les groupes aveugles** — celui qui ne saisit aucune rencontre ne détecte personne, et son
-   silence ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
+   silence ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres. La même
+   passe consigne le cran d'avant : ceux qui n'ont **jamais déclaré de rythme**, invisibles aux
+   deux filets jusqu'au 02/08/2026.
 6. **Ceux qui reçoivent et n'ouvrent pas** — le seul indicateur qui *anticipe* : il monte avant
    l'abandon, quand le délai de contact a encore l'air normal. Il nomme le responsable, parce que
    ce qui répare est que quelqu'un vienne l'aider.
@@ -80,6 +82,9 @@ class WatchRunResult(BaseModel):
     # Groupes dont aucune rencontre n'est saisie : ils ne détectent personne, et leur écran vide
     # ressemble à la santé. Le défaut porte sur le groupe, jamais sur ses membres.
     blind_groups: int
+    # Un cran avant : ceux qui n'ont **jamais déclaré de rythme**. Aucune détection ne s'y arme,
+    # et ils échappaient aussi au compte ci-dessus, qui part des cadences.
+    rhythmless_groups: int
     # Responsables qui reçoivent des cas et ne les ouvrent pas. **Le seul indicateur qui
     # anticipe** : il monte avant l'abandon, quand le délai de contact a encore l'air normal.
     unopened: int
@@ -170,7 +175,7 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
     unopened_watch = build_unopened_watch(session)
 
     fired = deferred = escalated = overloaded = released = still_held = blind_groups = 0
-    unopened = 0
+    unopened = rhythmless = 0
     for each in tenants:
         report = await fire.execute(tenant_id=each)
         fired += report.fired
@@ -182,7 +187,9 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
         freed = await release.execute(tenant_id=each)
         released += freed.released
         still_held += freed.still_held
-        blind_groups += (await blind.execute(tenant_id=each)).recorded
+        aveugles = await blind.execute(tenant_id=each)
+        blind_groups += aveugles.recorded
+        rhythmless += aveugles.rhythmless
         # Après la relève : un cas relâché ce soir n'est pas un cas qu'on a laissé dormir.
         unopened += len(await unopened_watch.execute(tenant_id=each))
 
@@ -190,5 +197,5 @@ async def run(session: DbSession, tenant_id: UUID | None = None) -> WatchRunResu
         tenants=len(tenants), fired=fired, deferred=deferred,
         escalated=escalated, overloaded=overloaded,
         released=released, still_held=still_held, blind_groups=blind_groups,
-        unopened=unopened,
+        rhythmless_groups=rhythmless, unopened=unopened,
     )
