@@ -146,6 +146,20 @@ class Event(AggregateRoot):
     def is_published(self) -> bool:
         return self.status is EventStatus.PUBLISHED
 
+    def ends_on(self) -> datetime:
+        """Quand cet événement cesse d'être à venir.
+
+        `ends_at` quand l'organisateur l'a donné ; sinon **la fin de la journée** de `starts_at`.
+        Prendre `starts_at` seul ferait disparaître du fil un repas de 18 h à 18 h 01, pendant que
+        les gens s'y rendent. Une journée est la plus petite unité qu'un événement sans heure de
+        fin puisse honnêtement revendiquer."""
+        if self.ends_at is not None:
+            return self.ends_at
+        return self.starts_at.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    def is_over(self, now: datetime) -> bool:
+        return self.ends_on() < now
+
     def ensure_live(self) -> None:
         if self.status is EventStatus.CANCELLED:
             raise EventCancelledError(

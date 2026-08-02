@@ -6,6 +6,7 @@ Deux registres, comme partout dans Dorea : la **réaction** légère (« ça me 
 
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from app.contexts.events.domain.aggregates import EventParticipant, EventReactionEntry
@@ -20,7 +21,11 @@ from app.contexts.events.domain.repositories import (
     EventRepository,
 )
 from app.contexts.iam.domain.repositories import MembershipRepository
-from app.contexts.notifications.application.notifier import Notifier, PushNotification
+from app.contexts.notifications.application.notifier import (
+    NotificationScheduler,
+    Notifier,
+    PushNotification,
+)
 
 
 async def _load_live_event(events: EventRepository, event_id: UUID):
@@ -65,13 +70,34 @@ class ReactToEvent:
         )
 
 
+# Combien de temps avant l'événement on rappelle celui qui a dit « je serai là ».
+#
+# La veille, pas le matin même : un repas à 18 h rappelé à 17 h ne sert plus à rien — il faut
+# encore pouvoir s'organiser, cuisiner, prévenir quelqu'un.
+REMINDER_LEAD_HOURS = 24
+
+
 class ConfirmParticipation:
+    """« Je serai là » — et **on le lui rappellera**.
+
+    C'était le seul engagement du produit qui ne revenait jamais vers celui qui l'avait pris :
+    l'organisateur était prévenu, le participant non. Quatre notifications existaient dans ce
+    module, et la seule qui atteignait un confirmé était l'annulation — on ne lui parlait que
+    pour lui dire que ça n'aurait pas lieu.
+
+    **Ce rappel n'est pas une sollicitation**, et c'est ce qui le distingue de l'anniversaire, où
+    le produit refuse tout push. Personne ne le reçoit sans l'avoir demandé : il découle d'un
+    geste explicite, il part une fois, il ne se rafraîchit pas, et se désinscrire l'annule. Ce
+    n'est pas une boucle d'habitude — c'est tenir parole envers quelqu'un qui a donné la sienne.
+    """
+
     def __init__(
         self,
         events: EventRepository,
         participants: EventParticipantRepository,
         memberships: MembershipRepository,
         notifier: Notifier | None = None,
+        scheduler: NotificationScheduler | None = None,
         *,
         clock,
     ) -> None:
@@ -79,7 +105,28 @@ class ConfirmParticipation:
         self._participants = participants
         self._memberships = memberships
         self._notifier = notifier
+        self._scheduler = scheduler
         self._clock = clock
+
+    async def _remind(self, event, account_id: UUID) -> None:
+        """Pose le rappel dans l'outbox. Best-effort : il ne bloque jamais une confirmation."""
+        if self._scheduler is None:
+            return
+        at = event.starts_at - timedelta(hours=REMINDER_LEAD_HOURS)
+        if at <= self._clock():
+            # On confirme parfois le matin même. Un rappel daté d'hier partirait immédiatement et
+            # ferait doublon avec le geste qu'on vient de poser.
+            return
+        where = f" — {event.place_label}" if event.place_label else ""
+        await self._scheduler.schedule(
+            [account_id],
+            PushNotification(
+                title="C'est demain",
+                body=f"« {event.title} »{where}.",
+                data={"type": "event", "id": str(event.id)},
+            ),
+            at=at,
+        )
 
     async def execute(self, *, actor_account_id: UUID, event_id: UUID) -> None:
         event = await _load_live_event(self._events, event_id)
@@ -96,6 +143,7 @@ class ConfirmParticipation:
                 confirmed_at=self._clock(),
             )
         )
+        await self._remind(event, actor_account_id)
         # Prévenir l'organisateur qu'une présence de plus se confirme (pas soi-même) — best-effort.
         if self._notifier is not None and actor_account_id != event.author_account_id:
             await self._notifier.notify(

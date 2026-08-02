@@ -9,6 +9,7 @@ que le nombre).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from app.contexts.events.application.dtos import EventDTO, ParticipantDTO
@@ -28,6 +29,20 @@ from app.contexts.events.domain.repositories import (
     EventRepository,
 )
 from app.contexts.iam.domain.repositories import MembershipRepository
+
+
+def _upcoming(events: list[Event], now: datetime) -> list[Event]:
+    """Ce qui n'est pas terminé, du plus proche au plus lointain.
+
+    Le tri existait, le filtre non — et le commentaire disait déjà « les prochains d'abord ». Il
+    était faux : rien n'écartait le passé, et comme l'ordre est croissant, **le plus ancien
+    ouvrait le fil**. Un membre voyait en premier une sortie de janvier terminée depuis sept
+    mois, et devait faire défiler pour trouver ce qui a lieu demain.
+
+    `ends_at` existait aussi, écrit, validé, et lu nulle part. C'est ici qu'il sert."""
+    return sorted(
+        (e for e in events if not e.is_over(now)), key=lambda e: e.starts_at
+    )
 
 
 async def _decorate(
@@ -60,16 +75,20 @@ class ListChurchEvents:
         events: EventRepository,
         participants: EventParticipantRepository,
         reactions: EventReactionRepository,
+        *,
+        clock=None,
     ) -> None:
         self._events = events
         self._participants = participants
         self._reactions = reactions
+        # Sans horloge, on ne filtre pas : un appelant d'ancienne génération garde son
+        # comportement plutôt que de recevoir une liste tronquée sans l'avoir demandé.
+        self._clock = clock or (lambda: datetime.min.replace(tzinfo=UTC))
 
     async def execute(
         self, *, tenant_id: UUID, viewer_account_id: UUID
     ) -> list[EventDTO]:
-        events = await self._events.list_published_by_tenant(tenant_id)
-        events.sort(key=lambda e: e.starts_at)  # les prochains d'abord
+        events = _upcoming(await self._events.list_published_by_tenant(tenant_id), self._clock())
         return [
             await _decorate(
                 e, self._participants, self._reactions, viewer_account_id=viewer_account_id
@@ -90,12 +109,15 @@ class ListVisibleEvents:
         reactions: EventReactionRepository,
         audience: EventAudiencePort,
         memberships: MembershipRepository,
+        *,
+        clock=None,
     ) -> None:
         self._events = events
         self._participants = participants
         self._reactions = reactions
         self._audience = audience
         self._memberships = memberships
+        self._clock = clock or (lambda: datetime.min.replace(tzinfo=UTC))
 
     async def execute(
         self, *, tenant_id: UUID, viewer_account_id: UUID
@@ -134,7 +156,7 @@ class ListVisibleEvents:
                 if distance_km(e.latitude, e.longitude, my_lat, my_lon) <= NEARBY_RADIUS_KM:
                     by_id[e.id] = e
 
-        ordered = sorted(by_id.values(), key=lambda e: e.starts_at)
+        ordered = _upcoming(list(by_id.values()), self._clock())
         return [
             await _decorate(
                 e, self._participants, self._reactions, viewer_account_id=viewer_account_id

@@ -84,6 +84,8 @@ def get_confirm_command(session: DbSession) -> ConfirmParticipation:
         SqlEventParticipantRepository(session),
         SqlAlchemyMembershipRepository(session),
         build_notifier(session),
+        # L'outbox : le rappel est posé à la confirmation et part la veille, hors requête.
+        build_scheduler(session),
         clock=_now,
     )
 
@@ -100,6 +102,7 @@ def get_feed_query(session: DbSession) -> ListVisibleEvents:
         SqlEventReactionRepository(session),
         IamTenantAudienceAdapter(session),
         SqlAlchemyMembershipRepository(session),
+        clock=_now,  # sans elle, le fil rouvrirait sur les événements terminés
     )
 
 

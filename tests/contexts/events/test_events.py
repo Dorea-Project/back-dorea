@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 
 from app.contexts.events.application.commands.engage_event import (
+    REMINDER_LEAD_HOURS,
     ConfirmParticipation,
     ReactToEvent,
     WithdrawParticipation,
@@ -28,6 +29,7 @@ from app.contexts.events.application.queries.event_stats import GetEventStats
 from app.contexts.events.application.queries.reported_events import ListReportedEvents
 from app.contexts.events.application.queries.view_events import (
     GetEvent,
+    ListChurchEvents,
     ListParticipants,
     ListVisibleEvents,
 )
@@ -1070,3 +1072,115 @@ async def test_the_reach_follows_the_scope():
     ).execute(actor_account_id=yao, event_id=dto.id)
 
     assert stats.reach == 201  # les voisins, pas les 42 de Hozana
+
+
+# --- La période : un début, une fin, et ce qui en découle --------------------------------
+
+
+def _dated(tenant, author, *, jours, heures=0, fin=None):
+    return Event.publish(
+        id=uuid4(), tenant_id=tenant, author_account_id=author,
+        category=EventCategory.OUTING, title=f"J{jours:+d}",
+        starts_at=_NOW + timedelta(days=jours, hours=heures),
+        ends_at=fin, now=_NOW,
+    )
+
+
+async def test_the_feed_opened_on_a_finished_event():
+    """**Le tri existait, le filtre non** — et comme l'ordre est croissant, le plus ancien
+    ouvrait le fil.
+
+    Un membre voyait en premier une sortie de janvier terminée depuis sept mois, et devait faire
+    défiler pour trouver ce qui a lieu demain. Le commentaire du code disait déjà « les prochains
+    d'abord » : il décrivait une intention, pas le comportement."""
+    tenant, author = uuid4(), uuid4()
+    events = _FakeEvents([
+        _dated(tenant, author, jours=-200),
+        _dated(tenant, author, jours=-7),
+        _dated(tenant, author, jours=1),
+        _dated(tenant, author, jours=40),
+    ])
+
+    fil = await ListChurchEvents(
+        events, _FakeParticipants(), _FakeReactions(), clock=lambda: _NOW
+    ).execute(tenant_id=tenant, viewer_account_id=uuid4())
+
+    assert [e.title for e in fil] == ["J+1", "J+40"]
+
+
+async def test_an_event_lasts_until_the_end_of_its_day():
+    """Prendre `starts_at` seul ferait disparaître du fil un repas de 18 h à 18 h 01, pendant que
+    les gens s'y rendent. Une journée est la plus petite unité qu'un événement sans heure de fin
+    puisse honnêtement revendiquer."""
+    # `_NOW` est un minuit : on se place en milieu de journée pour que « ce soir » ait un sens.
+    midi = _NOW + timedelta(hours=12)
+    ce_soir = Event.publish(
+        id=uuid4(), tenant_id=uuid4(), author_account_id=uuid4(),
+        category=EventCategory.OUTING, title="Repas de ce soir",
+        starts_at=midi + timedelta(hours=6), ends_at=None, now=_NOW,
+    )
+
+    assert ce_soir.is_over(midi + timedelta(hours=7)) is False  # commencé, encore en cours
+    assert ce_soir.is_over(midi + timedelta(days=1)) is True  # le lendemain, terminé
+
+
+async def test_ends_at_finally_serves_something():
+    """`ends_at` était écrit, validé (`ends_at < starts_at` refusé), et lu nulle part."""
+    tenant, author = uuid4(), uuid4()
+    court = _dated(tenant, author, jours=0, heures=-4, fin=_NOW - timedelta(hours=1))
+    long = _dated(tenant, author, jours=0, heures=-4, fin=_NOW + timedelta(days=3))
+
+    assert court.is_over(_NOW) is True   # fini il y a une heure
+    assert long.is_over(_NOW) is False   # une convention de trois jours court encore
+
+
+async def test_the_one_who_committed_is_reminded():
+    """**C'était le seul engagement du produit qui ne revenait jamais vers celui qui l'avait
+    pris.**
+
+    L'organisateur était prévenu à chaque confirmation ; le participant, jamais — sauf pour lui
+    dire que ça n'aurait pas lieu. On ne lui parlait que pour annuler."""
+    tenant, author, awa = uuid4(), uuid4(), uuid4()
+    events = _FakeEvents([_dated(tenant, author, jours=10)])
+    scheduler = _FakeScheduler()
+
+    await ConfirmParticipation(
+        events, _FakeParticipants(), _FakeMemberships([_member(awa, tenant)]),
+        _FakeNotifier(), scheduler, clock=lambda: _NOW,
+    ).execute(actor_account_id=awa, event_id=events._e[0].id)
+
+    (cibles, notification, quand), = scheduler.calls
+    assert cibles == [awa]
+    assert notification.title == "C'est demain"
+    assert quand == events._e[0].starts_at - timedelta(hours=REMINDER_LEAD_HOURS)
+
+
+async def test_confirming_at_the_last_minute_schedules_nothing():
+    """On confirme parfois le matin même : un rappel daté d'hier partirait immédiatement et
+    ferait doublon avec le geste qu'on vient de poser."""
+    tenant, author, awa = uuid4(), uuid4(), uuid4()
+    events = _FakeEvents([_dated(tenant, author, jours=0, heures=3)])  # dans trois heures
+    scheduler = _FakeScheduler()
+
+    await ConfirmParticipation(
+        events, _FakeParticipants(), _FakeMemberships([_member(awa, tenant)]),
+        _FakeNotifier(), scheduler, clock=lambda: _NOW,
+    ).execute(actor_account_id=awa, event_id=events._e[0].id)
+
+    assert scheduler.calls == []
+
+
+async def test_confirming_twice_does_not_remind_twice():
+    """La confirmation est idempotente ; le rappel doit l'être avec elle."""
+    tenant, author, awa = uuid4(), uuid4(), uuid4()
+    events = _FakeEvents([_dated(tenant, author, jours=10)])
+    scheduler = _FakeScheduler()
+    confirmer = ConfirmParticipation(
+        events, _FakeParticipants(), _FakeMemberships([_member(awa, tenant)]),
+        _FakeNotifier(), scheduler, clock=lambda: _NOW,
+    )
+
+    await confirmer.execute(actor_account_id=awa, event_id=events._e[0].id)
+    await confirmer.execute(actor_account_id=awa, event_id=events._e[0].id)
+
+    assert len(scheduler.calls) == 1
