@@ -29,6 +29,7 @@ from app.contexts.watch.domain.effects import (
     RecordMemory,
 )
 from app.contexts.watch.domain.facts import Fact, FactKind
+from app.contexts.watch.domain.signal import spoken_date
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -50,7 +51,9 @@ class PresenceRecordedV1:
         if not running:
             return []
 
-        came_back_on = fact.occurred_at.date().isoformat()
+        # **Cette phrase-là est remise à la personne elle-même**, par la mémoire du
+        # lien. Une date ISO dans une consolation serait le comble.
+        came_back_on = spoken_date(fact.occurred_at)
         return [
             Extinguish(
                 subject_id=fact.subject_id,

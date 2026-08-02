@@ -4,6 +4,8 @@ Ce fichier remplace les tests d'effets écrits avant le moteur : les règles n'o
 chemin si. Les Annonces n'écrivent plus rien ; elles émettent, et l'engine décide.
 """
 
+import ast
+import pathlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -456,3 +458,62 @@ def test_every_role_has_a_sentence():
     from app.contexts.watch.application.interpreters.life_event_announced import _ROLE_REASONS
 
     assert set(_ROLE_REASONS) == set(Role)
+
+
+# --- La langue des phrases qui sortent ---------------------------------------------------
+#
+# Trois fautes de la même famille ont vécu côte à côte sans que rien ne les attrape :
+#
+#   « bereaved annoncé le 2026-07-30 »   (motif d'un cas de deuil)
+#   « Rendez-vous honoré le 2026-08-05. » (annotation sur la fiche)
+#   « Revenu(e) le 2026-08-05. »          (mémoire du lien, **remise à la personne**)
+#
+# Chacune a été trouvée en simulant un cas, jamais par un test — parce que les tests vérifiaient
+# la structure et que personne ne lisait la phrase. Ce fichier tient la règle à leur place.
+
+
+def _interpreter_sources() -> list[pathlib.Path]:
+    from app.contexts.watch.application import interpreters
+
+    return sorted(pathlib.Path(interpreters.__file__).parent.glob("*.py"))
+
+
+def test_no_interpreter_formats_a_date_for_a_human_in_iso():
+    """**Une date qui part vers quelqu'un passe par `spoken_date`.**
+
+    `2026-08-05` est une date pour une machine. Sur l'écran d'un responsable de cellule à Abidjan,
+    ou pire dans une consolation remise à un membre, c'est un code d'état — et tout le produit
+    s'interdit les codes d'état par ailleurs.
+
+    Le garde est textuel parce que la faute l'est : elle ne change ni un type, ni une signature,
+    et aucun test de structure ne peut la voir."""
+    fautifs = []
+    for source in _interpreter_sources():
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            # Une **f-string** est le seul endroit où une date devient une phrase. Le même appel
+            # dans un dict est une sérialisation pour la machine — le payload d'une échéance en
+            # contient une, et elle est parfaitement à sa place.
+            if not isinstance(node, ast.JoinedStr):
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "isoformat"
+                ):
+                    fautifs.append(f"{source.name}:{node.lineno}")
+
+    assert fautifs == [], (
+        f"date ISO interpolée dans une phrase : {fautifs} — utiliser `spoken_date` "
+        "(« 5 août »), la même forme que partout ailleurs."
+    )
+
+
+def test_spoken_date_speaks_french():
+    """La forme de référence, y compris le premier du mois qui s'écrit « 1er »."""
+    from app.contexts.watch.domain.signal import spoken_date
+
+    assert spoken_date(datetime(2026, 8, 5, tzinfo=UTC)) == "5 août"
+    assert spoken_date(datetime(2026, 8, 1, tzinfo=UTC)) == "1er août"
+    assert spoken_date(datetime(2028, 2, 29, tzinfo=UTC)) == "29 février"

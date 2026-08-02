@@ -42,6 +42,7 @@ from app.contexts.watch.domain.effects import (
     ProposedEffect,
 )
 from app.contexts.watch.domain.facts import Fact, FactKind
+from app.contexts.watch.domain.signal import spoken_date
 
 _GENESIS = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -91,7 +92,7 @@ class AppointmentRequestedV1:
 
         annotation, priority = _ANNOTATIONS[appointment_state]
         if appointment_state is AppointmentState.HONORED:
-            annotation = f"{annotation} le {fact.occurred_at.date().isoformat()}."
+            annotation = f"{annotation} le {spoken_date(fact.occurred_at)}."
 
         return [
             EnrichCase(
