@@ -35,6 +35,7 @@ from app.contexts.auth.interface.router import router as auth_router
 from app.contexts.billing.interface.mobile_router import router as mobile_billing_router
 from app.contexts.events.interface.mobile_router import router as mobile_events_router
 from app.contexts.events.interface.platform_router import router as platform_events_router
+from app.contexts.events.interface.public_router import router as public_events_router
 from app.contexts.groups.interface.backoffice_router import router as backoffice_groups_router
 from app.contexts.groups.interface.mobile_router import router as mobile_groups_router
 from app.contexts.iam.interface.backoffice_router import router as backoffice_iam_router
@@ -134,6 +135,9 @@ public_router = APIRouter()
 public_router.include_router(onboarding_public_router, prefix="/onboarding", tags=["onboarding"])
 # Carte d'invitation missionnaire — publique (le code EST l'entrée, pas d'auth).
 public_router.include_router(public_mission_router, prefix="/mission", tags=["mission:public"])
+# La carte d'un événement : la contrepartie de la cadence de publication. Ce qui est rationné est
+# la notification, jamais la diffusion — le lien se partage hors de Dorea autant qu'on veut.
+public_router.include_router(public_events_router, tags=["events:public"])
 
 # Contextes à brancher au fil des modules :
 #   from app.contexts.attendance.interface.router import router as attendance_router  # M6

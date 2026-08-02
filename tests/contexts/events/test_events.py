@@ -29,11 +29,12 @@ from app.contexts.events.application.queries.event_stats import GetEventStats
 from app.contexts.events.application.queries.reported_events import ListReportedEvents
 from app.contexts.events.application.queries.view_events import (
     GetEvent,
+    GetPublicEvent,
     ListChurchEvents,
     ListParticipants,
     ListVisibleEvents,
 )
-from app.contexts.events.domain.aggregates import Event
+from app.contexts.events.domain.aggregates import PUBLICATION_COOLDOWN_DAYS, Event
 from app.contexts.events.domain.enums import EventCategory, EventReaction, EventScope
 from app.contexts.events.domain.errors import (
     EventCancelledError,
@@ -41,6 +42,7 @@ from app.contexts.events.domain.errors import (
     InvalidEventError,
     NotAChurchMemberError,
     NotEventAuthorError,
+    PublicationCadenceError,
     WiderReachRequiresBusinessError,
     WiderReachRequiresMandateError,
 )
@@ -98,6 +100,14 @@ class _FakeEvents(EventRepository):
             e for e in self._e
             if e.tenant_id == tenant_id and e.status is EventStatus.PUBLISHED
         ]
+
+    async def last_published_at_by(self, author_account_id, tenant_id):
+        # Les annulés et les retirés comptent : annuler ne remet pas le compteur à zéro.
+        dates = [
+            e.created_at for e in self._e
+            if e.author_account_id == author_account_id and e.tenant_id == tenant_id
+        ]
+        return max(dates) if dates else None
 
     async def list_published_by_scope(self, scope, tenant_ids=None):
         from app.contexts.events.domain.enums import EventStatus
@@ -1204,3 +1214,210 @@ async def test_a_member_can_publish_a_shared_meal():
     )
 
     assert dto.category == "agape"
+
+
+# --- La cadence de publication, et sa contrepartie ---------------------------------------
+#
+# Publier fait sonner tous les téléphones de l'église. C'était le seul geste du produit qu'un
+# compte sans aucun rôle pouvait répéter sans limite : cinq publications d'affilée, 205
+# notifications en quelques secondes. La sanction n'est pas la désinstallation — c'est la coupure
+# des notifications, après quoi le canal de veille ne passe plus non plus.
+
+
+def _publisher(events, memberships, *, notifier=None, at=None):
+    horloge = at or (lambda: _NOW)
+    return PublishEvent(
+        events, memberships, _FakeBusiness(False), None, _FakeAudience(members=[uuid4()]),
+        notifier or _FakeNotifier(), _FakeScheduler(), clock=horloge,
+    )
+
+
+async def test_one_event_a_week_and_the_refusal_says_when():
+    """**Un refus sans échéance se lit comme une panne, et on réessaie.**
+
+    Le message porte la date à laquelle on pourra publier de nouveau — et rappelle la sortie de
+    secours : le lien de l'événement en cours, lui, se partage sans limite."""
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    publier = _publisher(events, _FakeMemberships([_member(yao, tenant)]))
+
+    await publier.execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+
+    with pytest.raises(PublicationCadenceError) as refus:
+        await publier.execute(
+            actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+            title="HozanaBouf 2", starts_at=_SOON,
+        )
+
+    assert "partagez le lien" in str(refus.value)
+    assert refus.value.details["next_publication_at"].startswith("2026-01-08")
+
+
+async def test_five_publications_in_a_row_send_one_notification():
+    """La mesure qui avait révélé le trou : 5 publications, 205 notifications individuelles."""
+    tenant, yao = uuid4(), uuid4()
+    events, notifier = _FakeEvents(), _FakeNotifier()
+    publier = _publisher(events, _FakeMemberships([_member(yao, tenant)]), notifier=notifier)
+
+    publiés = 0
+    for i in range(5):
+        try:
+            await publier.execute(
+                actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+                title=f"HozanaBouf {i}", starts_at=_SOON,
+            )
+            publiés += 1
+        except PublicationCadenceError:
+            pass
+
+    assert publiés == 1
+    assert len(notifier.calls) == 1
+
+
+async def test_cancelling_does_not_reset_the_week():
+    """Sans cette règle, la cadence s'annulerait elle-même : publier, annuler, republier ferait
+    sonner l'église autant de fois qu'on veut."""
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    publier = _publisher(events, _FakeMemberships([_member(yao, tenant)]))
+    dto = await publier.execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+    await CancelEvent(events, clock=lambda: _NOW).execute(
+        actor_account_id=yao, event_id=dto.id
+    )
+
+    with pytest.raises(PublicationCadenceError):
+        await publier.execute(
+            actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+            title="Encore", starts_at=_SOON,
+        )
+
+
+async def test_the_week_after_the_door_reopens():
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    await _publisher(events, _FakeMemberships([_member(yao, tenant)])).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+
+    semaine_suivante = _NOW + timedelta(days=PUBLICATION_COOLDOWN_DAYS)
+    dto = await _publisher(
+        events, _FakeMemberships([_member(yao, tenant)]), at=lambda: semaine_suivante
+    ).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf 2", starts_at=_SOON + timedelta(days=30),
+    )
+
+    assert dto.status == "published"
+
+
+async def test_the_cadence_is_personal_not_collective():
+    """Elle borne une personne, pas l'église : Awa publie même si Yao vient de le faire."""
+    tenant, yao, awa = uuid4(), uuid4(), uuid4()
+    events = _FakeEvents()
+    memberships = _FakeMemberships([_member(yao, tenant), _member(awa, tenant)])
+    await _publisher(events, memberships).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+
+    dto = await _publisher(events, memberships).execute(
+        actor_account_id=awa, tenant_id=tenant, category=EventCategory.CONCERT,
+        title="Concert de louange", starts_at=_SOON,
+    )
+
+    assert dto.status == "published"
+
+
+# --- Le lien externe : ce qui est rationné est la notification, jamais la diffusion -------
+
+
+async def test_the_link_opens_without_an_account():
+    """La contrepartie de la cadence. Sans elle, celui qui organise un repas ne pourrait plus
+    inviter personne pendant sept jours."""
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    dto = await _publisher(events, _FakeMemberships([_member(yao, tenant)])).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON, place_label="Cour du temple, Yopougon",
+        description="Chacun apporte un plat.",
+    )
+
+    carte = await GetPublicEvent(events).execute(event_id=dto.id)
+
+    assert carte.title == "HozanaBouf"
+    assert carte.place_label == "Cour du temple, Yopougon"
+
+
+async def test_the_public_card_names_nobody_and_counts_nothing():
+    """**La moitié de sa conception est ce qu'elle ne montre pas.**
+
+    Ni organisateur, ni participants, ni compte : un événement est un *happening*, pas un
+    annuaire. Et aucun nombre — l'invariant anti-compteur ne s'arrête pas à la frontière du
+    produit ; « 24 intéressés » sur une page publique serait un score, exactement comme dedans."""
+    from app.contexts.events.interface.schemas import PublicEventView
+
+    champs = set(PublicEventView.model_fields)
+
+    assert not any(
+        mot in champ
+        for champ in champs
+        for mot in ("account", "author", "participant", "count", "reaction", "view")
+    ), champs
+
+
+async def test_a_cancelled_event_has_no_card():
+    """Un lien qui survit à l'annulation fait déplacer quelqu'un pour rien."""
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    dto = await _publisher(events, _FakeMemberships([_member(yao, tenant)])).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+    await CancelEvent(events, clock=lambda: _NOW).execute(
+        actor_account_id=yao, event_id=dto.id
+    )
+
+    with pytest.raises(EventCancelledError):
+        await GetPublicEvent(events).execute(event_id=dto.id)
+
+
+async def test_a_taken_down_event_stops_circulating_outside_too():
+    """Sinon la modération ne ferait disparaître l'événement que pour les membres, pendant qu'il
+    continue de circuler librement à l'extérieur."""
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    dto = await _publisher(events, _FakeMemberships([_member(yao, tenant)])).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+    )
+    await TakeDownEvent(events, clock=lambda: _NOW).execute(event_id=dto.id)
+
+    with pytest.raises(EventTakenDownError):
+        await GetPublicEvent(events).execute(event_id=dto.id)
+
+
+def test_there_is_no_way_to_relaunch_an_event():
+    """**Tant qu'un événement est en cours, on ne peut pas le relancer.**
+
+    Il n'existe aucun bouton « faire remonter », et c'est la forme la plus solide de la règle :
+    ce qui n'existe pas ne s'abuse pas. Ce test lit le module et refuse qu'on l'ajoute — un
+    `relaunch`, un `boost`, un `bump` ou un renvoi de notification sur un événement déjà publié.
+
+    La seule notification qui repart après la publication est l'annulation, et elle dit le
+    contraire d'un rappel : elle décommande."""
+    import pathlib
+
+    from app.contexts.events.application import commands
+
+    interdits = ("relaunch", "boost", "bump", "republish", "renotify")
+    for source in pathlib.Path(commands.__file__).parent.glob("*.py"):
+        texte = source.read_text(encoding="utf-8").lower()
+        for mot in interdits:
+            assert f"def {mot}" not in texte, f"{source.name} : {mot}"

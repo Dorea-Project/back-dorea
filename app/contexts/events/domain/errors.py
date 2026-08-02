@@ -46,6 +46,21 @@ class NotAChurchMemberError(EventError):
     http_status = 403
 
 
+class PublicationCadenceError(EventError):
+    """**Un événement à la fois, et un par semaine.**
+
+    Publier envoie une notification à toute l'église. Rien ne bornait ce geste : cinq
+    publications d'affilée faisaient sonner cinq fois quarante téléphones en quelques secondes,
+    et la sanction n'est pas la désinstallation — c'est la coupure des notifications, après quoi
+    le canal de veille ne passe plus non plus.
+
+    Le message dit **quand** on pourra publier de nouveau : un refus sans échéance se lit comme
+    une panne, et on réessaie."""
+
+    code = "EVT_PUBLICATION_CADENCE"
+    http_status = 429
+
+
 class WiderReachRequiresBusinessError(EventError):
     """Rayonner au-delà de son église (dénomination, plateforme) exige le compte Business."""
 

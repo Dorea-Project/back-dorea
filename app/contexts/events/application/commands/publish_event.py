@@ -10,18 +10,23 @@ n'importe quel membre diffusait à toute sa dénomination en enregistrant une ca
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from app.contexts.events.application.dtos import EventDTO
 from app.contexts.events.application.mapping import to_event_dto
 from app.contexts.events.application.ports import BusinessTierPort, EventAudiencePort
-from app.contexts.events.domain.aggregates import FREE_SCOPES, Event
+from app.contexts.events.domain.aggregates import (
+    FREE_SCOPES,
+    PUBLICATION_COOLDOWN_DAYS,
+    Event,
+)
 from app.contexts.events.domain.enums import EventCategory, EventScope
 from app.contexts.events.domain.errors import (
     EventNotFoundError,
     NotAChurchMemberError,
     NotEventAuthorError,
+    PublicationCadenceError,
     WiderReachRequiresMandateError,
 )
 from app.contexts.events.domain.repositories import (
@@ -37,6 +42,7 @@ from app.contexts.notifications.application.notifier import (
     Notifier,
     PushNotification,
 )
+from app.contexts.watch.domain.signal import spoken_date
 
 
 class PublishEvent:
@@ -138,6 +144,30 @@ class PublishEvent:
                 details={"scope": scope.value},
             ) from refused
 
+    async def _ensure_cadence(self, actor_account_id: UUID, tenant_id: UUID) -> None:
+        """**Un événement par semaine et par personne.**
+
+        Publier fait sonner tous les téléphones de l'église. C'était le seul geste du produit
+        qu'un compte sans aucun rôle pouvait répéter sans limite — cinq publications d'affilée,
+        cinq notifications à quarante personnes en quelques secondes. Le moteur de veille borne
+        déjà ses propres sorties pour exactement cette raison.
+
+        Le refus dit **quand** on pourra publier de nouveau : sans échéance, il se lit comme une
+        panne et on réessaie. Et ce qui est refusé, c'est la *publication* — le lien de
+        l'événement en cours reste partageable autant qu'on veut, hors de Dorea.
+        """
+        last = await self._events.last_published_at_by(actor_account_id, tenant_id)
+        if last is None:
+            return
+        libre_le = last + timedelta(days=PUBLICATION_COOLDOWN_DAYS)
+        if self._clock() >= libre_le:
+            return
+        raise PublicationCadenceError(
+            f"Vous avez déjà annoncé un événement cette semaine. Vous pourrez en publier un "
+            f"autre à partir du {spoken_date(libre_le)}. D'ici là, partagez le lien du vôtre.",
+            details={"next_publication_at": libre_le.isoformat()},
+        )
+
     async def execute(
         self,
         *,
@@ -159,6 +189,7 @@ class PublishEvent:
                 "Rejoignez d'abord cette église pour y publier un événement.",
                 details={"tenant_id": str(tenant_id)},
             )
+        await self._ensure_cadence(actor_account_id, tenant_id)
         # La porte du rayonnement : au-delà de l'église, il faut le compte Business de l'auteur
         # **et** le mandat de son église.
         #

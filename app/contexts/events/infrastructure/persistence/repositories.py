@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -34,6 +35,13 @@ from app.contexts.events.infrastructure.persistence.models import (
     EventReportModel,
     EventViewModel,
 )
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    """SQLite rend des datetimes naïfs ; la comparaison à `now()` exige un fuseau."""
+    if moment is not None and moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment
 
 
 def _to_event(row: EventModel) -> Event:
@@ -104,6 +112,16 @@ class SqlEventRepository(EventRepository):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_event(r) for r in rows]
+
+    async def last_published_at_by(
+        self, author_account_id: UUID, tenant_id: UUID
+    ) -> datetime | None:
+        # Aucun filtre sur le statut : annuler ou se faire retirer ne remet pas le compteur à zéro.
+        stmt = select(func.max(EventModel.created_at)).where(
+            EventModel.author_account_id == author_account_id,
+            EventModel.tenant_id == tenant_id,
+        )
+        return _aware((await self._session.execute(stmt)).scalar_one_or_none())
 
     async def list_published_by_scope(
         self, scope: EventScope, tenant_ids: list[UUID] | None = None

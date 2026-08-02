@@ -35,6 +35,17 @@ from app.contexts.events.domain.errors import (
 # voisines, en zone rurale c'est plusieurs villages. À calibrer au pilote, pas à deviner ici.
 NEARBY_RADIUS_KM = 10.0
 
+# **La cadence de publication.** Une semaine entre deux événements d'une même personne.
+#
+# Publier n'est pas un geste anodin : ça fait sonner tous les téléphones de l'église. Le moteur de
+# veille borne déjà ses propres sorties (`CHECK_BURST_CAP`) avec cette justification — « le
+# responsable ouvre l'application sur cinquante lignes et n'ouvre plus rien du tout ». Events était
+# le seul endroit du produit où un compte sans aucun rôle déclenchait une diffusion à toute
+# l'église, autant de fois qu'il le voulait.
+#
+# Sept jours, parce que c'est le rythme de l'Église : on annonce ce qu'on annonce le dimanche.
+PUBLICATION_COOLDOWN_DAYS = 7
+
 # Ce qui n'exige pas le compte Business : mon église, et le voisinage de mon événement.
 FREE_SCOPES: frozenset[EventScope] = frozenset(
     {EventScope.CHURCH, EventScope.NEARBY}

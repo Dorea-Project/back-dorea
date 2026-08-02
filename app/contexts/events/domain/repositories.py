@@ -1,6 +1,7 @@
 """Ports de persistance du module Event."""
 
 from abc import abstractmethod
+from datetime import datetime
 from uuid import UUID
 
 from app._shared.domain.repository import Repository
@@ -29,6 +30,17 @@ class EventRepository(Repository):
     @abstractmethod
     async def list_published_by_tenant(self, tenant_id: UUID) -> list[Event]:
         """Tous les événements publiés d'une église (toutes portées)."""
+        ...
+
+    @abstractmethod
+    async def last_published_at_by(
+        self, author_account_id: UUID, tenant_id: UUID
+    ) -> datetime | None:
+        """Quand cette personne a publié pour la dernière fois, ou None.
+
+        **Les annulés et les retirés comptent.** Sans quoi la cadence s'annulerait elle-même :
+        publier, annuler, republier ferait sonner l'église autant de fois qu'on veut — et le
+        retrait par la modération deviendrait un moyen de repartir à zéro."""
         ...
 
     @abstractmethod

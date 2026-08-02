@@ -234,6 +234,28 @@ class GetEvent:
         )
 
 
+class GetPublicEvent:
+    """La carte qu'on ouvre depuis un lien partagé — **sans compte, sans église**.
+
+    Elle rend l'agrégat tel quel ; c'est la vue HTTP qui décide de ce qui sort. La seule règle
+    portée ici est celle qui compte : **un événement annulé ou retiré n'a pas de carte.** Sans
+    elle, un lien continuerait de faire déplacer des gens vers un repas qui n'aura pas lieu, et un
+    événement retiré par la modération circulerait dehors alors qu'il a disparu dedans.
+    """
+
+    def __init__(self, events: EventRepository) -> None:
+        self._events = events
+
+    async def execute(self, *, event_id: UUID) -> Event:
+        event = await self._events.get(event_id)
+        if event is None:
+            raise EventNotFoundError(
+                "Événement introuvable.", details={"event_id": str(event_id)}
+            )
+        event.ensure_live()
+        return event
+
+
 class ListParticipants:
     def __init__(
         self, events: EventRepository, participants: EventParticipantRepository

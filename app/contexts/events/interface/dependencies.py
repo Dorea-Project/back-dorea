@@ -24,6 +24,7 @@ from app.contexts.events.application.queries.event_stats import GetEventStats
 from app.contexts.events.application.queries.reported_events import ListReportedEvents
 from app.contexts.events.application.queries.view_events import (
     GetEvent,
+    GetPublicEvent,
     ListParticipants,
     ListVisibleEvents,
 )
@@ -92,6 +93,11 @@ def get_confirm_command(session: DbSession) -> ConfirmParticipation:
 
 def get_withdraw_command(session: DbSession) -> WithdrawParticipation:
     return WithdrawParticipation(SqlEventParticipantRepository(session))
+
+
+def get_public_event_query(session: DbSession) -> GetPublicEvent:
+    """La carte publique : aucun annuaire, aucune appartenance — le lien suffit."""
+    return GetPublicEvent(SqlEventRepository(session))
 
 
 def get_feed_query(session: DbSession) -> ListVisibleEvents:
@@ -166,6 +172,7 @@ ConfirmParticipationDep = Annotated[ConfirmParticipation, Depends(get_confirm_co
 WithdrawParticipationDep = Annotated[WithdrawParticipation, Depends(get_withdraw_command)]
 ListVisibleEventsDep = Annotated[ListVisibleEvents, Depends(get_feed_query)]
 GetEventDep = Annotated[GetEvent, Depends(get_event_query)]
+GetPublicEventDep = Annotated[GetPublicEvent, Depends(get_public_event_query)]
 ListParticipantsDep = Annotated[ListParticipants, Depends(get_participants_query)]
 RecordEventViewDep = Annotated[RecordEventView, Depends(get_record_view_command)]
 GetEventStatsDep = Annotated[GetEventStats, Depends(get_stats_query)]

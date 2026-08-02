@@ -165,3 +165,42 @@ class ParticipantListView(BaseModel):
                 _Participant(account_id=p.account_id, confirmed_at=p.confirmed_at) for p in dtos
             ],
         )
+
+
+class PublicEventView(BaseModel):
+    """Ce qu'un inconnu voit en ouvrant le lien partagé — **et rien de plus**.
+
+    Aucun champ ne nomme quelqu'un : ni organisateur, ni participants, ni compte. Un événement est
+    un *happening*, pas un annuaire ; celui qui reçoit le lien vient à un repas, il n'entre pas
+    dans l'église.
+
+    Aucun champ ne compte quoi que ce soit non plus. L'invariant anti-compteur d'engagement ne
+    s'arrête pas à la frontière du produit : « 24 intéressés » sur une page publique serait un
+    score, exactement comme dedans.
+    """
+
+    id: UUID
+    category: str
+    title: str
+    description: str | None
+    starts_at: datetime
+    ends_at: datetime | None
+    place_label: str | None
+    latitude: float | None
+    longitude: float | None
+    media_urls: list[str]
+
+    @classmethod
+    def of(cls, event) -> PublicEventView:
+        return cls(
+            id=event.id,
+            category=event.category.value,
+            title=event.title,
+            description=event.description,
+            starts_at=event.starts_at,
+            ends_at=event.ends_at,
+            place_label=event.place_label,
+            latitude=event.latitude,
+            longitude=event.longitude,
+            media_urls=list(event.media_urls),
+        )
