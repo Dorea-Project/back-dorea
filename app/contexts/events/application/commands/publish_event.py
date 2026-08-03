@@ -20,6 +20,7 @@ from app.contexts.events.domain.aggregates import (
     FREE_SCOPES,
     PUBLICATION_COOLDOWN_DAYS,
     Event,
+    EventCover,
 )
 from app.contexts.events.domain.enums import EventCategory, EventScope
 from app.contexts.events.domain.errors import (
@@ -183,6 +184,7 @@ class PublishEvent:
         latitude: float | None = None,
         longitude: float | None = None,
         media_urls: list[str] | None = None,
+        cover: EventCover | None = None,
     ) -> EventDTO:
         if await self._memberships.get_active(actor_account_id, tenant_id) is None:
             raise NotAChurchMemberError(
@@ -216,6 +218,7 @@ class PublishEvent:
             latitude=latitude,
             longitude=longitude,
             media_urls=media_urls,
+            cover=cover,
             business_active=business_active,
         )
         await self._events.add(event)

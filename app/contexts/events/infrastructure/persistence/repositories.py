@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.events.domain.aggregates import (
     Event,
+    EventCover,
     EventParticipant,
     EventReactionEntry,
     EventReport,
     EventView,
 )
 from app.contexts.events.domain.enums import (
+    CoverKind,
     EventCategory,
     EventReaction,
     EventScope,
@@ -58,6 +60,13 @@ def _to_event(row: EventModel) -> Event:
         latitude=row.latitude,
         longitude=row.longitude,
         media_urls=list(row.media_urls or []),
+        cover=(
+            EventCover(
+                kind=CoverKind(row.cover_kind), url=row.cover_url, text=row.cover_text
+            )
+            if row.cover_kind
+            else None
+        ),
         scope=EventScope(row.scope),
         status=EventStatus(row.status),
         created_at=row.created_at,
@@ -88,6 +97,9 @@ class SqlEventRepository(EventRepository):
                 scope=event.scope.value,
                 status=event.status.value,
                 created_at=event.created_at,
+                cover_kind=event.cover.kind.value if event.cover else None,
+                cover_url=event.cover.url if event.cover else None,
+                cover_text=event.cover.text if event.cover else None,
             )
         )
         await self._session.flush()

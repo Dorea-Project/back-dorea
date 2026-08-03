@@ -38,6 +38,11 @@ class EventModel(Base):
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     media_urls: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # La couverture — trois colonnes plutôt qu'un JSON : elle se lit, se filtre et se
+    # migre. `cover_kind` NULL = pas de couverture, et c'est un cas légitime.
+    cover_kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    cover_text: Mapped[str | None] = mapped_column(String, nullable=True)
     scope: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

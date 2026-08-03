@@ -34,8 +34,18 @@ from app.contexts.events.application.queries.view_events import (
     ListParticipants,
     ListVisibleEvents,
 )
-from app.contexts.events.domain.aggregates import PUBLICATION_COOLDOWN_DAYS, Event
-from app.contexts.events.domain.enums import EventCategory, EventReaction, EventScope
+from app.contexts.events.domain.aggregates import (
+    MAX_COVER_TEXT,
+    PUBLICATION_COOLDOWN_DAYS,
+    Event,
+    EventCover,
+)
+from app.contexts.events.domain.enums import (
+    CoverKind,
+    EventCategory,
+    EventReaction,
+    EventScope,
+)
 from app.contexts.events.domain.errors import (
     EventCancelledError,
     EventTakenDownError,
@@ -1421,3 +1431,113 @@ def test_there_is_no_way_to_relaunch_an_event():
         texte = source.read_text(encoding="utf-8").lower()
         for mot in interdits:
             assert f"def {mot}" not in texte, f"{source.name} : {mot}"
+
+
+# --- La couverture : une image, un texte, ou trente secondes de vidéo --------------------
+
+
+async def _publish_cover(cover):
+    tenant, yao = uuid4(), uuid4()
+    return await PublishEvent(
+        _FakeEvents(), _FakeMemberships([_member(yao, tenant)]), _FakeBusiness(False),
+        clock=lambda: _NOW,
+    ).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON, cover=cover,
+    )
+
+
+async def test_an_event_wears_one_face():
+    """Un événement n'a pas trois visages. Porter à la fois une image et un texte obligerait
+    chaque client à trancher lequel afficher — et deux clients trancheraient différemment : la
+    même soirée n'aurait pas la même tête sur deux téléphones."""
+    dto = await _publish_cover(EventCover(kind=CoverKind.IMAGE, url="https://cdn/affiche.jpg"))
+
+    assert dto.cover_kind == "image"
+    assert dto.cover_url == "https://cdn/affiche.jpg"
+    assert dto.cover_text is None
+
+
+async def test_a_text_cover_is_a_first_class_face_not_a_fallback():
+    """`IMAGE` et `VIDEO` supposent qu'on a de quoi photographier ou filmer. `TEXT` ne suppose
+    rien : une phrase sur un aplat de couleur, et l'événement a un visage.
+
+    C'est la forme qui rend le produit utilisable par celui qui organise un repas depuis un
+    téléphone à faible connexion — et c'est pourquoi elle est un membre de l'enum, pas un repli
+    silencieux du client."""
+    dto = await _publish_cover(
+        EventCover(kind=CoverKind.TEXT, text="Chacun apporte un plat. On mange à 19h.")
+    )
+
+    assert dto.cover_kind == "text"
+    assert dto.cover_url is None
+
+
+async def test_an_event_without_a_cover_is_legitimate():
+    """Le client affiche alors le titre. Exiger une couverture ferait renoncer celui qui n'a
+    ni photo ni idée de phrase — c'est-à-dire celui qu'on veut le plus voir publier."""
+    dto = await _publish_cover(None)
+
+    assert dto.cover_kind is None
+
+
+@pytest.mark.parametrize(
+    "cover",
+    [
+        pytest.param({"kind": CoverKind.TEXT}, id="un texte sans texte"),
+        pytest.param({"kind": CoverKind.TEXT, "text": "   "}, id="un texte vide"),
+        pytest.param(
+            {"kind": CoverKind.TEXT, "text": "ok", "url": "https://cdn/x.jpg"},
+            id="un texte qui porte aussi un fichier",
+        ),
+        pytest.param({"kind": CoverKind.IMAGE}, id="une image sans fichier"),
+        pytest.param({"kind": CoverKind.VIDEO}, id="une video sans fichier"),
+        pytest.param(
+            {"kind": CoverKind.IMAGE, "url": "https://cdn/x.jpg", "text": "et un texte"},
+            id="une image qui porte aussi un texte",
+        ),
+        pytest.param(
+            {"kind": CoverKind.TEXT, "text": "x" * (MAX_COVER_TEXT + 1)},
+            id="une phrase qui n'en est plus une",
+        ),
+    ],
+)
+def test_a_cover_that_says_two_things_is_refused(cover):
+    """La cohérence est portée par l'objet lui-même : il n'existe pas de couverture mal formée
+    quelque part dans le système, seulement des tentatives refusées à la construction."""
+    with pytest.raises(InvalidEventError):
+        EventCover(**cover)
+
+
+async def test_the_cover_travels_to_the_public_card():
+    """C'est là qu'elle sert le plus : la carte qu'on ouvre depuis un lien WhatsApp, sans compte."""
+    from app.contexts.events.interface.schemas import PublicEventView
+
+    tenant, yao = uuid4(), uuid4()
+    events = _FakeEvents()
+    dto = await PublishEvent(
+        events, _FakeMemberships([_member(yao, tenant)]), _FakeBusiness(False),
+        clock=lambda: _NOW,
+    ).execute(
+        actor_account_id=yao, tenant_id=tenant, category=EventCategory.AGAPE,
+        title="HozanaBouf", starts_at=_SOON,
+        cover=EventCover(kind=CoverKind.VIDEO, url="https://cdn/teaser.mp4"),
+    )
+
+    carte = PublicEventView.of(await GetPublicEvent(events).execute(event_id=dto.id))
+
+    assert carte.cover.kind == "video"
+    assert carte.cover.url == "https://cdn/teaser.mp4"
+
+
+def test_the_thirty_seconds_are_not_enforced_here():
+    """**La durée se mesure à l'upload, pas à la publication.**
+
+    Ici on ne voit qu'une URL : refuser sur une durée déclarée dans la requête reviendrait à
+    faire confiance au client. Elle est lue dans l'en-tête du MP4 au moment où les octets
+    passent — c'est le seul endroit où on les a."""
+    import inspect
+
+    from app.contexts.events.domain import aggregates
+
+    assert "duration" not in inspect.getsource(aggregates.EventCover)

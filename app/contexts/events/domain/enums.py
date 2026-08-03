@@ -57,6 +57,20 @@ class EventReaction(StrEnum):
     PRAY = "pray"  # je prie pour
 
 
+class CoverKind(StrEnum):
+    """De quoi la couverture est faite. **Trois formes, et la troisième compte le plus.**
+
+    `IMAGE` et `VIDEO` supposent qu'on a de quoi filmer ou photographier. `TEXT` ne suppose rien :
+    une phrase sur un aplat de couleur, et l'événement a un visage. C'est la forme qui rend le
+    produit utilisable par celui qui organise un repas depuis un téléphone à faible connexion —
+    et c'est pour ça qu'elle est un membre à part entière et pas un repli silencieux.
+    """
+
+    IMAGE = "image"
+    TEXT = "text"
+    VIDEO = "video"
+
+
 class EventStatus(StrEnum):
     PUBLISHED = "published"
     CANCELLED = "cancelled"  # retiré par l'auteur

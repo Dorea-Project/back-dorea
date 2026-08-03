@@ -14,7 +14,11 @@ from app._shared.interface.request_body import read_body_capped
 from app.api.deps import SettingsDep
 from app.contexts.auth.interface.backoffice_dependencies import CurrentBackofficeUser
 from app.contexts.auth.interface.dependencies import CurrentActor
-from app.contexts.media.application.media_store import validate_upload
+from app.contexts.media.application.media_store import (
+    VIDEO_TYPES,
+    validate_upload,
+    validate_video,
+)
 from app.contexts.media.interface.dependencies import MediaStoreDep
 
 
@@ -24,14 +28,22 @@ class UploadResponse(BaseModel):
 
 async def _do_upload(request: Request, store, settings) -> UploadResponse:
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip()
+    # La vidéo a sa propre borne de poids : une image de 40 Mo n'a aucune raison d'exister, une
+    # vidéo de trente secondes si.
+    is_video = content_type in VIDEO_TYPES
+    max_bytes = settings.media_video_max_bytes if is_video else settings.media_max_bytes
     # Lecture **bornée** : on rejette avant de bufferiser tout le corps (anti-DoS mémoire).
-    body = await read_body_capped(request, max_bytes=settings.media_max_bytes)
+    body = await read_body_capped(request, max_bytes=max_bytes)
     validate_upload(
         content_type,
         len(body),
-        max_bytes=settings.media_max_bytes,
+        max_bytes=max_bytes,
         allowed_types=settings.media_allowed_types,
     )
+    if is_video:
+        # **Mesurée, pas déclarée.** Une limite qui repose sur ce que le client annonce n'est pas
+        # une limite : c'est une convention, et elle cède devant le premier qui a intérêt à passer.
+        validate_video(body, max_seconds=settings.media_video_max_seconds)
     url = await store.put(body, content_type=content_type)
     return UploadResponse(url=url)
 

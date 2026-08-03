@@ -20,6 +20,11 @@ class EventDTO:
     latitude: float | None
     longitude: float | None
     media_urls: list[str]
+    # La couverture, à plat : ce qu'on voit **avant** d'ouvrir. `None` = pas de
+    # couverture, et c'est un cas légitime — le client affiche alors le titre.
+    cover_kind: str | None
+    cover_url: str | None
+    cover_text: str | None
     scope: str
     status: str
     created_at: datetime

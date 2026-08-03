@@ -60,6 +60,7 @@ async def publish_event(
         latitude=payload.latitude,
         longitude=payload.longitude,
         media_urls=payload.media_urls,
+        cover=payload.cover.to_domain() if payload.cover else None,
     )
     return EventView.from_dto(dto)
 

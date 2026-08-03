@@ -7,11 +7,13 @@ est publiable ; les portées plus larges (dénomination, plateforme) viendront a
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 from app._shared.domain.entity import AggregateRoot
 from app.contexts.events.domain.enums import (
+    CoverKind,
     EventCategory,
     EventReaction,
     EventScope,
@@ -34,6 +36,51 @@ from app.contexts.events.domain.errors import (
 # 10 km est un pari, comme les seuils du moteur de veille : à Abidjan c'est la commune et ses
 # voisines, en zone rurale c'est plusieurs villages. À calibrer au pilote, pas à deviner ici.
 NEARBY_RADIUS_KM = 10.0
+
+# Une couverture en texte est une **phrase**, pas un paragraphe : elle doit tenir sur une carte,
+# lisible d'un coup d'œil dans un fil. Au-delà, ce n'est plus une couverture, c'est la description
+# — qui existe déjà et vit juste en dessous.
+MAX_COVER_TEXT = 140
+
+
+@dataclass(frozen=True)
+class EventCover:
+    """La couverture — **une seule**, et d'une seule sorte.
+
+    Un événement n'a pas trois visages. Porter à la fois une image et un texte obligerait chaque
+    client à trancher lequel afficher, et deux clients trancheraient différemment : la même
+    soirée n'aurait pas la même tête sur deux téléphones.
+
+    `media_urls` reste à côté pour la galerie. La couverture est ce qu'on voit **avant** d'ouvrir.
+    """
+
+    kind: CoverKind
+    url: str | None = None
+    text: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is CoverKind.TEXT:
+            phrase = (self.text or "").strip()
+            if not phrase:
+                raise InvalidEventError("Une couverture texte demande un texte.")
+            if len(phrase) > MAX_COVER_TEXT:
+                raise InvalidEventError(
+                    f"Une couverture texte tient en {MAX_COVER_TEXT} caractères.",
+                    details={"length": len(phrase), "max": MAX_COVER_TEXT},
+                )
+            if self.url:
+                raise InvalidEventError("Une couverture texte ne porte pas de fichier.")
+        else:
+            if not (self.url or "").strip():
+                raise InvalidEventError(
+                    "Une couverture image ou vidéo demande son fichier.",
+                    details={"kind": self.kind.value},
+                )
+            if self.text:
+                raise InvalidEventError(
+                    "Une couverture image ou vidéo ne porte pas de texte."
+                )
+
 
 # **La cadence de publication.** Une semaine entre deux événements d'une même personne.
 #
@@ -71,6 +118,7 @@ class Event(AggregateRoot):
         scope: EventScope,
         status: EventStatus,
         created_at: datetime,
+        cover: EventCover | None = None,
         moderation_reason: str | None = None,
         taken_down_at: datetime | None = None,
     ) -> None:
@@ -87,6 +135,8 @@ class Event(AggregateRoot):
         self.latitude = latitude
         self.longitude = longitude
         self.media_urls = media_urls or []
+        # Ce qu'on voit **avant** d'ouvrir. `media_urls` reste la galerie de dedans.
+        self.cover = cover
         self.scope = scope
         self.status = status
         self.created_at = created_at
@@ -111,6 +161,7 @@ class Event(AggregateRoot):
         latitude: float | None = None,
         longitude: float | None = None,
         media_urls: list[str] | None = None,
+        cover: EventCover | None = None,
         business_active: bool = False,
     ) -> Event:
         title = title.strip()
@@ -148,6 +199,7 @@ class Event(AggregateRoot):
             latitude=latitude,
             longitude=longitude,
             media_urls=media_urls,
+            cover=cover,
             scope=scope,
             status=EventStatus.PUBLISHED,
             created_at=now,

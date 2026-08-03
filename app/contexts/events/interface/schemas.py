@@ -13,7 +13,33 @@ from app.contexts.events.application.dtos import (
     ParticipantDTO,
     ReportedEventDTO,
 )
-from app.contexts.events.domain.enums import EventCategory, EventReaction, EventScope
+from app.contexts.events.domain.aggregates import EventCover
+from app.contexts.events.domain.enums import (
+    CoverKind,
+    EventCategory,
+    EventReaction,
+    EventScope,
+)
+
+
+class CoverBody(BaseModel):
+    """La couverture qu'on pose — **une sorte, un contenu**.
+
+    Pour `image` et `video`, `url` est celle que rend `PUT /media` : c'est là que les octets
+    passent, et donc **le seul endroit où la durée d'une vidéo peut être mesurée**. Ici on ne voit
+    qu'une URL ; refuser sur une durée annoncée dans ce corps reviendrait à croire le client.
+    """
+
+    kind: CoverKind = Field(description="image | text | video (MP4, 30 s maximum)")
+    url: str | None = Field(default=None, description="Requis pour image et video")
+    text: str | None = Field(
+        default=None,
+        description="Requis pour text — une phrase, pas un paragraphe",
+        examples=["Chacun apporte un plat. On mange à 19h."],
+    )
+
+    def to_domain(self) -> EventCover:
+        return EventCover(kind=self.kind, url=self.url, text=self.text)
 
 
 class PublishEventBody(BaseModel):
@@ -30,6 +56,13 @@ class PublishEventBody(BaseModel):
     latitude: float | None = Field(default=None)
     longitude: float | None = Field(default=None)
     media_urls: list[str] | None = Field(default=None, description="Affiche(s) de l'événement")
+    cover: CoverBody | None = Field(
+        default=None,
+        description=(
+            "Le visage de l'événement, vu avant de l'ouvrir. Facultatif : sans couverture, "
+            "le client affiche le titre."
+        ),
+    )
 
 
 class ReactEventBody(BaseModel):
@@ -48,6 +81,7 @@ class EventView(BaseModel):
     latitude: float | None
     longitude: float | None
     media_urls: list[str]
+    cover: CoverView | None
     scope: str
     status: str
     # `None` = non divulgué : sans capacité, un nombre nu est un score. L'organisateur le lit
@@ -69,6 +103,7 @@ class EventView(BaseModel):
             place_label=d.place_label,
             latitude=d.latitude,
             longitude=d.longitude,
+            cover=CoverView.of(d.cover_kind, d.cover_url, d.cover_text),
             media_urls=d.media_urls,
             scope=d.scope,
             status=d.status,
@@ -167,6 +202,21 @@ class ParticipantListView(BaseModel):
         )
 
 
+class CoverView(BaseModel):
+    """La couverture, telle que le client la reçoit — **une sorte, un contenu**.
+
+    `kind` dit lequel des deux champs lire. Les envoyer tous les deux obligerait chaque client à
+    trancher, et deux clients trancheraient différemment."""
+
+    kind: str  # image | text | video
+    url: str | None = None
+    text: str | None = None
+
+    @classmethod
+    def of(cls, kind: str | None, url: str | None, text: str | None) -> CoverView | None:
+        return cls(kind=kind, url=url, text=text) if kind else None
+
+
 class PublicEventView(BaseModel):
     """Ce qu'un inconnu voit en ouvrant le lien partagé — **et rien de plus**.
 
@@ -189,6 +239,7 @@ class PublicEventView(BaseModel):
     latitude: float | None
     longitude: float | None
     media_urls: list[str]
+    cover: CoverView | None
 
     @classmethod
     def of(cls, event) -> PublicEventView:
@@ -203,4 +254,13 @@ class PublicEventView(BaseModel):
             latitude=event.latitude,
             longitude=event.longitude,
             media_urls=list(event.media_urls),
+            cover=(
+                CoverView(
+                    kind=event.cover.kind.value,
+                    url=event.cover.url,
+                    text=event.cover.text,
+                )
+                if event.cover
+                else None
+            ),
         )

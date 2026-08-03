@@ -98,7 +98,13 @@ class Settings(BaseSettings):
     media_base_url: str = "/media"  # préfixe public des fichiers locaux
     media_max_bytes: int = 5 * 1024 * 1024  # 5 Mo par image
     sermon_max_bytes: int = 15 * 1024 * 1024  # 15 Mo par fichier de sermon (PDF/PPTX)
-    media_allowed_types: list[str] = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+    media_allowed_types: list[str] = [
+        "image/png", "image/jpeg", "image/webp", "image/gif", "video/mp4",
+    ]
+    # La vidéo de couverture d'un événement. Deux bornes, parce qu'un poids ne dit pas une durée :
+    # trente secondes pèsent deux mégaoctets ou deux cents selon l'encodeur.
+    media_video_max_bytes: int = 40 * 1024 * 1024
+    media_video_max_seconds: int = 30
     s3_endpoint_url: str | None = None  # ex. "minio:9000" → bascule sur S3/MinIO
     s3_bucket: str = "dorea-media"
     s3_access_key: str | None = None
