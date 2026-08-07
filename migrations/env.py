@@ -32,6 +32,8 @@ import app.contexts.mission.infrastructure.persistence.models  # noqa: E402,F401
 import app.contexts.notifications.infrastructure.persistence.models  # noqa: E402,F401
 import app.contexts.sermon.infrastructure.persistence.models  # noqa: E402,F401
 import app.contexts.tenant.infrastructure.persistence.models  # noqa: E402,F401
+import app.contexts.urim.infrastructure.persistence.corpus_models  # noqa: E402,F401
+import app.contexts.urim.infrastructure.persistence.models  # noqa: E402,F401
 import app.contexts.watch.infrastructure.persistence.models  # noqa: E402,F401
 from app.core.config import get_settings  # noqa: E402
 from app.core.database import Base  # noqa: E402

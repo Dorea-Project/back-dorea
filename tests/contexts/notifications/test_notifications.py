@@ -42,8 +42,10 @@ class _FakeDevices(DeviceRepository):
     async def save(self, device):
         pass  # muté en mémoire (même instance)
 
-    async def remove_by_token(self, token):
-        self._d = [d for d in self._d if d.token != token]
+    async def remove_by_token(self, token, *, account_id):
+        self._d = [
+            d for d in self._d if not (d.token == token and d.account_id == account_id)
+        ]
 
     async def list_by_account(self, account_id):
         return [d for d in self._d if d.account_id == account_id]
@@ -95,8 +97,21 @@ async def test_re_registering_the_same_token_updates_not_duplicates():
 async def test_unregister_removes_the_device():
     acc = uuid4()
     devices = _FakeDevices([_device(acc, "tok")])
-    await UnregisterDevice(devices).execute(token="tok")
+    await UnregisterDevice(devices).execute(token="tok", account_id=acc)
     assert devices._d == []
+
+
+async def test_unregister_ne_touche_pas_l_appareil_d_un_autre():
+    """DOREA-023 — un jeton n'est pas un secret : il transite, il se journalise.
+
+    Connaître celui de quelqu'un d'autre suffisait à faire taire ses notifications."""
+    victime, attaquant = uuid4(), uuid4()
+    devices = _FakeDevices([_device(victime, "tok-victime")])
+
+    await UnregisterDevice(devices).execute(token="tok-victime", account_id=attaquant)
+
+    assert await devices.get_by_token("tok-victime") is not None  # intact
+
 
 
 # --- Envoi ---
