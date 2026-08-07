@@ -60,6 +60,8 @@ from app.contexts.tenant.interface.onboarding_router import (
     public_router as onboarding_public_router,
 )
 from app.contexts.tenant.interface.router import router as tenant_router
+from app.contexts.urim.interface.mobile_router import router as mobile_urim_router
+from app.contexts.urim.interface.platform_router import router as platform_urim_router
 from app.contexts.watch.interface.backoffice_router import (
     router as backoffice_watch_router,
 )
@@ -88,6 +90,9 @@ api_router.include_router(
     mobile_notifications_router, prefix="/notifications", tags=["notifications"]
 )
 api_router.include_router(mobile_sermon_router, prefix="/sermons", tags=["sermons"])
+# Urim — la **préparation**, distincte du sermon publié. Le quatrième mur (S29) sépare les
+# deux modèles ; ce sont deux moments d'un même travail, pas deux vues d'une même table.
+api_router.include_router(mobile_urim_router, prefix="/urim", tags=["urim"])
 # La première surface du moteur de veille. Elle n'expose pas la file des cas — seulement le
 # geste qui l'alimente : quelqu'un pense à quelqu'un, et il l'écrit une fois.
 api_router.include_router(mobile_watch_router, prefix="/watch", tags=["watch"])
@@ -124,6 +129,11 @@ backoffice_router.include_router(
 # Dispatcher du fan-out asynchrone (cron externe) — même garde Plateforme.
 backoffice_router.include_router(
     platform_notifications_router, prefix="/platform", tags=["platform:notifications"]
+)
+# La curation d'Urim — **Plateforme**, pas tenant : le corpus est global, aucune table ne
+# porte de `church_id`, et curer change ce que TOUTES les églises lisent.
+backoffice_router.include_router(
+    platform_urim_router, prefix="/platform", tags=["platform:urim"]
 )
 # Cadence du moteur de veille (cron externe) — escalade + garde-fou anti-déversoir.
 backoffice_router.include_router(

@@ -1,0 +1,267 @@
+"""Persistance des préparations et des réservations.
+
+Rien ici ne raisonne : on lit et on écrit ce que le service a décidé. La seule règle
+tenue par ce module est celle de la réservation — et elle est tenue **par la base**, pas
+par un `if` : deux ouvertures concurrentes sur le même texte se disputent une ligne, et
+c'est l'index unique qui tranche.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.contexts.urim.application.ports import (
+    ElementRecord,
+    PreparationRecord,
+    UsageSnapshot,
+)
+from app.contexts.urim.infrastructure.persistence.models import (
+    UrimPreachedModel,
+    UrimPreparationElementModel,
+    UrimPreparationModel,
+    UrimResolutionAttemptModel,
+    UrimStudyReservationModel,
+    UrimUsageWindowModel,
+)
+
+#: Une réservation qui n'aboutit pas se périme d'elle-même. Le pasteur qui ferme sa
+#: tablette au milieu d'une préparation ne doit pas bloquer son église.
+_DUREE_RESERVATION = timedelta(hours=24)
+
+#: Plafond par défaut d'une église sans fenêtre configurée. Généreux **exprès** : le
+#: repli sur le domaine public est une protection de licence, pas un levier commercial,
+#: et il ne doit jamais se déclencher par accident.
+_PLAFOND_DEFAUT = 500
+
+
+class SqlStudyRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def add(self, record: PreparationRecord) -> None:
+        self._s.add(UrimPreparationModel(
+            id=record.id,
+            church_id=record.church_id,
+            author_id=record.author_id,
+            entry_mode=record.entry_mode,
+            raw_input=record.raw_input,
+            entry_origin=record.entry_origin,
+            corpus_snapshot=record.corpus_snapshot,
+            pericope_id=record.pericope_id,
+            version_id=record.version_id,
+            axis_code=record.axis_code,
+            plan_source=record.plan_source,
+            subject_matter=record.subject_matter,
+            theme=record.theme,
+            service_date=record.service_date,
+            service_timezone=record.service_timezone,
+            status=record.status,
+            opened_at=record.opened_at or datetime.now(),
+        ))
+        await self._s.flush()
+
+    async def get(self, study_id: UUID) -> PreparationRecord | None:
+        row = await self._s.get(UrimPreparationModel, study_id)
+        if row is None:
+            return None
+        return PreparationRecord(
+            id=row.id,
+            church_id=row.church_id,
+            author_id=row.author_id,
+            raw_input=row.raw_input,
+            entry_mode=row.entry_mode,
+            entry_origin=row.entry_origin,
+            corpus_snapshot=row.corpus_snapshot,
+            resolved_ref=await self._dernier_choix(study_id),
+            pericope_id=row.pericope_id,
+            # Le bornage forcé se **déduit** : des bornes explicites sans unité curée, il
+            # n'y a pas d'autre façon d'y arriver. Une colonne de plus dirait la même
+            # chose et pourrait la contredire.
+            bounds_overridden=row.pericope_id is None and row.override_start_ch is not None,
+            version_id=row.version_id,
+            axis_code=row.axis_code,
+            plan_source=row.plan_source,
+            subject_matter=row.subject_matter,
+            theme=row.theme,
+            service_date=row.service_date,
+            service_timezone=row.service_timezone,
+            status=row.status,
+            opened_at=row.opened_at,
+            closed_at=row.closed_at,
+        )
+
+    async def save(self, record: PreparationRecord) -> None:
+        row = await self._s.get(UrimPreparationModel, record.id)
+        if row is None:
+            return
+        row.entry_mode = record.entry_mode
+        row.entry_origin = record.entry_origin
+        row.pericope_id = record.pericope_id
+        row.version_id = record.version_id
+        row.axis_code = record.axis_code
+        row.plan_source = record.plan_source
+        row.subject_matter = record.subject_matter
+        row.theme = record.theme
+        row.service_date = record.service_date
+        row.status = record.status
+        row.closed_at = record.closed_at
+        if record.bounds_overridden:
+            ref = record.resolved_ref.split("|") if record.resolved_ref else []
+            if len(ref) == 4:
+                row.override_start_ch = int(ref[1]) if ref[1] else None
+                row.override_start_v = int(ref[2]) if ref[2] else None
+                row.override_end_ch = int(ref[1]) if ref[1] else None
+                row.override_end_v = int(ref[3]) if ref[3] else (
+                    int(ref[2]) if ref[2] else None
+                )
+        else:
+            row.override_start_ch = row.override_start_v = None
+            row.override_end_ch = row.override_end_v = None
+        await self._s.flush()
+
+    async def _dernier_choix(self, study_id: UUID) -> str | None:
+        return await self._s.scalar(
+            select(UrimResolutionAttemptModel.chosen_ref)
+            .where(UrimResolutionAttemptModel.preparation_id == study_id)
+            .where(UrimResolutionAttemptModel.chosen_ref.is_not(None))
+            .order_by(UrimResolutionAttemptModel.attempted_at.desc())
+            .limit(1)
+        )
+
+    async def record_attempt(
+        self,
+        *,
+        study_id: UUID,
+        input_hash: str,
+        candidates: list[str],
+        chosen_ref: str | None,
+        chosen_by: str | None,
+        at: datetime,
+    ) -> None:
+        self._s.add(UrimResolutionAttemptModel(
+            id=uuid4(),
+            preparation_id=study_id,
+            input_hash=input_hash,
+            candidates=candidates,
+            chosen_ref=chosen_ref,
+            chosen_by=chosen_by,
+            attempted_at=at,
+        ))
+        await self._s.flush()
+
+    async def set_elements(self, study_id: UUID, elements: list[ElementRecord]) -> None:
+        existants = {
+            (r.element_code): r
+            for r in (await self._s.execute(
+                select(UrimPreparationElementModel).where(
+                    UrimPreparationElementModel.preparation_id == study_id
+                )
+            )).scalars()
+        }
+        for e in elements:
+            row = existants.get(e.element_code)
+            if row is None:
+                self._s.add(UrimPreparationElementModel(
+                    preparation_id=study_id, element_code=e.element_code,
+                    ordinal=e.ordinal, body=e.body,
+                ))
+            else:
+                row.ordinal, row.body = e.ordinal, e.body
+        await self._s.flush()
+
+    async def list_elements(self, study_id: UUID) -> list[ElementRecord]:
+        rows = (await self._s.execute(
+            select(UrimPreparationElementModel)
+            .where(UrimPreparationElementModel.preparation_id == study_id)
+            .order_by(UrimPreparationElementModel.ordinal)
+        )).scalars()
+        return [ElementRecord(r.element_code, r.ordinal, r.body) for r in rows]
+
+    async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]:
+        # **Son** archive, clée sur l'auteur. Aucune lecture d'un autre contexte : cette
+        # donnée est celle d'Urim, et c'est ce qui permet à l'étage du thème d'éviter la
+        # répétition sans jamais consulter le calendrier ecclésial (E1).
+        rows = await self._s.execute(
+            select(UrimPreachedModel.axis_code)
+            .where(UrimPreachedModel.author_id == author_id)
+            .where(UrimPreachedModel.preached_on >= since)
+            .where(UrimPreachedModel.axis_code.is_not(None))
+        )
+        return [a for a in rows.scalars() if a]
+
+
+class SqlReservationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def reserve(
+        self, *, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
+    ) -> UUID:
+        existante = await self._active(church_id, pericope_key, at)
+        if existante is not None:
+            return existante
+        reservation = UrimStudyReservationModel(
+            id=uuid4(), church_id=church_id, author_id=author_id,
+            pericope_key=pericope_key, window_id=None,
+            reserved_at=at, expires_at=at + _DUREE_RESERVATION,
+        )
+        self._s.add(reservation)
+        await self._s.flush()
+        return reservation.id
+
+    async def rekey_for(
+        self, *, church_id: UUID, provisional_key: str, pericope_key: str, at: datetime
+    ) -> None:
+        """S9 — la réservation se cale sur le texte résolu.
+
+        Si une autre réservation tient déjà ce texte, la nôtre se **libère** : les deux
+        entrées désignaient le même travail, et le facturer deux fois serait faire payer
+        une hésitation de formulation."""
+        courante = await self._active(church_id, provisional_key, at)
+        if courante is None:
+            return  # déjà re-clée, ou périmée — dans les deux cas rien à faire
+        row = await self._s.get(UrimStudyReservationModel, courante)
+        deja = await self._active(church_id, pericope_key, at, sauf=courante)
+        if deja is not None:
+            row.released_at = at
+        else:
+            row.pericope_key = pericope_key
+        await self._s.flush()
+
+    async def _active(
+        self, church_id: UUID, pericope_key: str, at: datetime, sauf: UUID | None = None
+    ) -> UUID | None:
+        requete = (
+            select(UrimStudyReservationModel.id)
+            .where(UrimStudyReservationModel.church_id == church_id)
+            .where(UrimStudyReservationModel.pericope_key == pericope_key)
+            .where(UrimStudyReservationModel.released_at.is_(None))
+            .where(UrimStudyReservationModel.expires_at > at)
+        )
+        if sauf is not None:
+            requete = requete.where(UrimStudyReservationModel.id != sauf)
+        return await self._s.scalar(requete.limit(1))
+
+    async def usage(self, church_id: UUID, at: datetime) -> UsageSnapshot:
+        jour = at.date()
+        row = await self._s.scalar(
+            select(UrimUsageWindowModel)
+            .where(UrimUsageWindowModel.church_id == church_id)
+            .where(UrimUsageWindowModel.period_start <= jour)
+            .where(UrimUsageWindowModel.period_end >= jour)
+            .limit(1)
+        )
+        if row is None:
+            # Pas de fenêtre : pas de plafond atteint. L'absence de configuration ne doit
+            # jamais dégrader le service — le repli est une protection, pas une punition.
+            return UsageSnapshot(ceiling=_PLAFOND_DEFAUT, ceiling_reached=False)
+        return UsageSnapshot(
+            window_id=row.id,
+            metered_units=row.metered_units,
+            ceiling=row.ceiling,
+            ceiling_reached=row.ceiling > 0 and row.metered_units >= row.ceiling,
+        )

@@ -29,3 +29,7 @@ Thumbs.db
 # Pour des notes de travail, utiliser `docs/scratch/`.
 docs/scratch/
 .claude
+# Le telechargement brut de la LSG (~10 Mo) est un INTERMEDIAIRE : `scripts/build_lsg_dataset.py`
+# le convertit en `data/ls1910.json`, qui lui est versionne. Versionner les deux stockerait deux
+# fois la meme Bible, dont une que rien ne lit.
+data/ls1910_raw.json

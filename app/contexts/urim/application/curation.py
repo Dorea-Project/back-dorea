@@ -1,0 +1,313 @@
+"""La curation — **le seul endroit du produit où un humain signe**.
+
+Tout ce que le moteur affiche au pasteur comme *relu* vient d'ici : les bornes d'une unité
+littéraire et leur motif, les pesées sur les dix loci, les mises en garde, le contexte, la
+faisabilité homilétique. `reviewed_by NOT NULL` est en base sur ces six tables, et il n'y est
+pas pour la traçabilité : il y est pour empêcher qu'une machine remplisse ce qu'un homme
+doit avoir pesé.
+
+## Pourquoi c'est une surface **Plateforme** et non de tenant
+
+Aucune table `urim_corpus_*` ne porte de `church_id` : le corpus est **global**. Une
+curation change ce que *toutes* les églises lisent. Un pasteur ne peut donc pas curer — pas
+par défiance, mais parce que le geste n'a pas la bonne portée.
+
+## Trois règles que la surface tient, et que la base ne peut pas tenir seule
+
+1. **Les dix loci se saisissent d'un coup, `absent` compris** (S38). Une unité qui ne porte
+   aucune pesée sur un axe n'est pas une unité où *« on a regardé et il n'y a rien »* — c'est
+   une unité où **personne n'a regardé**. Les deux ne se distinguent que si le relecteur est
+   obligé de passer sur les dix.
+2. **On ne signe pas d'un nom de semis.** `semis-demo` est refusé explicitement : c'est la
+   marque d'un jeu de démonstration, et la laisser passer rendrait le garde décoratif.
+3. **Les bornes doivent exister dans le texte.** Curer Jean 3:99 produirait une unité que
+   personne ne peut lire.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Protocol
+from uuid import UUID
+
+from app.contexts.urim.domain.errors import CurationInvalideError
+from app.contexts.urim.infrastructure.corpus.index import CorpusIndex
+
+#: Signatures interdites — celles qui ne désignent personne.
+_SIGNATURES_REFUSEES = frozenset({"semis-demo", "demo", "test", "machine", "ia", "auto"})
+
+#: Longueur minimale d'un motif. Un `rationale` vide passerait le `NOT NULL` de la base et
+#: ne dirait rien au pasteur — or c'est *la* phrase qu'il lit pour comprendre ces bornes-là.
+_MOTIF_MINIMUM = 20
+
+
+@dataclass(slots=True)
+class PericopeDraft:
+    book: str
+    start_ch: int
+    start_v: int
+    end_ch: int
+    end_v: int
+    rationale: str
+    source_ref: str
+    reviewed_by: str
+    label: str | None = None
+
+
+@dataclass(slots=True)
+class BearingDraft:
+    axis_code: str
+    strength: str
+    rationale: str
+    source_ref: str
+
+
+@dataclass(slots=True)
+class CaveatDraft:
+    axis_code: str
+    caveat_kind: str
+    body: str
+    source_ref: str
+    tradition_scope: list[str] | None = None
+
+
+@dataclass(slots=True)
+class ContextDraft:
+    context_kind: str
+    body: str
+    ordinal: int
+    source_ref: str
+
+
+@dataclass(slots=True)
+class FeasibilityDraft:
+    plan_source: str
+    subject_matter: str
+    feasible: bool
+    proof_text_risk: str
+    refusal_reason: str | None = None
+
+
+@dataclass(slots=True)
+class PericopeSummary:
+    id: UUID
+    book: str
+    start_ch: int
+    start_v: int
+    end_ch: int
+    end_v: int
+    label: str | None
+    reviewed_by: str
+    n_bearings: int
+    n_caveats: int
+    n_context: int
+    n_feasibility: int
+
+    @property
+    def complete(self) -> bool:
+        """Les dix loci pesés — le seul sens défendable de « relue » (S38)."""
+        return self.n_bearings >= 10
+
+
+@dataclass(slots=True)
+class CoverageReport:
+    """L'état de la curation, **sans complaisance**.
+
+    Le chiffre qui compte est `verses_covered / verses_total` : c'est la part de l'Écriture
+    sur laquelle Urim a réellement quelque chose de relu à dire. Tout le reste du moteur peut
+    être parfait, il dégradera partout ailleurs."""
+
+    verses_total: int
+    verses_covered: int
+    pericopes: int
+    pericopes_completes: int
+    par_locus: dict[str, int] = field(default_factory=dict)
+    par_livre: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def part_couverte(self) -> float:
+        return self.verses_covered / self.verses_total if self.verses_total else 0.0
+
+
+class CurationRepository(Protocol):
+    async def add_pericope(self, draft: PericopeDraft, book_id: int) -> UUID: ...
+
+    async def get_book_id(self, pericope_id: UUID) -> int | None: ...
+
+    async def replace_bearings(
+        self, pericope_id: UUID, drafts: list[BearingDraft], reviewed_by: str
+    ) -> None: ...
+
+    async def add_caveat(
+        self, pericope_id: UUID, draft: CaveatDraft, reviewed_by: str
+    ) -> UUID: ...
+
+    async def add_context(
+        self, pericope_id: UUID, draft: ContextDraft, reviewed_by: str
+    ) -> UUID: ...
+
+    async def replace_feasibility(
+        self, pericope_id: UUID, drafts: list[FeasibilityDraft], reviewed_by: str
+    ) -> None: ...
+
+    async def delete_pericope(self, pericope_id: UUID) -> bool: ...
+
+    async def list_pericopes(self, book_id: int | None) -> list[PericopeSummary]: ...
+
+    async def coverage(self) -> CoverageReport: ...
+
+
+@dataclass(slots=True)
+class UrimCuration:
+    repo: CurationRepository
+    index: CorpusIndex
+    #: Appelé après **toute** écriture. L'index est gelé par processus : sans cette purge, une
+    #: curation tout juste signée resterait invisible jusqu'au prochain redémarrage. Elle
+    #: change aussi `snapshot`, donc les préparations ouvertes signalent `corpus_drifted` —
+    #: c'est voulu : leur trace n'est plus celle du jour.
+    invalidate: object
+
+    # -- l'unité littéraire -----------------------------------------------------
+
+    async def create_pericope(self, draft: PericopeDraft) -> UUID:
+        self._verifier_signature(draft.reviewed_by)
+        if len(draft.rationale.strip()) < _MOTIF_MINIMUM:
+            raise CurationInvalideError(
+                "Le motif des bornes doit dire pourquoi celles-ci — c'est la phrase que le "
+                "pasteur lira pour vous suivre, ou vous contredire."
+            )
+        if not draft.source_ref.strip():
+            raise CurationInvalideError("Une source est requise : d'où vient ce découpage ?")
+
+        livre = self.index.book_by_label.get(draft.book)
+        if livre is None:
+            raise CurationInvalideError(f"« {draft.book} » n'est pas un livre connu.")
+        if (draft.start_ch, draft.start_v) > (draft.end_ch, draft.end_v):
+            raise CurationInvalideError("Les bornes sont inversées.")
+        self._verifier_borne(livre, draft.book, draft.start_ch, draft.start_v)
+        self._verifier_borne(livre, draft.book, draft.end_ch, draft.end_v)
+
+        nouvelle = await self.repo.add_pericope(draft, livre)
+        self.invalidate()
+        return nouvelle
+
+    def _verifier_borne(self, livre: int, libelle: str, chapitre: int, verset: int) -> None:
+        dernier = self.index.verse_count(livre, chapitre)
+        if dernier is None:
+            raise CurationInvalideError(f"{libelle} n'a pas de chapitre {chapitre}.")
+        if verset > dernier:
+            raise CurationInvalideError(
+                f"{libelle} {chapitre} compte {dernier} versets — pas de verset {verset}."
+            )
+
+    # -- les dix loci -----------------------------------------------------------
+
+    async def set_bearings(
+        self, pericope_id: UUID, drafts: list[BearingDraft], reviewed_by: str
+    ) -> None:
+        """⚠️ **Les dix, d'un coup.** C'est S38 rendu structurel plutôt que recommandé.
+
+        Une unité sans ligne sur un axe et une unité marquée `absent` sur cet axe ne disent
+        pas la même chose : la première signifie *« personne n'a regardé »*, la seconde
+        *« quelqu'un a regardé et le texte n'en dit rien »*. Le moteur les distingue déjà ;
+        si la surface acceptait une saisie partielle, une curation à moitié faite
+        ressemblerait à une curation finie."""
+        self._verifier_signature(reviewed_by)
+        await self._exiger_pericope(pericope_id)
+
+        attendus = {axe.code for axe in self.index.axes}
+        fournis = {d.axis_code for d in drafts}
+        if len(drafts) != len(fournis):
+            raise CurationInvalideError("Un même axe est pesé deux fois.")
+        if fournis != attendus:
+            manquants = sorted(attendus - fournis)
+            intrus = sorted(fournis - attendus)
+            raise CurationInvalideError(
+                "Les dix loci se pèsent ensemble, `absent` compris — "
+                f"manquants : {manquants or '-'} ; inconnus : {intrus or '-'}."
+            )
+        for d in drafts:
+            if not d.rationale.strip():
+                raise CurationInvalideError(
+                    f"L'axe « {d.axis_code} » est pesé sans motif. Dire *pourquoi* un texte "
+                    "ne porte pas un axe est aussi utile que de dire qu'il le porte."
+                )
+
+        await self.repo.replace_bearings(pericope_id, drafts, reviewed_by)
+        self.invalidate()
+
+    # -- le reste ---------------------------------------------------------------
+
+    async def add_caveat(
+        self, pericope_id: UUID, draft: CaveatDraft, reviewed_by: str
+    ) -> UUID:
+        self._verifier_signature(reviewed_by)
+        await self._exiger_pericope(pericope_id)
+        if draft.caveat_kind == "confessionnel" and not draft.tradition_scope:
+            # La base l'interdit aussi (`confessionnel_borne`) — ici le message dit quoi faire.
+            raise CurationInvalideError(
+                "Un caveat confessionnel nomme les traditions qui divergent. La formulation "
+                "reste « ici les traditions divergent », jamais « votre tradition dit X »."
+            )
+        nouveau = await self.repo.add_caveat(pericope_id, draft, reviewed_by)
+        self.invalidate()
+        return nouveau
+
+    async def add_context(
+        self, pericope_id: UUID, draft: ContextDraft, reviewed_by: str
+    ) -> UUID:
+        self._verifier_signature(reviewed_by)
+        await self._exiger_pericope(pericope_id)
+        if not draft.source_ref.strip():
+            raise CurationInvalideError(
+                "Le contexte est **sourcé, ou absent** — il n'y a pas de troisième possibilité."
+            )
+        nouveau = await self.repo.add_context(pericope_id, draft, reviewed_by)
+        self.invalidate()
+        return nouveau
+
+    async def set_feasibility(
+        self, pericope_id: UUID, drafts: list[FeasibilityDraft], reviewed_by: str
+    ) -> None:
+        self._verifier_signature(reviewed_by)
+        await self._exiger_pericope(pericope_id)
+        for d in drafts:
+            if not d.feasible and not (d.refusal_reason or "").strip():
+                raise CurationInvalideError(
+                    f"« {d.plan_source} x {d.subject_matter} » est refusé sans motif. Un refus "
+                    "muet est un refus qu'on ne peut pas contester."
+                )
+        await self.repo.replace_feasibility(pericope_id, drafts, reviewed_by)
+        self.invalidate()
+
+    async def delete_pericope(self, pericope_id: UUID) -> bool:
+        """Retirer une curation fautive. Sans cela, une erreur de relecture serait définitive."""
+        retire = await self.repo.delete_pericope(pericope_id)
+        if retire:
+            self.invalidate()
+        return retire
+
+    # -- lecture ----------------------------------------------------------------
+
+    async def list_pericopes(self, book: str | None = None) -> list[PericopeSummary]:
+        livre = self.index.book_by_label.get(book) if book else None
+        if book and livre is None:
+            raise CurationInvalideError(f"« {book} » n'est pas un livre connu.")
+        return await self.repo.list_pericopes(livre)
+
+    async def coverage(self) -> CoverageReport:
+        return await self.repo.coverage()
+
+    # -- gardes -----------------------------------------------------------------
+
+    def _verifier_signature(self, reviewed_by: str) -> None:
+        nom = reviewed_by.strip()
+        if len(nom) < 3 or nom.lower() in _SIGNATURES_REFUSEES:
+            raise CurationInvalideError(
+                "Signez d'un nom qui désigne quelqu'un. Ce champ dit au pasteur qui a pesé "
+                "ce texte ; « semis-demo » ou « auto » ne désignent personne."
+            )
+
+    async def _exiger_pericope(self, pericope_id: UUID) -> None:
+        if await self.repo.get_book_id(pericope_id) is None:
+            raise CurationInvalideError("Cette unité littéraire n'existe pas.")
