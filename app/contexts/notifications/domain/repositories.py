@@ -19,7 +19,13 @@ class DeviceRepository(Repository):
     async def save(self, device: Device) -> None: ...
 
     @abstractmethod
-    async def remove_by_token(self, token: str) -> None: ...
+    async def remove_by_token(self, token: str, *, account_id: UUID) -> None:
+        """Oublie un jeton — **borné à son propriétaire** (DOREA-023).
+
+        Sans le compte, connaître un jeton suffisait à faire taire les notifications de
+        quelqu'un d'autre. Un jeton n'est pas un secret : il transite, il se journalise,
+        il s'échange entre l'app et le fournisseur push."""
+        ...
 
     @abstractmethod
     async def list_by_account(self, account_id: UUID) -> list[Device]: ...

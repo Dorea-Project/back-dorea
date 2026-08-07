@@ -145,6 +145,11 @@ CONSENT_REQUIRED: frozenset[FactKind] = frozenset(
         FactKind.SELF_DECLARATION,
         FactKind.THIRD_PARTY_CONCERN,
         FactKind.LIFE_EVENT_PRIVATE,
+        # Le geste posé sur quelqu'un d'autre. Même preuve que le signalement — `SPEAK_FOR_ANOTHER`
+        # — et pour la même raison : ce n'est pas la permission du sujet qu'on exige, c'est
+        # l'engagement de celui qui parle. Sans elle, n'importe quel service pourrait déclarer des
+        # visites au nom de gens qui n'ont rien fait.
+        FactKind.GESTURE_DONE,
     }
 )
 
@@ -182,6 +187,14 @@ CASE_ACTS: frozenset[FactKind] = frozenset(
 # Ce que certains kinds exigent du payload, **quelle que soit la source**. Le registre porte les
 # clés par source ; ceci porte celles qui tiennent au type de fait lui-même.
 KIND_REQUIRED_KEYS: dict[FactKind, frozenset[str]] = {
+    # **Quel geste**, et rien d'autre. La clé est exigée au type et non à la source : le jour où
+    # une seconde surface déclarera des gestes, elle ne pourra pas en émettre un qui ne dit pas
+    # lequel — un geste sans nature est une case cochée, pas un acte.
+    FactKind.GESTURE_DONE: frozenset({"kind"}),
+    # Le geste dont il s'agit — exigé au **type** et non à la source, pour que la porte du
+    # compagnon ne puisse pas émettre une auto-déclaration muette là où celle de la mission
+    # l'exigeait déjà. Une déclaration qui ne dit pas laquelle est une case cochée.
+    FactKind.SELF_DECLARATION: frozenset({"kind"}),
     FactKind.CASE_SEEN: frozenset({"signal_id", ACTOR_KEY}),
     FactKind.CASE_CLOSED: frozenset({"signal_id", ACTOR_KEY, "outcome"}),
     FactKind.CONTACT_ATTEMPTED: frozenset({"attempt_id", "signal_id", ACTOR_KEY, "channel"}),

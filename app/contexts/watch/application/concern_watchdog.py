@@ -38,10 +38,10 @@ apprend sur les seuils d'une église, jamais sur quelqu'un.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
-from app.contexts.watch.application.ports import SignalStore
+from app.contexts.watch.application.ports import NeutralizationStore, SignalStore
 from app.contexts.watch.application.referent_ports import (
     CoverageGapStore,
     WatchParameterRepository,
@@ -49,7 +49,7 @@ from app.contexts.watch.application.referent_ports import (
 from app.contexts.watch.domain.coverage import CoverageGapRecord
 from app.contexts.watch.domain.effects import CasePriority, CoverageGap, CoverageScope
 from app.contexts.watch.domain.parameters import WatchParam
-from app.contexts.watch.domain.signal import SignalOutcome
+from app.contexts.watch.domain.signal import SignalOutcome, spoken_date
 
 
 class EscalateStaleConcerns:
@@ -195,6 +195,88 @@ class GuardAgainstDumping:
         return flagged
 
 
+class WatchForAwayLeaders:
+    """**Personne ne savait qu'il était parti.** Le défaut se lève à la déclaration, pas après.
+
+    Le point de départ est une scène banale : le responsable part en voyage, il l'a déclaré comme
+    le produit le lui demande, et ses cas restent fermés sur son écran pendant trois semaines. Rien
+    ne le dit à personne — et au bout d'une semaine, le seul mot que le moteur possédait pour en
+    parler était *« n'ouvre plus rien, a probablement besoin d'aide »*.
+
+    Trois décisions tiennent ce service :
+
+    - **il part de l'absence, pas des cas non ouverts.** Attendre `CASE_UNOPENED_AFTER_DAYS`
+      donnerait l'alerte huit jours après le départ, c'est-à-dire au tiers du voyage. Une relève se
+      pose avant ;
+    - **aucun seuil de volume.** Une seule personne qui attend suffit à justifier qu'on nomme
+      quelqu'un. Les planchers de lisibilité existent pour les **ratios**, qui ne veulent rien dire
+      sur trois cas ; ici il n'y a pas de ratio, il y a un fait ;
+    - **la date de retour voyage dans la phrase.** « Absent » sans « jusqu'au » n'est pas
+      actionnable : on ne désigne pas la même chose pour quatre jours et pour six semaines.
+    """
+
+    def __init__(
+        self,
+        signals: SignalStore,
+        gaps: CoverageGapStore,
+        neutralizations: NeutralizationStore,
+        *,
+        clock,
+        id_factory=uuid4,
+    ) -> None:
+        self._signals = signals
+        self._gaps = gaps
+        self._neutralizations = neutralizations
+        self._clock = clock
+        self._new_id = id_factory
+
+    async def away_owner_ids(self, *, tenant_id: UUID) -> dict[UUID, datetime]:
+        """Qui est absent **maintenant**, et jusqu'à quand. Partagé avec le garde du débordement.
+
+        Une seule lecture de « qui est parti » dans tout le module : deux auraient divergé, et
+        l'une aurait fini par accuser quelqu'un que l'autre savait en voyage."""
+        now = self._clock()
+        away: dict[UUID, datetime] = {}
+        for _id, account_id, starts_at, expected_return_at in (
+            await self._neutralizations.open_neutralizations(tenant_id)
+        ):
+            if starts_at <= now <= expected_return_at:
+                # Le retour le plus lointain gagne : deux absences qui se chevauchent décrivent
+                # une seule personne qu'on ne reverra pas avant la dernière des deux dates.
+                away[account_id] = max(
+                    expected_return_at, away.get(account_id, expected_return_at)
+                )
+        return away
+
+    async def execute(self, *, tenant_id: UUID) -> list[UUID]:
+        """Renvoie les responsables absents sur lesquels un défaut vient d'être consigné."""
+        now = self._clock()
+        flagged: list[UUID] = []
+        for account_id, expected_return_at in (
+            await self.away_owner_ids(tenant_id=tenant_id)
+        ).items():
+            carried = await self._signals.open_cases_count(account_id, tenant_id)
+            if carried == 0:
+                continue  # absent sans charge : il n'y a rien à relever
+            created = await self._gaps.record_once(
+                CoverageGapRecord(
+                    id=self._new_id(),
+                    tenant_id=tenant_id,
+                    scope=CoverageScope.PERSON,
+                    subject_id=account_id,  # **le responsable**, comme les autres défauts
+                    gap=CoverageGap.LEADER_AWAY,
+                    reason=(
+                        f"Absent jusqu'au {spoken_date(expected_return_at)} — "
+                        f"{carried} situation(s) lui sont confiées. À relever."
+                    ),
+                    observed_at=now,
+                )
+            )
+            if created:
+                flagged.append(account_id)
+        return flagged
+
+
 @dataclass(frozen=True)
 class UnopenedRatio:
     """Ce qu'un responsable porte, et ce qu'il n'a jamais ouvert."""
@@ -235,6 +317,7 @@ class WatchForUnopenedCases:
         signals: SignalStore,
         gaps: CoverageGapStore,
         params: WatchParameterRepository,
+        away: WatchForAwayLeaders | None = None,
         *,
         clock,
         id_factory=uuid4,
@@ -242,6 +325,10 @@ class WatchForUnopenedCases:
         self._signals = signals
         self._gaps = gaps
         self._params = params
+        # **Qui est parti.** Sans cette lecture, l'indicateur qui anticipe l'abandon confond le
+        # responsable qui décroche et celui qui est en voyage — et il écrit « a probablement
+        # besoin d'aide » à quelqu'un qui a fait exactement ce qu'on lui demandait.
+        self._away = away
         self._clock = clock
         self._new_id = id_factory
 
@@ -269,9 +356,20 @@ class WatchForUnopenedCases:
             / 100
         )
 
+        away = (
+            await self._away.away_owner_ids(tenant_id=tenant_id)
+            if self._away is not None
+            else {}
+        )
+
         flagged: list[UUID] = []
         for ratio in await self.ratios(tenant_id=tenant_id):
             if ratio.borne < floor or ratio.unopened_rate < rate_floor:
+                continue
+            if ratio.owner_id in away:
+                # Il n'ouvre rien parce qu'il n'est pas là, et il l'avait dit. `LEADER_AWAY` porte
+                # déjà sa charge et appelle une relève ; ajouter « a probablement besoin d'aide »
+                # serait un second défaut sur la même personne pour le même fait, et le mauvais.
                 continue
             created = await self._gaps.record_once(
                 CoverageGapRecord(

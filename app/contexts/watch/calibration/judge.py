@@ -11,6 +11,7 @@ Trois verdicts, et chacun pointe vers un réglage différent :
 | :-- | :-- | :-- |
 | « contact pris, rien à signaler » | la détection s'est **trompée** | seuil trop sensible |
 | inquiétude d'un tiers **confirmée** | un humain a vu **avant** le moteur | seuil trop lent |
+| absence confirmée, **déjà visitée** | idem, en plus fort : il s'est déplacé | seuil trop lent |
 | cas jamais ouvert par son destinataire | il est **débordé**, pas indifférent | plafond trop haut |
 
 **Ce troisième est le seul qui anticipe.** `first_contact_at` est la métrique reine, mais elle est
@@ -30,12 +31,19 @@ from uuid import UUID
 from app.contexts.watch.application.concern_watchdog import UNCONFIRMED_OUTCOMES
 from app.contexts.watch.application.ports import SignalStore
 from app.contexts.watch.application.referent_ports import WatchParameterRepository
+from app.contexts.watch.application.restitution import GESTURE_LOOKBACK
 from app.contexts.watch.domain.effects import CasePriority
 from app.contexts.watch.domain.parameters import WatchParam
 from app.contexts.watch.domain.signal import SignalOutcome
 
 # Au-delà, un cas qu'aucun destinataire n'a ouvert est un cas ignoré, pas un cas récent.
 IGNORED_AFTER_DAYS = 7
+
+# Combien de temps avant l'ouverture d'un cas une visite dit encore quelque chose de lui. **La
+# même fenêtre que celle du bloc de restitution**, et volontairement importée de là plutôt que
+# réécrite : le responsable ne doit pas lire une visite que la calibration ignore, ni l'inverse.
+# Deux constantes auraient divergé, et l'écart aurait été invisible dans les deux sens.
+GESTURE_PRECEDES_WINDOW = GESTURE_LOOKBACK
 
 
 @dataclass(frozen=True)
@@ -111,6 +119,18 @@ class OutcomeJudge:
                     # est, littéralement, une détection que les seuils ont manquée — la seule
                     # mesure du produit qui dise « tu étais trop lent » plutôt que « tu criais ».
                     missed += 1
+
+        # **La seconde moitié de « un humain a vu avant le moteur ».** Un cas d'absence confirmé
+        # sur quelqu'un que l'église était déjà allée voir dit la même chose qu'une inquiétude
+        # confirmée — en plus fort : le déclarant ne s'est pas contenté de ressentir, il s'est
+        # déplacé, et les seuils comptaient encore.
+        #
+        # Sans cette ligne, ces cas ne pesaient d'aucun côté de la balance : le geste entrait au
+        # journal depuis G-1 et la calibration ne le voyait pas. Les églises les plus fraternelles
+        # restaient donc celles dont on ne mesurait jamais la lenteur.
+        missed += await self._signals.absences_confirmed_after_a_gesture(
+            tenant_id=tenant_id, since=since, within=GESTURE_PRECEDES_WINDOW
+        )
 
         ignored, on_shoulders = await self._signals.ignored_ratio(
             tenant_id=tenant_id, older_than=now - timedelta(days=IGNORED_AFTER_DAYS)

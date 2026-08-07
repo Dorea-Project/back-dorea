@@ -42,6 +42,31 @@ def _tokens(text: str) -> set[str]:
     return {t for t in re.split(r"[^0-9a-z]+", stripped.lower()) if t}
 
 
+def _parse_reference(content: str) -> VerseReference | None:
+    """Lit la réponse du modèle **sans lui faire confiance** (DOREA-025).
+
+    `response_format={"type": "json_object"}` promet du JSON ; il ne promet ni la forme, ni
+    les types. Un `{"chapter": "trois"}`, une liste au lieu d'un objet, une clé manquante —
+    et le code levait, donc **500**. Or il existe un repli (`KeywordVerseResolver`) et
+    l'appelant traite déjà `None` comme « non résolu » : échouer **doucement** est à la fois
+    plus sûr et plus juste. On ne rend une référence que si tout est exactement en place.
+    """
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict) or not data.get("found"):
+        return None
+    try:
+        chapter, verse = int(data["chapter"]), int(data["verse"])
+        book = str(data["book"]).strip()
+    except (KeyError, TypeError, ValueError):
+        return None
+    if chapter < 1 or verse < 1 or not book:
+        return None
+    return VerseReference(book=book, chapter=chapter, verse=verse)
+
+
 class MistralVerseResolver(VerseResolver):
     def __init__(self, *, api_key: str, model: str) -> None:
         # Import paresseux (dépendance optionnelle). Le SDK v2 range le client sous
@@ -66,11 +91,7 @@ class MistralVerseResolver(VerseResolver):
         content = response.choices[0].message.content
         if not content:
             return None
-        data = json.loads(content)
-        chapter, verse = int(data.get("chapter", 0)), int(data.get("verse", 0))
-        if not data.get("found") or chapter < 1 or verse < 1:
-            return None
-        return VerseReference(book=str(data["book"]).strip(), chapter=chapter, verse=verse)
+        return _parse_reference(content)
 
 
 class KeywordVerseResolver(VerseResolver):

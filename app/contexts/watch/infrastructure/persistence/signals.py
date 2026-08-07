@@ -7,12 +7,15 @@ demande à l'agrégat et respecte sa réponse.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# La liste des issues « non confirmées » est définie **une fois**, là où elle est raisonnée. La
+# réécrire ici ferait deux vérités sur la même question, et celle qui arrange finirait par gagner.
+from app.contexts.watch.application.concern_watchdog import UNCONFIRMED_OUTCOMES
 from app.contexts.watch.application.ports import (
     ContactAttemptStore,
     HumanTraces,
@@ -25,6 +28,7 @@ from app.contexts.watch.domain.contact import (
 )
 from app.contexts.watch.domain.effects import CasePriority, ExtinguishCause
 from app.contexts.watch.domain.errors import HumanClosureRequiredError
+from app.contexts.watch.domain.facts import FactKind
 from app.contexts.watch.domain.signal import (
     LIVE_STATUSES,
     ON_SHOULDERS_STATUSES,
@@ -38,6 +42,7 @@ from app.contexts.watch.domain.signal import (
 from app.contexts.watch.infrastructure.persistence.models import (
     CareMemoryModel,
     ContactAttemptModel,
+    FactLedgerModel,
     SignalModel,
 )
 
@@ -188,6 +193,7 @@ class SqlSignalStore(SignalStore):
         annotation: str | None = None,
         priority: str | None = None,
         downgrade: bool = False,
+        gesture: bool = False,
     ) -> None:
         existing = await self._live_row(subject_id, tenant_id)
         if existing is None:
@@ -199,6 +205,7 @@ class SqlSignalStore(SignalStore):
             annotation=annotation,
             priority=CasePriority(priority) if priority else None,
             downgrade=downgrade,
+            gesture=gesture,
         )
 
     async def _merge(
@@ -210,6 +217,7 @@ class SqlSignalStore(SignalStore):
         annotation: str | None = None,
         priority: CasePriority | None = None,
         downgrade: bool = False,
+        gesture: bool = False,
     ) -> None:
         signal = _to_signal(row)
         changed = signal.enrich(
@@ -220,6 +228,12 @@ class SqlSignalStore(SignalStore):
             downgrade=downgrade,
         )
         if changed:
+            # **L'idempotence du comptage est portée par `enrich`**, qui déduplique sur
+            # `source_ref` : rejouer le même fait ne change rien, donc n'incrémente rien. Compter
+            # avant ce test empilerait un geste de plus à chaque reprojection.
+            if gesture:
+                signal.record_gesture()
+                row.gestures_count = signal.gestures_count
             row.source_refs = [str(r) for r in signal.source_refs]
             row.expires_at = signal.expires_at
             row.annotations = list(signal.annotations)
@@ -506,6 +520,59 @@ class SqlSignalStore(SignalStore):
             SignalModel.closed_by_account_id.is_not(None),
         )
         return [(o, u) for o, u in (await self._session.execute(stmt)).all()]
+
+    async def absences_confirmed_after_a_gesture(
+        self, *, tenant_id: UUID, since: datetime, within: timedelta
+    ) -> int:
+        """Le rapprochement cas ↔ journal — **deux requêtes, et le recollement en Python**.
+
+        La fenêtre se compte à partir de `opened_at`, qui est une colonne : l'écrire en SQL
+        demanderait une arithmétique d'intervalle que Postgres sait faire et SQLite non. On
+        obtiendrait une requête qui ne tourne que sur la base de production, donc une requête que
+        personne ne teste — c'est exactement le raisonnement qui a déjà été tenu pour le
+        recollement d'un cas à son tir d'échéance, et la réponse est la même.
+
+        Aucun identifiant ne sort d'ici : ils servent au rapprochement et la méthode rend un
+        entier. C'est ce qui préserve l'interdit structurel de `closed_cases_since`."""
+        cases = (
+            await self._session.execute(
+                select(SignalModel.subject_id, SignalModel.opened_at).where(
+                    SignalModel.tenant_id == tenant_id,
+                    SignalModel.origin == CasePriority.ABSENCE.value,
+                    SignalModel.status == SignalStatus.CLOSED.value,
+                    SignalModel.closed_at >= since,
+                    SignalModel.outcome.is_not(None),
+                    SignalModel.closed_by_account_id.is_not(None),
+                    SignalModel.outcome.not_in([o.value for o in UNCONFIRMED_OUTCOMES]),
+                )
+            )
+        ).all()
+        if not cases:
+            return 0
+
+        floor = min(_aware(opened) for _, opened in cases) - within
+        gestures = (
+            await self._session.execute(
+                select(FactLedgerModel.subject_id, FactLedgerModel.occurred_at).where(
+                    FactLedgerModel.tenant_id == tenant_id,
+                    FactLedgerModel.kind == FactKind.GESTURE_DONE.value,
+                    FactLedgerModel.occurred_at >= floor,
+                )
+            )
+        ).all()
+        by_subject: dict[UUID, list[datetime]] = {}
+        for subject_id, at in gestures:
+            by_subject.setdefault(subject_id, []).append(_aware(at))
+
+        # `any` et non un décompte : trois visites avant le même cas ne font qu'**un** cas manqué.
+        return sum(
+            1
+            for subject_id, opened in cases
+            if any(
+                _aware(opened) - within <= at < _aware(opened)
+                for at in by_subject.get(subject_id, ())
+            )
+        )
 
     async def ignored_by_owner(
         self, *, tenant_id: UUID, older_than: datetime

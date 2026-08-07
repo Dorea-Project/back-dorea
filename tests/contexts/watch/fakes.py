@@ -94,6 +94,17 @@ class FakeAbsences(PlannedAbsenceRepository):
             if a.tenant_id == tenant_id and a.is_neutralization and a.is_open
         ]
 
+    async def list_open_explanations(self, account_id, tenant_id):
+        """Les deux origines — la question de la veille, pas celle de l'écriture."""
+        return [
+            a
+            for a in self.rows
+            if a.account_id == account_id and a.tenant_id == tenant_id and a.is_open
+        ]
+
+    async def list_open_explanations_by_tenant(self, tenant_id):
+        return [a for a in self.rows if a.tenant_id == tenant_id and a.is_open]
+
     async def delete_projected(self, tenant_id):
         self.rows = [
             a
@@ -162,14 +173,18 @@ class FakeSignals(SignalStore):
 
     async def enrich_case(
         self, *, subject_id, tenant_id, source_ref, extend_to,
-        annotation=None, priority=None, downgrade=False,
+        annotation=None, priority=None, downgrade=False, gesture=False,
     ):
         existing = self._live(subject_id, tenant_id)
         if existing is not None:
-            existing.enrich(
+            changed = existing.enrich(
                 source_ref=source_ref, expires_at=extend_to, annotation=annotation,
                 priority=CasePriority(priority) if priority else None, downgrade=downgrade,
             )
+            # Même règle que le SQL : la déduplication par `source_ref` porte l'idempotence du
+            # comptage, donc rejouer le même fait n'empile pas un geste de plus.
+            if changed and gesture:
+                existing.record_gesture()
 
     async def extinguish(self, *, subject_id, tenant_id, cause, at):
         signal = self._live(subject_id, tenant_id)
@@ -300,6 +315,35 @@ class FakeSignals(SignalStore):
             and s.closed_at >= since
             and s.closed_by_account_id is not None
         ]
+
+    async def absences_confirmed_after_a_gesture(self, *, tenant_id, since, within):
+        """Le même rapprochement que le SQL, sur le journal que le test lui a donné.
+
+        La doublure a besoin de voir les gestes : `gestures` est posé par le test, et vide par
+        défaut — une église sans geste déclaré ne compte rien, ce qui est l'état d'avant G-1."""
+        from app.contexts.watch.application.concern_watchdog import UNCONFIRMED_OUTCOMES
+
+        gestes = getattr(self, "gestures", None) or []
+        total = 0
+        for s in self.rows:
+            if (
+                s.tenant_id != tenant_id
+                or s.origin is not CasePriority.ABSENCE
+                or s.status is not SignalStatus.CLOSED
+                or s.outcome is None
+                or s.outcome in UNCONFIRMED_OUTCOMES
+                or s.closed_at is None
+                or s.closed_at < since
+                or s.closed_by_account_id is None
+            ):
+                continue
+            # `any` et non un décompte : trois visites avant le même cas ne font qu'un cas manqué.
+            if any(
+                subject == s.subject_id and s.opened_at - within <= at < s.opened_at
+                for subject, at in gestes
+            ):
+                total += 1
+        return total
 
     async def ignored_by_owner(self, *, tenant_id, older_than):
         from app.contexts.watch.domain.signal import ON_SHOULDERS_STATUSES

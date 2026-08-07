@@ -46,6 +46,11 @@ _ABOUT_HIM_BY_SOMEONE_ELSE: frozenset[FactKind] = frozenset(
         FactKind.THIRD_PARTY_CONCERN,
         # Une qualification d'absence posée par un responsable : son jugement, pas son geste à elle.
         FactKind.QUALIFICATION_SET,
+        # Le geste qu'un autre a posé. La personne sait très bien qu'on lui a rendu visite — ce
+        # n'est pas un secret qu'on lui cache. Ce que ce fait décrit, c'est **l'engagement de
+        # celui qui est venu**, exactement comme l'inquiétude : la règle positive dit que lui
+        # appartient ce qui découle de ses propres actes, et recevoir n'est pas agir.
+        FactKind.GESTURE_DONE,
         # Le compagnon collectif : un agrégat de groupe, qui n'appartient à aucun de ses membres.
         FactKind.GROUP_TEMPERATURE,
         *CASE_ACTS,  # les gestes du responsable **sur** un cas : son travail, pas la vie du membre

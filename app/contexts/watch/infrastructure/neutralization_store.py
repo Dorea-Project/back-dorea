@@ -140,7 +140,14 @@ class AttendanceNeutralizationStore(NeutralizationStore):
     async def open_neutralizations(
         self, tenant_id: UUID
     ) -> list[tuple[UUID, UUID, datetime, datetime]]:
-        rows = await self._absences.list_open_neutralizations_by_tenant(tenant_id)
+        """**Les deux origines.** Le nom du port dit « neutralisation » parce que c'est ce que le
+        moteur en fait ; la question qu'il pose, elle, est *« sait-on pourquoi ? »*.
+
+        Corrigé le 05/08/2026 : la lecture filtrait sur `ANNOUNCEMENT`, si bien qu'un membre ayant
+        déclaré son voyage recevait quand même « sans nouvelles ». L'écriture, la prolongation et
+        la purge continuent de ne connaître que ce que le moteur a posé — sa parole à lui n'est
+        pas une projection."""
+        rows = await self._absences.list_open_explanations_by_tenant(tenant_id)
         return [(a.id, a.account_id, a.from_date, a.to_date) for a in rows]
 
     async def is_excluded(self, subject_id: UUID, tenant_id: UUID) -> bool:
@@ -150,7 +157,8 @@ class AttendanceNeutralizationStore(NeutralizationStore):
     async def neutralizations_of_subject(
         self, subject_id: UUID, tenant_id: UUID
     ) -> list[tuple[UUID, UUID, datetime, datetime]]:
-        rows = await self._absences.list_open_neutralizations(subject_id, tenant_id)
+        """La même correction, sur le chemin d'un fait : les deux origines expliquent un silence."""
+        rows = await self._absences.list_open_explanations(subject_id, tenant_id)
         return [(a.id, a.account_id, a.from_date, a.to_date) for a in rows]
 
     async def purge_projected_neutralizations(self, tenant_id: UUID) -> None:

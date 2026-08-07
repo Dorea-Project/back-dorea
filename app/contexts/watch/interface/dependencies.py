@@ -34,6 +34,7 @@ from app.contexts.watch.application.concern_watchdog import (
     EscalateStaleConcerns,
     GuardAgainstDumping,
     MeasureConcernPrecision,
+    WatchForAwayLeaders,
     WatchForUnopenedCases,
 )
 from app.contexts.watch.application.contact_loop import (
@@ -41,8 +42,11 @@ from app.contexts.watch.application.contact_loop import (
     PendingAttempts,
     StartContact,
 )
+from app.contexts.watch.application.declare_gesture import DeclareGesture
+from app.contexts.watch.application.declare_link import DeclareLink
 from app.contexts.watch.application.designate_referent import DesignateReferent
 from app.contexts.watch.application.fire_checks import FireDueChecks
+from app.contexts.watch.application.fraternal_react import SuggestFraternalReacts
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.appointment_requested import (
@@ -55,6 +59,7 @@ from app.contexts.watch.application.interpreters.case_acts import (
     ContactAttemptedV1,
 )
 from app.contexts.watch.application.interpreters.check_fired import CheckFiredV1
+from app.contexts.watch.application.interpreters.gesture_done import GestureDoneV1
 from app.contexts.watch.application.interpreters.gratitude_deposited import (
     GratitudeDepositedV1,
 )
@@ -113,7 +118,11 @@ from app.contexts.watch.infrastructure.persistence.calibration import (
     SqlCalibrationProposalStore,
 )
 from app.contexts.watch.infrastructure.persistence.checks import SqlScheduledCheckStore
-from app.contexts.watch.infrastructure.persistence.ledger import SqlFactLedger
+from app.contexts.watch.infrastructure.persistence.ledger import (
+    SqlDeclaredLinkReader,
+    SqlFactLedger,
+    SqlGestureReader,
+)
 from app.contexts.watch.infrastructure.persistence.referent import (
     SqlCoverageGapStore,
     SqlGroupTypePolicyRepository,
@@ -154,6 +163,10 @@ INTERPRETERS.register(CaseSeenV1())
 INTERPRETERS.register(CaseClosedV1())
 INTERPRETERS.register(ContactAttemptedV1())
 INTERPRETERS.register(ContactAnsweredV1())
+# Le geste posé par un membre pour un autre. Meme histoire que le signe de vie : le domaine
+# l'attendait de partout (`record_gesture`, `gestures_count`, le garde de reprojection) et aucune
+# source ne pouvait l'emettre. C'est le seul fait qui dise que l'eglise a pris soin sans elle.
+INTERPRETERS.register(GestureDoneV1())
 
 
 def build_store(session) -> AttendanceNeutralizationStore:
@@ -350,12 +363,25 @@ def build_concern_precision(session) -> MeasureConcernPrecision:
     )
 
 
+def build_away_watch(session) -> WatchForAwayLeaders:
+    """La releve : absent, et des situations l'attendent. Se leve des la declaration."""
+    return WatchForAwayLeaders(
+        build_signals(session),
+        SqlCoverageGapStore(session),
+        build_store(session),
+        clock=_now,
+    )
+
+
 def build_unopened_watch(session) -> WatchForUnopenedCases:
     """Le seul indicateur qui anticipe — et il n'agit qu'en nommant le responsable."""
     return WatchForUnopenedCases(
         build_signals(session),
         SqlCoverageGapStore(session),
         SqlWatchParameterRepository(session),
+        # Il doit savoir qui est parti : sinon il ecrit « a probablement besoin d'aide » a
+        # quelqu'un qui est en voyage et qui l'avait declare.
+        build_away_watch(session),
         clock=_now,
     )
 
@@ -385,6 +411,17 @@ async def get_raise_concern(session: DbSession) -> RaiseConcern:
     return build_raise_concern(session)
 
 
+async def get_declare_gesture(session: DbSession) -> DeclareGesture:
+    """« Je suis passé le voir. » — aucun proprietaire a resoudre : un geste n'ouvre pas de cas."""
+    return DeclareGesture(
+        build_intake(session),
+        build_signals(session),
+        build_store(session),
+        clock=_now,
+        id_factory=uuid4,
+    )
+
+
 async def get_my_cases(session: DbSession) -> ListMyCases:
     return ListMyCases(build_signals(session))
 
@@ -399,7 +436,44 @@ async def get_see_case(session: DbSession) -> SeeCase:
 
 
 async def get_case_context(session: DbSession) -> GetCaseContext:
-    return GetCaseContext(build_signals(session), build_contacts(session), clock=_now)
+    return GetCaseContext(
+        build_signals(session),
+        build_contacts(session),
+        # La lecture des gestes anterieurs a l'ouverture : le point aveugle de G-1, comble en
+        # lecture seule pour ne pas mettre la parole d'un tiers sur le chemin de decision.
+        SqlGestureReader(session),
+        # L'eligibilite de celui qui est passe : proposer d'appeler quelqu'un qui a quitte
+        # l'eglise est pire que ne rien proposer.
+        SqlPeopleDirectory(session),
+        # Et les liens que la personne a declares elle-meme : le lien fort, celui qui porte
+        # un accord.
+        SqlDeclaredLinkReader(session),
+        clock=_now,
+    )
+
+
+async def get_fraternal_reacts(session: DbSession) -> SuggestFraternalReacts:
+    """Le react fraternel : calcule sur les **propres gestes** du lecteur, jamais sur le silence
+    des autres."""
+    return SuggestFraternalReacts(
+        SqlGestureReader(session),
+        build_signals(session),
+        build_store(session),
+        SqlPeopleDirectory(session),
+        SqlWatchParameterRepository(session),
+        clock=_now,
+    )
+
+
+async def get_declare_link(session: DbSession) -> DeclareLink:
+    """« Voici par qui vous pouvez me rejoindre. » — trois noms au plus, retirables sans motif."""
+    return DeclareLink(
+        build_intake(session),
+        SqlDeclaredLinkReader(session),
+        SqlPeopleDirectory(session),
+        clock=_now,
+        id_factory=uuid4,
+    )
 
 
 async def get_close_case(session: DbSession) -> CloseCase:
@@ -434,6 +508,11 @@ async def get_pending_attempts(session: DbSession) -> PendingAttempts:
 
 
 RaiseConcernDep = Annotated[RaiseConcern, Depends(get_raise_concern)]
+DeclareGestureDep = Annotated[DeclareGesture, Depends(get_declare_gesture)]
+DeclareLinkDep = Annotated[DeclareLink, Depends(get_declare_link)]
+FraternalReactsDep = Annotated[
+    SuggestFraternalReacts, Depends(get_fraternal_reacts)
+]
 ListMyCasesDep = Annotated[ListMyCases, Depends(get_my_cases)]
 SeeCaseDep = Annotated[SeeCase, Depends(get_see_case)]
 CloseCaseDep = Annotated[CloseCase, Depends(get_close_case)]

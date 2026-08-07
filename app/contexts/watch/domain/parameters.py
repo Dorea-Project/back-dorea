@@ -66,6 +66,14 @@ class WatchParam(StrEnum):
     # vingt-huit travaille bien, et un seuil sur le volume le punirait.
     UNOPENED_VOLUME_FLOOR = "unopened_volume_floor"
     UNOPENED_RATE_FLOOR_PERCENT = "unopened_rate_floor_percent"
+    # **Au bout de combien de jours on propose à quelqu'un de redonner un mot** à une personne
+    # vers qui il était allé. Le compte porte sur **son geste à lui**, jamais sur le silence de
+    # l'autre — c'est ce qui fait que la proposition n'apprend rien à personne.
+    REACT_AFTER_DAYS = "react_after_days"
+    # Combien de propositions au plus par ouverture. Douze noms d'un coup, c'est une liste de
+    # tâches ; deux, c'est une invitation. Et une invitation qu'on ne peut pas honorer devient
+    # une dette, ce que le produit s'interdit de fabriquer.
+    REACT_SUGGESTIONS_CAP = "react_suggestions_cap"
 
 
 DEFAULTS: dict[WatchParam, int] = {
@@ -83,4 +91,6 @@ DEFAULTS: dict[WatchParam, int] = {
     WatchParam.CASE_UNOPENED_AFTER_DAYS: 7,
     WatchParam.UNOPENED_VOLUME_FLOOR: 4,
     WatchParam.UNOPENED_RATE_FLOOR_PERCENT: 50,
+    WatchParam.REACT_AFTER_DAYS: 21,  # trois semaines — le pari, comme tous les autres ici
+    WatchParam.REACT_SUGGESTIONS_CAP: 2,
 }

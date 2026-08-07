@@ -238,6 +238,7 @@ class Materializer:
                 annotation=effect.annotation,
                 priority=effect.priority.value if effect.priority else None,
                 downgrade=effect.downgrade,
+                gesture=effect.gesture,
             )
             return EffectKind.ENRICH_CASE
 

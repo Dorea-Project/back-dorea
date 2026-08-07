@@ -144,6 +144,16 @@ class CoverageGap(StrEnum):
     # C'est aussi pourquoi il est formulé comme un besoin d'aide : un responsable qui n'ouvre
     # plus rien est presque toujours un responsable débordé, pas un responsable indifférent.
     CASES_NOT_OPENED = "cases_not_opened"
+    # **Absent, et des situations l'attendent.** Le jumeau du précédent, et il existe pour ne pas
+    # être confondu avec lui : un responsable parti trois semaines finissait par être consigné
+    # « n'ouvre plus rien — a probablement besoin d'aide ». Le diagnostic est faux et le mot est
+    # blessant ; il n'est pas débordé, il est en voyage, et il l'avait dit.
+    #
+    # La différence tient à ce qu'on attend en retour. « Débordé » appelle quelqu'un qui vienne
+    # l'aider ; « absent » appelle une **relève** — et une relève se pose avant, pas huit jours
+    # après. Ce défaut se lève donc dès la déclaration d'absence, sans seuil de volume : une seule
+    # personne qui attend suffit.
+    LEADER_AWAY = "leader_away"
 
 
 class OwnerKind(StrEnum):
@@ -222,6 +232,12 @@ class EnrichCase(_Effect):
     # une parole au compagnon. Ça n'éteint jamais un cas vu par quelqu'un ; ça rétracte un cas
     # encore retenu, que personne n'avait lu.
     life_sign: bool = False
+    # **Un geste posé par un tiers.** Volontairement distinct de `life_sign`, et la distinction
+    # est tout le sujet : un signe de vie est la personne qui parle d'elle-même — il peut donc
+    # rétracter un cas que personne n'avait lu. Un geste est quelqu'un d'autre qui rapporte ce
+    # qu'il a fait ; il enrichit et compte, il ne rétracte jamais. Confondre les deux laisserait
+    # un tiers éteindre un cas avec sa propre impression.
+    gesture: bool = False
     at: datetime | None = None  # la date du signe, quand il en porte une
 
 

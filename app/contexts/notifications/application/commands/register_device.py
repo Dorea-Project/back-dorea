@@ -39,5 +39,6 @@ class UnregisterDevice:
     def __init__(self, devices: DeviceRepository) -> None:
         self._devices = devices
 
-    async def execute(self, *, token: str) -> None:
-        await self._devices.remove_by_token(token.strip())  # tolérant si absent
+    async def execute(self, *, token: str, account_id: UUID) -> None:
+        # Tolérant si absent — mais **jamais** hors de son propre compte (DOREA-023).
+        await self._devices.remove_by_token(token.strip(), account_id=account_id)

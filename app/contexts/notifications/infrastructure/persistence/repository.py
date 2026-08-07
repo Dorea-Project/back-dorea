@@ -62,8 +62,13 @@ class SqlDeviceRepository(DeviceRepository):
         row.last_seen_at = device.last_seen_at
         await self._session.flush()
 
-    async def remove_by_token(self, token: str) -> None:
-        await self._session.execute(delete(DeviceModel).where(DeviceModel.token == token))
+    async def remove_by_token(self, token: str, *, account_id: UUID) -> None:
+        # DOREA-023 — le compte est dans le WHERE : on ne peut pas effacer le jeton d'autrui.
+        await self._session.execute(
+            delete(DeviceModel).where(
+                DeviceModel.token == token, DeviceModel.account_id == account_id
+            )
+        )
         await self._session.flush()
 
     async def list_by_account(self, account_id: UUID) -> list[Device]:

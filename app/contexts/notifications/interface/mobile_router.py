@@ -42,7 +42,7 @@ async def unregister_device(
     actor: CurrentActor,
     command: UnregisterDeviceDep,
 ) -> None:
-    await command.execute(token=payload.token)
+    await command.execute(token=payload.token, account_id=actor.account_id)
 
 
 @router.get(

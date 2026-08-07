@@ -95,6 +95,54 @@ def _borne_case(tenant, *, seen, days_old=30, status=SignalStatus.ASSIGNED):
     )
 
 
+def _gesture(tenant, *, subject_id, at, seq):
+    return FactLedgerModel(
+        seq=seq, fact_id=uuid4(), tenant_id=tenant, occurred_at=at, recorded_at=at,
+        source="companion", kind="gesture_done", subject_kind="person",
+        subject_id=subject_id, payload={"kind": "visit"},
+    )
+
+
+async def test_a_confirmed_absence_already_visited_counts_once_against_the_thresholds(session):
+    """La seconde moitié de « un humain a vu avant le moteur », **contre une vraie base**.
+
+    Elle mérite ce test plus que les autres : la fenêtre se compte depuis une colonne, ce qui
+    aurait donné une arithmétique d'intervalle que SQLite ne sait pas faire. Le recollement est
+    donc en Python — et c'est précisément ce genre de choix qu'on ne vérifie pas en relisant.
+
+    Quatre cas, un seul compte : le confirmé qu'on avait déjà visité. Le visité mais clos sur
+    « rien à signaler » est de l'amitié ordinaire ; la visite trop vieille n'explique plus rien ;
+    et trois visites avant le même cas ne font pas trois détections manquées."""
+    tenant = uuid4()
+    visite, amical, ancien, triple = (uuid4() for _ in range(4))
+    ouvert = _NOW - timedelta(days=10)
+    cases = [
+        _absence_case(tenant, fact=None, outcome=SignalOutcome.FOLLOWED),
+        _absence_case(tenant, fact=None, outcome=SignalOutcome.NOTHING_TO_REPORT),
+        _absence_case(tenant, fact=None, outcome=SignalOutcome.FOLLOWED),
+        _absence_case(tenant, fact=None, outcome=SignalOutcome.FOLLOWED),
+    ]
+    for case, subject in zip(cases, (visite, amical, ancien, triple), strict=True):
+        case.subject_id = subject
+    session.add_all([
+        *cases,
+        _gesture(tenant, subject_id=visite, at=ouvert - timedelta(days=3), seq=1),
+        _gesture(tenant, subject_id=amical, at=ouvert - timedelta(days=3), seq=2),
+        _gesture(tenant, subject_id=ancien, at=ouvert - timedelta(days=45), seq=3),
+        *[
+            _gesture(tenant, subject_id=triple, at=ouvert - timedelta(days=d), seq=10 + d)
+            for d in (2, 5, 9)
+        ],
+    ])
+    await session.flush()
+
+    counted = await SqlSignalStore(session).absences_confirmed_after_a_gesture(
+        tenant_id=tenant, since=_SINCE, within=timedelta(days=30)
+    )
+
+    assert counted == 2  # le visité confirmé, et le triple-visité — une fois chacun
+
+
 async def test_a_case_is_joined_back_to_the_shot_that_opened_it(session):
     """Deux requêtes, un recollement, et l'issue vient avec — c'est tout ce que la simulation a
     besoin de savoir, et il n'y a aucun identifiant dedans."""

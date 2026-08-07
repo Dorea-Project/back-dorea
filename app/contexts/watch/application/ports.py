@@ -8,11 +8,148 @@ qu'une reprojection soit sûre.
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from app.contexts.watch.domain.regime import TenantRegime
+
+
+@dataclass(frozen=True)
+class GestureSeen:
+    """Un geste posé sur quelqu'un — **avec celui qui l'a posé**, et c'est une décision.
+
+    L'inquiétude ne nomme jamais son émetteur : le dire ferait de ce canal une délation. Le geste,
+    lui, le nomme — et l'asymétrie est exactement ce qui distingue les deux.
+
+    > On ne nomme pas celui qui s'inquiète, parce que c'est un jugement.
+    > On nomme celui qui est allé, parce que c'est une **ressource**.
+
+    Jean a signé sa déclaration (`consent.given_by`) : en disant qu'il est passé, il offre
+    précisément ce que le responsable cherche — quelqu'un à qui demander plutôt qu'un malade à
+    déranger. C'est la règle du lot : *le lien porte une question, jamais une information*.
+
+    Le nom ne descend pas pour autant dans la projection : l'annotation stockée sur le cas reste
+    anonyme, elle voyage et elle persiste. Seule la lecture — un saut, sur un cas ouvert, par son
+    propriétaire — connaît l'auteur."""
+
+    kind: str
+    occurred_at: datetime
+    by_account_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class GestureTowards:
+    """Un geste **que j'ai posé**, et vers qui. Le miroir de `GestureSeen`, dans l'autre sens."""
+
+    subject_id: UUID
+    kind: str
+    occurred_at: datetime
+
+
+class GestureReader(ABC):
+    """Relire les gestes du journal — **en lecture seule, et hors du chemin déterministe**.
+
+    C'est la décision d'architecture du lot G-1b, et elle mérite d'être écrite ici plutôt que dans
+    un commentaire perdu.
+
+    Un geste posé **avant** qu'un cas s'ouvre ne pouvait rien enrichir : il n'y avait rien à
+    enrichir. La tentation était de le faire entrer dans l'état que lisent les interpreters, pour
+    que le cas naisse en sachant. Ç'aurait été mettre la parole d'un tiers sur le chemin de
+    **décision** du moteur — c'est-à-dire lui donner le pouvoir d'atténuer une détection, ce que la
+    règle du lot interdit explicitement : *le geste informe, il ne ferme pas*.
+
+    Or ce dont on a besoin est entièrement en **lecture** : ce que le responsable relit avant
+    d'appeler, et ce que la calibration compte après coup. Aucun des deux ne produit d'effet, donc
+    aucun des deux n'a de contrainte de rejeu. Ce port lit donc le journal directement, sans
+    projection nouvelle, sans table, sans migration — et le chemin déterministe n'est pas touché.
+    """
+
+    @abstractmethod
+    async def gestures_by(
+        self,
+        *,
+        actor_account_id: UUID,
+        tenant_id: UUID,
+        before: datetime,
+        limit: int = 5,
+    ) -> list[GestureTowards]:
+        """**Ce que cette personne a fait, à elle** — jamais ce que les autres ont fait pour elle.
+
+        La direction est toute la sûreté du react fraternel, et elle a été choisie contre
+        l'évidence. La façon naturelle de proposer à Jean d'écrire à Anna serait de chercher de
+        qui Jean est un proche : c'est-à-dire le **degré entrant** du lien. Deux règles tombent
+        d'un coup si on le fait — le graphe devient énumérable, et Jean apprend qu'Anna l'a nommé,
+        alors que le lien déclaré ne prévient jamais celui qu'il désigne.
+
+        Cette lecture-ci ne dit à Jean **rien qu'il ne sache déjà** : il y était. Elle ne filtre
+        pas non plus sur le silence d'Anna — sinon la présence d'Anna dans la liste *serait*
+        l'information, et on aurait fuité un cas de veille à un membre par la porte de derrière.
+        Le seul compte à rebours est celui du geste de Jean.
+
+        La borne est donc `actor_account_id` et non `subject_id` : ce qui découle de ses propres
+        actes lui appartient — la même règle positive que la transparence."""
+        ...
+
+    @abstractmethod
+    async def gestures_between(
+        self,
+        *,
+        subject_id: UUID,
+        tenant_id: UUID,
+        since: datetime,
+        until: datetime,
+        limit: int = 3,
+    ) -> list[GestureSeen]:
+        """Les gestes posés sur cette personne dans cette fenêtre, du plus récent au plus ancien.
+
+        La fenêtre est **donnée**, jamais lue en base : c'est l'appelant qui sait de quel cas il
+        parle, et deux lectures d'horloge à quelques secondes d'écart porteraient sur des
+        ensembles différents."""
+        ...
+
+
+@dataclass(frozen=True)
+class DeclaredLink:
+    """*« Voici par qui vous pouvez me rejoindre. »* — le lien **fort**, parce qu'il est consenti.
+
+    Deux liens coexistent dans le produit, et ils n'ont pas la même autorité :
+
+    | Origine | Qui parle | Le sujet peut le lire |
+    | :-- | :-- | :-- |
+    | déclaré | la personne, **sur elle-même** | oui — c'est son propre acte |
+    | par geste | un tiers, par ce qu'il a fait | non — ça décrit ce tiers |
+
+    Celui-ci porte un **accord** : en nommant Jean, Sondet ne donne pas un renseignement, il dit
+    *« vous pouvez passer par lui »*. C'est ce qui le rend légitime là où le lien par geste n'est
+    qu'une trace — et c'est aussi pourquoi il est le seul des deux à tomber du bon côté de la
+    frontière de transparence."""
+
+    linked_account_id: UUID
+    declared_at: datetime
+
+
+class DeclaredLinkReader(ABC):
+    """Relire les liens déclarés — **bornés à une personne, comme tout ce qui touche au lien**.
+
+    Aucune méthode ne rend de liens à l'échelle de l'église, et il n'existe pas de sens inverse.
+    Ce n'est pas une lacune à combler : le complément d'une carte de liens est une carte
+    d'isolement, et son degré entrant — *« combien de gens ont cité Jean »* — est un score de
+    popularité. Une carte des affinités dans une église fuite les clans et les histoires ; c'est
+    le jour où le produit meurt.
+
+    Comme le reste du lot, c'est une lecture : rien ici n'entre dans le chemin de décision."""
+
+    @abstractmethod
+    async def declared_links(
+        self, *, subject_id: UUID, tenant_id: UUID
+    ) -> list[DeclaredLink]:
+        """Les liens **actifs** de cette personne, du plus récent au plus ancien.
+
+        Le journal est append-only : un retrait est un fait de plus qui dit *« celui-là, non »*.
+        C'est cette lecture qui replie l'histoire — et le retrait doit rester possible sans motif,
+        parce que le lien qu'on a le plus de raisons de retirer est le lien conjugal."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -165,9 +302,14 @@ class SignalStore(ABC):
         annotation: str | None = None,
         priority: str | None = None,
         downgrade: bool = False,
+        gesture: bool = False,
     ) -> None:
         """Ajoute ce qu'on vient d'apprendre. L'annotation s'ajoute à la fiche, la raison
-        d'origine ne bouge jamais, et la priorité ne monte que si c'est plus urgent."""
+        d'origine ne bouge jamais, et la priorité ne monte que si c'est plus urgent.
+
+        `gesture` compte en plus un geste réel posé sur ce cas — **par cas, jamais par membre**,
+        et seulement si l'enrichissement a effectivement changé quelque chose : c'est la
+        déduplication par `source_ref` qui rend le comptage idempotent au rejeu."""
         ...
 
     @abstractmethod
@@ -304,6 +446,31 @@ class SignalStore(ABC):
         comme une intuition juste gonflerait la précision d'un tenant sans qu'un seul contact ait
         eu lieu. Les rétractées sont hors du compte pour la même raison qu'ailleurs : un cas
         devenu faux n'a rien résolu."""
+        ...
+
+    @abstractmethod
+    async def absences_confirmed_after_a_gesture(
+        self, *, tenant_id: UUID, since: datetime, within: timedelta
+    ) -> int:
+        """**Combien** de cas d'absence confirmés avaient déjà reçu un geste avant de s'ouvrir.
+
+        Un seul entier, et c'est la contrainte qui a dicté toute la forme de cette lecture. Le
+        rapprochement entre un cas et le journal des gestes doit se faire **sous ce port** : le
+        remonter par un `subject_id` aurait cassé l'interdit structurel de `closed_cases_since` —
+        un port qui ne peut pas rendre une personne est un port au-dessus duquel rien ne peut
+        descendre à quelqu'un. Ici non plus, aucun identifiant ne traverse.
+
+        Ce que ce nombre dit : quelqu'un est allé voir cette personne pendant que les seuils
+        comptaient encore, et il y avait bien quelque chose. C'est la définition même de *« un
+        humain a vu avant le moteur »*, et c'est le geste le plus fort de cette famille — le
+        déclarant n'a pas seulement ressenti, il s'est déplacé.
+
+        **Confirmés seulement**, comme pour l'inquiétude. Une visite suivie d'un cas clos sur
+        « tout allait bien » n'est pas une détection manquée : c'est de l'amitié ordinaire, et la
+        compter ferait baisser les seuils sur du vide.
+
+        **Origine `ABSENCE` seulement**, ce qui garantit qu'aucun cas n'est compté deux fois par
+        les deux moitiés de `missed_detections`."""
         ...
 
     @abstractmethod

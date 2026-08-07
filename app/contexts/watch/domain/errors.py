@@ -117,6 +117,17 @@ class IneligibleReferentError(WatchError):
     http_status = 422
 
 
+class TooManyLinksError(WatchError):
+    """Plus de trois chemins, ce n'est plus du routage — c'est un carnet d'adresses affectif.
+
+    Le plafond n'est pas une contrainte technique : au-delà, la liste devient un objet social, et
+    un objet social appelle un écran qui le montre. C'est exactement ce que le lien ne doit
+    jamais devenir."""
+
+    code = "WATCH_TOO_MANY_LINKS"
+    http_status = 409
+
+
 class CaseNotFoundError(WatchError):
     code = "WATCH_CASE_NOT_FOUND"
     http_status = 404
@@ -137,6 +148,17 @@ class SelfConcernError(WatchError):
     débit, alors qu'elle en est justement exemptée."""
 
     code = "WATCH_SELF_CONCERN"
+    http_status = 422
+
+
+class SelfGestureError(WatchError):
+    """On ne déclare pas un geste sur soi-même — un geste est ce qu'on fait **pour un autre**.
+
+    Ce qu'on fait pour soi a déjà ses portes : l'absence qu'on déclare, le rythme qu'on choisit,
+    la reconnaissance qu'on dépose. Les confondre ferait entrer sa propre parole par un canal qui
+    exige le consentement de porter le souci d'autrui."""
+
+    code = "WATCH_SELF_GESTURE"
     http_status = 422
 
 

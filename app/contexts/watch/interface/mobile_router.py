@@ -18,6 +18,9 @@ from app.contexts.watch.interface.dependencies import (
     AnswerContactDep,
     CaseContextDep,
     CloseCaseDep,
+    DeclareGestureDep,
+    DeclareLinkDep,
+    FraternalReactsDep,
     ListMyCasesDep,
     PendingAttemptsDep,
     RaiseConcernDep,
@@ -32,6 +35,11 @@ from app.contexts.watch.interface.schemas import (
     CaseView,
     CloseCaseBody,
     ConcernAckView,
+    DeclareGestureBody,
+    DeclareLinkBody,
+    FraternalReactListView,
+    GestureListView,
+    LinkAckView,
     NuanceListView,
     PendingAttemptListView,
     RaiseConcernBody,
@@ -70,6 +78,112 @@ async def raise_concern(
         nuance=payload.nuance,
     )
     return ConcernAckView(message=ack.message)
+
+
+@router.get(
+    "/gestures",
+    response_model=GestureListView,
+    summary="Les trois gestes — à afficher, jamais à saisir",
+)
+async def gestures() -> GestureListView:
+    return GestureListView.all()
+
+
+@router.post(
+    "/tenants/{tenant_id}/gestures",
+    response_model=ConcernAckView,
+    status_code=status.HTTP_201_CREATED,
+    summary="« Je suis passé le voir » — déclarer un geste posé pour quelqu'un d'autre",
+)
+async def declare_gesture(
+    tenant_id: UUID,
+    payload: DeclareGestureBody,
+    actor: CurrentActor,
+    command: DeclareGestureDep,
+) -> ConcernAckView:
+    """**Ce que cette route ne rend pas** est sa spécification.
+
+    Elle ne dit pas si un cas existait — ce serait apprendre à un membre que quelqu'un est en
+    veille. Elle ne rend aucun total, et rien ne relancera jamais celui qui n'a rien déclaré : ce
+    serait dire le silence, et le produit s'interdit de le dire. Elle répond « Merci. », une fois.
+    """
+    ack = await command.execute(
+        actor_account_id=actor.account_id,
+        subject_account_id=payload.subject_account_id,
+        tenant_id=tenant_id,
+        gesture=payload.gesture,
+    )
+    return ConcernAckView(message=ack.message)
+
+
+@router.post(
+    "/tenants/{tenant_id}/links",
+    response_model=LinkAckView,
+    status_code=status.HTTP_201_CREATED,
+    summary="« Voici par qui vous pouvez me rejoindre » — trois noms au plus",
+)
+async def declare_link(
+    tenant_id: UUID,
+    payload: DeclareLinkBody,
+    actor: CurrentActor,
+    command: DeclareLinkDep,
+) -> LinkAckView:
+    """**La personne nommée n'est jamais prévenue.**
+
+    Sinon on fabrique une déclaration d'affinité semi-publique — le sociogramme par la petite
+    porte — et la blessure du « je n'étais pas dans ses trois ». Le lien n'est pas un objet
+    social, c'est un chemin de question."""
+    ack = await command.execute(
+        actor_account_id=actor.account_id,
+        linked_account_id=payload.linked_account_id,
+        tenant_id=tenant_id,
+    )
+    return LinkAckView(message=ack.message, remaining=ack.remaining)
+
+
+@router.delete(
+    "/tenants/{tenant_id}/links/{linked_account_id}",
+    response_model=LinkAckView,
+    summary="Retirer un proche — **sans motif**, et sans que personne l'apprenne",
+)
+async def remove_link(
+    tenant_id: UUID,
+    linked_account_id: UUID,
+    actor: CurrentActor,
+    command: DeclareLinkDep,
+) -> LinkAckView:
+    """**Aucun corps de requête, aucune justification.**
+
+    C'est la clause qui compte le plus du lot, et elle existe pour un cas précis : le lien
+    conjugal est celui qu'on a le plus de raisons de retirer. Exiger un motif ferait du retrait
+    une négociation ; prévenir le retiré le rendrait impossible à exercer."""
+    ack = await command.remove(
+        actor_account_id=actor.account_id,
+        linked_account_id=linked_account_id,
+        tenant_id=tenant_id,
+    )
+    return LinkAckView(message="C'est retiré.", remaining=ack.remaining)
+
+
+@router.get(
+    "/tenants/{tenant_id}/fraternal-reacts",
+    response_model=FraternalReactListView,
+    summary="« Tu es passé voir Anna il y a un mois. Un mot ? » — vos gestes, pas leur silence",
+)
+async def fraternal_reacts(
+    tenant_id: UUID, actor: CurrentActor, query: FraternalReactsDep
+) -> FraternalReactListView:
+    """**Ce que cette route ne rend pas** est, encore une fois, sa spécification.
+
+    Elle ne dit pas depuis quand la personne n'a pas donné de nouvelles, ni pourquoi elle est
+    proposée, ni si un cas existe sur elle. Elle rend ce que **vous** avez fait et quand — le
+    reste appartient à la personne concernée, et à son responsable.
+
+    Aucun texte n'est fourni non plus : le moteur donne un nom et une raison d'écrire, jamais les
+    mots. Deux personnes qui recevraient la même phrase la rendraient sans valeur."""
+    return FraternalReactListView.of(
+        await query.execute(actor_account_id=actor.account_id, tenant_id=tenant_id)
+    )
 
 
 # --- La file du responsable ---------------------------------------------------------------------

@@ -151,11 +151,24 @@ def default_registry() -> SourceRegistry:
     # s'ajoute à `COMPANION` et pas à `WATCH_UI`, et l'asymétrie est le fond du sujet — une
     # reconnaissance ne se dépose qu'à la première personne. Un responsable qui pourrait déposer
     # « elle va bien » à la place de quelqu'un ferait taire un cas avec sa propre impression.
+    # Et il dit **ce que le membre a fait pour un autre** : la visite, l'appel abouti, le coup de
+    # main. `GESTURE_DONE` existait dans le contrat depuis le premier jour, sans aucune source pour
+    # l'émettre — le seul soin réel de l'église n'avait pas de porte. Elle s'ouvre ici, et sur le
+    # compagnon seulement : c'est le membre qui pose le geste, pas la surface du responsable, qui
+    # a déjà `CASE_ACTIONS` pour dire ce qu'elle fait sur un cas.
     registry.register(
         RegisteredSource(
             id=COMPANION,
             kinds=frozenset(
-                {FactKind.THIRD_PARTY_CONCERN, FactKind.GRATITUDE_DEPOSITED}
+                {
+                    FactKind.THIRD_PARTY_CONCERN,
+                    FactKind.GRATITUDE_DEPOSITED,
+                    FactKind.GESTURE_DONE,
+                    # Et ce que la personne dit **d'elle-même** : par qui on peut la rejoindre.
+                    # C'est la seule des quatre qui soit sa propre parole, et donc la seule
+                    # qu'elle puisse relire — la frontière de transparence tombe toute seule.
+                    FactKind.SELF_DECLARATION,
+                }
             ),
         )
     )

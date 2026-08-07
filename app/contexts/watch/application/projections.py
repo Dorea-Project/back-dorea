@@ -140,22 +140,24 @@ class RebuildProjections:
     async def _guard_human_acts(self, tenant_id: UUID, *, force: bool) -> None:
         """Refuse de rejouer si un acte humain que le journal **ne contient pas** serait effacé.
 
-        Le garde a rétréci avec le lot 3bis : le regard, les tentatives, les issues sont entrés au
-        ledger, donc un rejeu les reconstruit. Ce qui reste hors du journal, et qu'aucune
-        reconstruction ne rendrait : les consolations **déjà remises** — leur remise est un acte, et
-        la refaire serait pire que ne rien remettre — et les gestes comptés.
+        Le garde a rétréci deux fois. Avec le lot 3bis d'abord : le regard, les tentatives, les
+        issues sont entrés au ledger, donc un rejeu les reconstruit. Avec la porte du geste
+        ensuite — `GESTURE_DONE` a enfin une source, donc `gestures_count` se **recalcule** au
+        rejeu au lieu d'être perdu, et il n'a plus rien à faire ici.
 
-        Il disparaîtra quand ces deux-là suivront le même chemin. D'ici là il empêche une commande
-        de maintenance de faire, en une seconde, un dégât qu'aucune sauvegarde ne répare."""
+        Ce qui reste hors du journal, et qu'aucune reconstruction ne rendrait : les consolations
+        **déjà remises**. Leur remise est un acte, et la refaire serait pire que ne rien remettre.
+
+        Il disparaîtra quand celle-là suivra le même chemin. D'ici là il empêche une commande de
+        maintenance de faire, en une seconde, un dégât qu'aucune sauvegarde ne répare."""
         if force or self._signals is None:
             return
         traces = await self._signals.human_traces(tenant_id)
         # Seul ce qui n'est **pas** reconstructible bloque désormais.
-        if traces.delivered_memories == 0 and traces.gestures == 0:
+        if traces.delivered_memories == 0:
             return
         raise ReplayWouldEraseHumanActsError(
             "Rejouer effacerait des gestes que le journal ne contient pas : des consolations "
-            "déjà remises, des gestes comptés. Les faire entrer au ledger, ou forcer en sachant "
-            "ce qui est perdu.",
+            "déjà remises. Les faire entrer au ledger, ou forcer en sachant ce qui est perdu.",
             details={"tenant_id": str(tenant_id), **traces.as_details()},
         )

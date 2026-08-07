@@ -42,6 +42,11 @@ class DeclarationKind(StrEnum):
     PRAYER = "prayer"
     CONTACT_REQUEST = "contact_request"
     RHYTHM = "rhythm"
+    # « Voici par qui vous pouvez me rejoindre. » Comme le rythme, c'est un **réglage** et non un
+    # appel à l'aide : il n'ouvre aucun cas. Et comme le rythme, il ne produit aucun effet du
+    # tout — un lien ne se matérialise nulle part, il se **lit** au journal le jour où quelqu'un
+    # en a besoin, sur un cas ouvert, par le responsable de ce cas.
+    LINK_DECLARED = "link_declared"
 
 
 # Ce que chaque geste dit, en clair, une fois pour toutes. La phrase voyage telle quelle
@@ -64,6 +69,12 @@ class SelfDeclarationV1:
         # Choisir son rythme n'ouvre pas un cas : ça règle la cadence des relances.
         if declaration is DeclarationKind.RHYTHM:
             return _rhythm(fact)
+
+        # Nommer un proche n'ouvre pas un cas non plus, et n'écrit **rien** : ni projection, ni
+        # échéance, ni annotation. Le seul endroit où ce fait ressort est le bloc que le
+        # responsable relit avant d'appeler — un saut, un cas, un lecteur.
+        if declaration is DeclarationKind.LINK_DECLARED:
+            return []
 
         reason = _REASONS[declaration]
         note = (fact.payload.get("note") or "").strip()

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.contexts.watch.domain.concern import NUANCE_LABELS, Nuance
 from app.contexts.watch.domain.contact import ContactChannel, ContactResult
+from app.contexts.watch.domain.gesture import GESTURE_LABELS, GestureKind
 from app.contexts.watch.domain.regime import TenantRegime
 from app.contexts.watch.domain.signal import SignalOutcome
 
@@ -32,6 +33,85 @@ class ConcernAckView(BaseModel):
     """« Noté. » — la personne concernée, elle, n'apprendra jamais qu'un tiers a signalé."""
 
     message: str
+
+
+class DeclareGestureBody(BaseModel):
+    """Aussi pauvre que le signalement, et pour la même raison — **plus** une interdiction.
+
+    Il n'y a pas de champ « pourquoi ». Le motif appartient à la personne : c'est à elle de le
+    déclarer, ou à l'église de le publier. Un tiers qui pourrait l'écrire construirait un dossier
+    de santé tenu par les voisins."""
+
+    subject_account_id: UUID = Field(..., description="La personne pour qui le geste a été posé")
+    gesture: GestureKind = Field(
+        ..., description="Ce qui a été fait — liste fermée, on tape, on n'écrit pas"
+    )
+
+
+class DeclareLinkBody(BaseModel):
+    """Un nom, et rien d'autre. Pas de champ « lien de parenté », pas de « conjoint ».
+
+    Qualifier la relation ferait une donnée sur le foyer de quelqu'un — et le lien qu'on a le plus
+    de raisons de retirer est justement le lien conjugal."""
+
+    linked_account_id: UUID = Field(..., description="Quelqu'un par qui on peut vous rejoindre")
+
+
+class LinkAckView(BaseModel):
+    """« C'est noté. » — et **rien ne part vers la personne nommée**.
+
+    `remaining` dit combien de places restent, jamais combien de gens vous ont cité : le degré
+    entrant n'existe nulle part, c'est un score de popularité et, par son complément, la carte
+    d'isolement."""
+
+    message: str
+    remaining: int
+
+
+class FraternalReactView(BaseModel):
+    """Une invitation à écrire. **Un identifiant, une date — et rien d'autre.**
+
+    Pas de nom (le client résout), pas de motif, et surtout aucune mesure du silence de l'autre :
+    `last_gesture_at` est la date du geste de **celui qui lit**. C'est ce qui fait que cette liste
+    n'apprend rien à personne — et qu'elle ne peut donc pas servir à deviner qui va mal."""
+
+    account_id: UUID
+    last_gesture_at: datetime
+
+
+class FraternalReactListView(BaseModel):
+    items: list[FraternalReactView]
+
+    @classmethod
+    def of(cls, reacts) -> "FraternalReactListView":
+        return cls(
+            items=[
+                FraternalReactView(
+                    account_id=r.account_id, last_gesture_at=r.last_gesture_at
+                )
+                for r in reacts
+            ]
+        )
+
+
+class GestureOptionView(BaseModel):
+    value: GestureKind
+    label: str
+
+
+class GestureListView(BaseModel):
+    """Les trois gestes, tels que le compagnon doit les afficher — jamais une saisie."""
+
+    items: list[GestureOptionView]
+
+    @classmethod
+    def all(cls) -> "GestureListView":
+        return cls(
+            items=[
+                GestureOptionView(value=g, label=label)
+                for g, label in GESTURE_LABELS.items()
+            ]
+        )
 
 
 class NuanceOptionView(BaseModel):
@@ -222,10 +302,14 @@ class DecideOnProposalBody(BaseModel):
 class ContextSegmentView(BaseModel):
     """Une ligne du bloc, et la source qu'on peut déplier pour vérifier."""
 
-    kind: str  # episode | link | present | last_contact | commitment
+    kind: str  # episode | link | gesture | present | last_contact | commitment
     text: str
     at: datetime | None
     source: str | None
+    # Le lien fraternel : **un identifiant, jamais un nom**. Le client résout, comme pour tout le
+    # reste de ce contexte — et c'est ce qui garde le lien à un saut, sur un cas, pour son
+    # propriétaire. Aucune route ne le rend en liste, et il n'existe pas de sens inverse.
+    account_id: UUID | None = None
 
 
 class CaseContextView(BaseModel):
@@ -239,7 +323,10 @@ class CaseContextView(BaseModel):
         return cls(
             case_id=dto.case_id,
             segments=[
-                ContextSegmentView(kind=s.kind, text=s.text, at=s.at, source=s.source)
+                ContextSegmentView(
+                    kind=s.kind, text=s.text, at=s.at, source=s.source,
+                    account_id=s.account_id,
+                )
                 for s in dto.segments
             ],
         )
