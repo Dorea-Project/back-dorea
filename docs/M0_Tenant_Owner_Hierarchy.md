@@ -135,8 +135,10 @@ C'est exactement ce que produit déjà l'émancipation d'un groupe (`promote_gro
   donc **pas** le Design B (Owner *nullable*) — ici l'Owner est bien présent, distinct de celui de la mère.
 - **Filiation plate en V1** : une annexe **ne peut pas** avoir d'annexe (le parent doit être un
   principal, `parent.parent_id IS NULL`). → « nombre d'annexes » = enfants directs, sans ambiguïté.
-- **Création** : acte **Plateforme**, une annexe à la fois (endpoint dédié `POST /tenants/{parent_id}/annexes`,
-  à construire), `parent_id` **validé** (mère existe, active, principale).
+- **Création** : acte **Plateforme**, une annexe à la fois — ✅ **`POST /api/backoffice/tenants/{parent_id}/annexes`
+  livré le 2026-08-03**. Le `parent_id` vient du **chemin** (jamais du corps) et il est **validé** :
+  mère existante, active, et elle-même **principale** (une annexe ne peut pas avoir d'annexe →
+  `422 TENANT_INVALID_PARENT`). L'annexe naît avec **son propre Owner** et `operates_annexes=false`.
 - **Abonnement** : le principal porte l'abonnement de la **famille** (mère + annexes), cf.
   `docs/Tenant_Subscription.md`.
 
@@ -170,10 +172,18 @@ un **rôle de veille** (tableau de bord famille) + la relation de propriété/ab
 micro-gestion. → Pas d'autorité trans-tenant à implémenter (ni à sécuriser) : plus simple **et** plus
 respectueux de l'autonomie ecclésiale.
 
-**Ce que ça coûte à construire** : **une seule brique neuve** — une *lecture famille* scopée au
-sous-arbre `parent_id` (port/query réutilisable, base du tableau de bord principal **et** de la
-taille-famille pour l'abonnement, cf. `docs/Tenant_Subscription.md §2`). Tout le reste (isolation,
-gouvernance locale, logins séparés) **tombe** du modèle multi-tenant existant.
+**Ce que ça coûte à construire** : **une seule brique neuve** — la *lecture famille*. Tout le reste
+(isolation, gouvernance locale, logins séparés) **tombe** du modèle multi-tenant existant.
+
+> ✅ **Lecture famille — LIVRÉE le 2026-08-03.** `GET /api/backoffice/tenants/{id}/family`
+> (session Owner) → `{principal, annexes[], family_member_count, active_annexe_count}`.
+> Repo `TenantRepository.list_children` · query `GetTenantFamily` (gardée par l'ownership du
+> principal, comme la lecture du profil). **Filiation plate ⇒ enfants directs, aucune récursion.**
+> `family_member_count` = Σ des tailles **déclarées** sur la famille (assiette d'abonnement,
+> cf. `Tenant_Subscription.md §2`) ; `active_annexe_count` **exclut les annexes suspendues** (elles
+> sortent du plan mais **restent visibles** du principal). Un non-Owner reçoit `403` — la
+> supervision ne se délègue pas. Le même calcul sert le tableau de bord **et** l'abonnement :
+> un seul endroit.
 
 *Pourquoi le Design A aurait échoué ici* : donner une tablette autonome à une annexe-partition aurait
 exigé un filtre `WHERE annexe_id` dans **chacun des 14 contextes** + une portée `covers()` partout
@@ -190,7 +200,8 @@ lit sur **trois niveaux de portée**, tous des rôles `RoleCode` :
 | `leader_in_training` *(existe)* | aucune autorité | « Timothée », en formation |
 
 `church_leader` est **additif** (`role_assignments.role` est une String → **aucune migration**), nommé
-ainsi par cohérence avec `group_leader`.
+ainsi par cohérence avec `group_leader`. ✅ **Livré le 2026-08-03** (`RoleCode.CHURCH_LEADER`,
+entrée `ROLE_PERMISSIONS`, entrée `ROLE_AUTHORITY`, 11 tests).
 
 **Sa place** : `church_leader` = le **responsable/visage** d'une église (ou annexe) qui la **conduit**
 sans en détenir les **clés** (≠ `owner`) ni se limiter à un groupe (≠ `group_leader`) ; distinct du
@@ -209,9 +220,10 @@ ENROLL_MEMBER, PUBLISH_ANNOUNCEMENT, MANAGE_GROUP
 annonces, groupes) mais **ne gouverne pas** (ne nomme pas, ne clôture pas) → nettement distinct de
 l'`admin`. Portée = **le tenant entier** (non scopé, contrairement à `group_leader` borné par `group_id`).
 
-*Qui nomme un `church_leader` ?* Acte de gouvernance → l'`owner`/`admin` de l'église (via `MANAGE_TEAM`,
-à confirmer à l'implémentation). Additif : `RoleCode.CHURCH_LEADER` + une entrée `ROLE_PERMISSIONS` +
-`ROLE_AUTHORITY` — aucune migration.
+*Qui nomme un `church_leader` ?* → **`MANAGE_STAFF`, donc l'Owner seul** (décidé à l'implémentation,
+2026-08-03). Motif : sa portée est l'**église entière** (non scopée) ; il rejoint donc `secretary` et
+`treasurer`, dont la nomination est un **acte d'état-major**, pas un geste opérationnel délégable à un
+Admin. Les rôles en `MANAGE_TEAM` sont tous bornés (groupe, ou équipe fonctionnelle) — lui ne l'est pas.
 
 ---
 

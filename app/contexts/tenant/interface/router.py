@@ -13,6 +13,8 @@ from app.contexts.auth.interface.backoffice_dependencies import CurrentBackoffic
 from app.contexts.tenant.application.dtos import ProvisionTenantRequest, UpdateTenantInput
 from app.contexts.tenant.interface.dependencies import (
     GetTenantDep,
+    GetTenantFamilyDep,
+    ListMyTenantsDep,
     ListTenantsDep,
     ProvisionTenantDep,
     SetTenantStatusDep,
@@ -21,9 +23,11 @@ from app.contexts.tenant.interface.dependencies import (
     require_platform_token,
 )
 from app.contexts.tenant.interface.schemas import (
+    ProvisionAnnexeSchema,
     ProvisionTenantRequestSchema,
     ProvisionTenantResponse,
     TenantDetailResponse,
+    TenantFamilyResponse,
     UpdateTenantSchema,
 )
 
@@ -80,7 +84,44 @@ async def provision_tenant(
     return ProvisionTenantResponse.from_result(result)
 
 
+@router.post(
+    "/tenants/{parent_id}/annexes",
+    response_model=ProvisionTenantResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajouter une annexe (église-fille avec son propre Owner) — acte Plateforme",
+    dependencies=[Depends(require_platform_token)],
+)
+async def provision_annexe(
+    parent_id: UUID,
+    payload: ProvisionAnnexeSchema,
+    command: ProvisionTenantDep,
+) -> ProvisionTenantResponse:
+    """Une annexe est une **église-fille** : son propre Owner, sa propre gouvernance,
+    rattachée à la mère par `parent_id` (M0 §4.1). La mère est validée par la commande —
+    elle doit exister, être active et être elle-même un principal (filiation plate)."""
+    result = await command.execute(
+        ProvisionTenantRequest(
+            parent_id=parent_id,  # ← du chemin, jamais du corps
+            operates_annexes=False,  # filiation plate : une annexe n'a pas d'annexe
+            **payload.model_dump(),
+        )
+    )
+    return ProvisionTenantResponse.from_result(result)
+
+
 # --- Owner : gère SON église (session backoffice) ---
+
+
+@router.get(
+    "/me/tenants",
+    response_model=list[TenantDetailResponse],
+    summary="Mes églises — celles dont je suis l'Owner actif (point d'entrée après login)",
+)
+async def list_my_tenants(
+    actor: CurrentBackofficeUser, query: ListMyTenantsDep
+) -> list[TenantDetailResponse]:
+    dtos = await query.execute(actor_account_id=actor.account_id)
+    return [TenantDetailResponse.from_dto(d) for d in dtos]
 
 
 @router.get(
@@ -93,6 +134,18 @@ async def get_tenant(
 ) -> TenantDetailResponse:
     dto = await query.execute(actor_account_id=actor.account_id, tenant_id=tenant_id)
     return TenantDetailResponse.from_dto(dto)
+
+
+@router.get(
+    "/tenants/{tenant_id}/family",
+    response_model=TenantFamilyResponse,
+    summary="Ma famille — mon église et ses annexes (supervision en lecture seule)",
+)
+async def get_tenant_family(
+    tenant_id: UUID, actor: CurrentBackofficeUser, query: GetTenantFamilyDep
+) -> TenantFamilyResponse:
+    dto = await query.execute(actor_account_id=actor.account_id, tenant_id=tenant_id)
+    return TenantFamilyResponse.from_dto(dto)
 
 
 @router.patch(

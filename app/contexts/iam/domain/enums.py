@@ -63,6 +63,9 @@ class RoleCode(StrEnum):
     PASTOR = "pastor"
     SECRETARY = "secretary"  # les affaires du pasteur — sa voix et ses yeux, sans gouvernance
     ADMIN = "admin"
+    # Le responsable de l'église (ou d'une annexe) : il la **conduit** sans en détenir les
+    # clés (≠ owner) et sans se limiter à un groupe (≠ group_leader). M0 §4.1.
+    CHURCH_LEADER = "church_leader"
     GROUP_LEADER = "group_leader"
     LEADER_IN_TRAINING = "leader_in_training"  # M4 §5 — « Timothée » (sans autorité)
     # Le comptable, distinct de l'ordonnateur. Ce n'est pas un rôle inventé pour le

@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.contexts.tenant.application.dtos import TenantDetailDTO, UpdateTenantInput
+from app.contexts.tenant.application.dtos import (
+    TenantDetailDTO,
+    TenantFamilyDTO,
+    UpdateTenantInput,
+)
 from app.contexts.tenant.domain.aggregates import Tenant
 from app.contexts.tenant.domain.errors import TenantForbiddenError, TenantNotFoundError
 from app.contexts.tenant.domain.repositories import OwnershipRepository, TenantRepository
@@ -97,6 +101,56 @@ class UpdateTenant:
         )
         await self._tenants.save(tenant)
         return to_detail(tenant)
+
+
+class GetTenantFamily:
+    """« Ma famille » — le principal et ses annexes (M0 §4.2).
+
+    **La brique de consolidation du Church OS.** L'isolation, elle, est native : la tablette
+    d'une annexe est une session scopée à SON tenant. Ici on fait l'inverse — le principal
+    *voit* l'ensemble. En **lecture seule** : il ne gouverne pas ses annexes (subsidiarité),
+    chacune se gouverne elle-même.
+
+    Sert aussi d'assiette d'abonnement (taille-famille + nombre d'annexes) — même calcul,
+    un seul endroit."""
+
+    def __init__(self, tenants: TenantRepository, ownership: OwnershipRepository) -> None:
+        self._tenants = tenants
+        self._ownership = ownership
+
+    async def execute(self, *, actor_account_id: UUID, tenant_id: UUID) -> TenantFamilyDTO:
+        principal = await _load_owned(self._tenants, self._ownership, actor_account_id, tenant_id)
+        # Filiation plate (V1) : une annexe n'a pas d'annexe → pas de récursion.
+        children = [] if not principal.is_independent else await self._tenants.list_children(
+            principal.id
+        )
+        declared = [t.estimated_member_count or 0 for t in (principal, *children)]
+        return TenantFamilyDTO(
+            principal=to_detail(principal),
+            annexes=[to_detail(c) for c in children],
+            family_member_count=sum(declared),
+            active_annexe_count=sum(1 for c in children if c.is_active),
+        )
+
+
+class ListMyTenants:
+    """« Mes églises » — celles dont l'acteur est l'Owner **actif** (session backoffice).
+
+    Point d'entrée du front après login : `/auth/me` ne donne que l'`account_id`,
+    c'est ici qu'on découvre le(s) `tenant_id` à charger."""
+
+    def __init__(self, tenants: TenantRepository, ownership: OwnershipRepository) -> None:
+        self._tenants = tenants
+        self._ownership = ownership
+
+    async def execute(self, *, actor_account_id: UUID) -> list[TenantDetailDTO]:
+        tenant_ids = await self._ownership.list_active_tenant_ids(actor_account_id)
+        out: list[TenantDetailDTO] = []
+        for tenant_id in tenant_ids:
+            tenant = await self._tenants.get_by_id(tenant_id)
+            if tenant is not None:  # propriété orpheline (anomalie) → ignorée
+                out.append(to_detail(tenant))
+        return out
 
 
 class ListTenants:

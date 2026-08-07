@@ -58,6 +58,15 @@ class SqlTenantRepository(TenantRepository):
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_tenant(r) for r in rows]
 
+    async def list_children(self, parent_id: UUID) -> list[Tenant]:
+        stmt = (
+            select(TenantModel)
+            .where(TenantModel.parent_id == parent_id)
+            .order_by(TenantModel.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_tenant(r) for r in rows]
+
     async def save(self, tenant: Tenant) -> None:
         loc = tenant.location
         await self._session.execute(

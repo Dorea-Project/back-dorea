@@ -12,7 +12,9 @@ from app.contexts.auth.infrastructure.hashing import HASH_ALGO_VERSION, Argon2Pa
 from app.contexts.auth.interface.backoffice_dependencies import OtpServiceDep
 from app.contexts.tenant.application.commands.onboarding import (
     ApproveOnboarding,
+    GetOnboardingStatus,
     RejectOnboarding,
+    ResendOnboardingOtp,
     SubmitOnboarding,
     VerifyOnboardingEmail,
 )
@@ -46,7 +48,17 @@ def get_reject_onboarding(session: DbSession) -> RejectOnboarding:
     return RejectOnboarding(SqlOnboardingRepository(session), clock=lambda: datetime.now(UTC))
 
 
+def get_onboarding_status(session: DbSession) -> GetOnboardingStatus:
+    return GetOnboardingStatus(SqlOnboardingRepository(session))
+
+
+def get_resend_onboarding_otp(otp: OtpServiceDep, session: DbSession) -> ResendOnboardingOtp:
+    return ResendOnboardingOtp(SqlOnboardingRepository(session), otp)
+
+
 SubmitOnboardingDep = Annotated[SubmitOnboarding, Depends(get_submit_onboarding)]
 VerifyOnboardingEmailDep = Annotated[VerifyOnboardingEmail, Depends(get_verify_onboarding_email)]
 ApproveOnboardingDep = Annotated[ApproveOnboarding, Depends(get_approve_onboarding)]
 RejectOnboardingDep = Annotated[RejectOnboarding, Depends(get_reject_onboarding)]
+GetOnboardingStatusDep = Annotated[GetOnboardingStatus, Depends(get_onboarding_status)]
+ResendOnboardingOtpDep = Annotated[ResendOnboardingOtp, Depends(get_resend_onboarding_otp)]

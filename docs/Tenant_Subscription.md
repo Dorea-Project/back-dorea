@@ -153,6 +153,13 @@ port FamilySizePort (fourni par le contexte tenant) :
     - active_annexe_count(principal_id) -> int       # nb d'enfants actifs
 ```
 
+> ✅ **Ce port est déjà calculé — 2026-08-03.** `GetTenantFamily` (contexte `tenant`) rend
+> `family_member_count` **et** `active_annexe_count`, exposés par
+> `GET /api/backoffice/tenants/{id}/family`. Le module `subscription` n'aura qu'à consommer
+> cette query (ou un port qui l'enveloppe) : **le calcul de l'assiette existe, il ne sera pas
+> dupliqué**. Rappel des règles déjà tenues : tailles **déclarées** (jamais l'effectif réel),
+> **enfants directs** (filiation plate), **annexes suspendues exclues** du décompte.
+
 Le calcul du tier (règle §3) vit dans le domaine `subscription` ; la persistance
 d'une table `tenant_subscriptions`.
 

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.contexts.tenant.application.dtos import (
     OnboardingResult,
+    OnboardingStatusDTO,
     ProvisionTenantResult,
     TenantDetailDTO,
+    TenantFamilyDTO,
 )
 
 
@@ -58,6 +61,20 @@ class OnboardingResponse(BaseModel):
         return cls(request_id=result.request_id, status=result.status)
 
 
+class OnboardingStatusResponse(BaseModel):
+    """Suivi public — l'état seul (aucune donnée du brouillon n'est exposée)."""
+
+    request_id: UUID
+    status: str
+    submitted_at: datetime
+    decided_at: datetime | None = None
+    rejection_reason: str | None = None
+
+    @classmethod
+    def from_dto(cls, dto: OnboardingStatusDTO) -> OnboardingStatusResponse:
+        return cls(**dto.__dict__)
+
+
 class TenantDetailResponse(BaseModel):
     tenant_id: UUID
     name: str
@@ -84,6 +101,24 @@ class TenantDetailResponse(BaseModel):
     @classmethod
     def from_dto(cls, dto: TenantDetailDTO) -> TenantDetailResponse:
         return cls(**dto.__dict__)
+
+
+class TenantFamilyResponse(BaseModel):
+    """Le tableau de bord famille du principal — il **voit**, il n'agit pas (M0 §4.2)."""
+
+    principal: TenantDetailResponse
+    annexes: list[TenantDetailResponse]
+    family_member_count: int
+    active_annexe_count: int
+
+    @classmethod
+    def from_dto(cls, dto: TenantFamilyDTO) -> TenantFamilyResponse:
+        return cls(
+            principal=TenantDetailResponse.from_dto(dto.principal),
+            annexes=[TenantDetailResponse.from_dto(a) for a in dto.annexes],
+            family_member_count=dto.family_member_count,
+            active_annexe_count=dto.active_annexe_count,
+        )
 
 
 class UpdateTenantSchema(BaseModel):
@@ -135,6 +170,37 @@ class ProvisionTenantRequestSchema(BaseModel):
     language: str = Field(default="fr", examples=["fr"])
     currency: str = Field(default="XOF", description="ISO 4217 — XOF (BCEAO) / XAF (BEAC)")
     operates_annexes: bool = Field(default=False, description="Déclare des annexes (plan famille)")
+
+
+class ProvisionAnnexeSchema(BaseModel):
+    """Ajout d'une **annexe** — une église-fille (M0 §4.1), acte Plateforme.
+
+    Mêmes champs que le provisionnement, **sauf** :
+    - `parent_id` vient du **chemin** (et il est validé : mère existante, active, principale) ;
+    - `operates_annexes` est absent — filiation plate, une annexe n'a pas d'annexe.
+    """
+
+    tenant_name: str = Field(examples=["Bethel — Annexe Cocody"])
+    owner_phone: str = Field(examples=["+2250700000002"])
+    owner_email: str = Field(examples=["responsable.cocody@bethel.ci"], description="Connexion")
+    owner_password: str = Field(examples=["MotDePasse#2026"], description="≥ 8 caractères")
+    owner_first_name: str | None = None
+    owner_last_name: str | None = None
+    denomination: str | None = None
+    contact_email: str | None = None
+    contact_name: str | None = None
+    contact_phone: str | None = None
+    estimated_member_count: int | None = Field(default=None, ge=0, examples=[250])
+    logo_url: str | None = None
+    short_description: str | None = None
+    country: str | None = Field(default=None, examples=["CI"])
+    city: str | None = Field(default=None, examples=["Abidjan"])
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str = "Africa/Abidjan"
+    language: str = "fr"
+    currency: str = "XOF"
 
 
 class ProvisionTenantResponse(BaseModel):

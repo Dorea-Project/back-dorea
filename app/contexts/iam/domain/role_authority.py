@@ -16,6 +16,10 @@ ROLE_AUTHORITY: dict[RoleCode, Permission] = {
     # Le trésorier voit le détail nominatif de l'argent : sa nomination est un acte
     # d'état-major (Owner), jamais un geste opérationnel délégable à un Admin.
     RoleCode.TREASURER: Permission.MANAGE_STAFF,
+    # Le responsable d'église porte l'église entière (portée non scopée) : comme la
+    # secrétaire et le trésorier, sa nomination est un acte d'état-major (Owner), pas
+    # un geste opérationnel délégable à un Admin.
+    RoleCode.CHURCH_LEADER: Permission.MANAGE_STAFF,
     RoleCode.GROUP_LEADER: Permission.MANAGE_TEAM,
     RoleCode.LEADER_IN_TRAINING: Permission.MANAGE_TEAM,
     RoleCode.WELCOME_TEAM: Permission.MANAGE_TEAM,

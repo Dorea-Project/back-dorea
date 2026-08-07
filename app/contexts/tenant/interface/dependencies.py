@@ -17,6 +17,8 @@ from app.contexts.tenant.application.commands.provision_tenant import ProvisionT
 from app.contexts.tenant.application.commands.transfer_ownership import TransferOwnership
 from app.contexts.tenant.application.tenant_management import (
     GetTenant,
+    GetTenantFamily,
+    ListMyTenants,
     ListTenants,
     SetTenantStatus,
     UpdateTenant,
@@ -64,6 +66,14 @@ def get_update_tenant_command(session: DbSession) -> UpdateTenant:
     return UpdateTenant(SqlTenantRepository(session), SqlOwnershipRepository(session))
 
 
+def get_tenant_family_query(session: DbSession) -> GetTenantFamily:
+    return GetTenantFamily(SqlTenantRepository(session), SqlOwnershipRepository(session))
+
+
+def get_list_my_tenants_query(session: DbSession) -> ListMyTenants:
+    return ListMyTenants(SqlTenantRepository(session), SqlOwnershipRepository(session))
+
+
 def get_list_tenants_query(session: DbSession) -> ListTenants:
     return ListTenants(SqlTenantRepository(session))
 
@@ -81,6 +91,8 @@ def get_transfer_ownership_command(session: DbSession) -> TransferOwnership:
 
 
 GetTenantDep = Annotated[GetTenant, Depends(get_get_tenant_query)]
+ListMyTenantsDep = Annotated[ListMyTenants, Depends(get_list_my_tenants_query)]
+GetTenantFamilyDep = Annotated[GetTenantFamily, Depends(get_tenant_family_query)]
 UpdateTenantDep = Annotated[UpdateTenant, Depends(get_update_tenant_command)]
 ListTenantsDep = Annotated[ListTenants, Depends(get_list_tenants_query)]
 SetTenantStatusDep = Annotated[SetTenantStatus, Depends(get_set_tenant_status_command)]

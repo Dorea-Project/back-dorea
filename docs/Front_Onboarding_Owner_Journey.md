@@ -163,26 +163,33 @@ Lecture / édition du profil (branding, contact, régional). `PATCH` n'édite **
 
 ## 6. Manques backend à combler (avant que le front soit complet)
 
-| # | Manque | Impact front | Piste |
+| # | Manque | Impact front | État |
 | :-- | :-- | :-- | :-- |
-| **F1** | **Pas d'endpoint « mon église »** en backoffice : `/auth/me` ne renvoie que `account_id`. L'owner ne peut pas découvrir son `tenant_id` après login. | `/dashboard` ne sait pas quelle église charger | Ajouter `GET /api/backoffice/me/tenants` (les tenants dont je suis Owner actif) |
-| **F2** | **Pas de « statut de ma candidature »** public : après `email_verified`, le front ne peut pas savoir si Dorea a approuvé (hors e-mail) | `/onboarding/pending` ne peut pas *poller* | Ajouter `GET /api/onboarding/{request_id}` (statut seul, sans données sensibles) |
-| **F3** | **Pas de « renvoyer l'OTP »** (onboarding e-mail) | bouton « renvoyer le code » impossible | Endpoint de renvoi, ou re-soumission idempotente |
+| **F1** | Endpoint « mes églises » | `/dashboard` doit savoir quelle église charger | ✅ **LIVRÉ (2026-08-03)** — `GET /api/backoffice/me/tenants` (session) → liste des églises dont je suis Owner **actif**, profil complet (`tenant_id`, `slug`, tous les champs). `401` sans session |
+| **F2** | Suivi public de la candidature | `/onboarding/pending` doit *poller* l'approbation | ✅ **LIVRÉ (2026-08-03)** — `GET /api/onboarding/{request_id}` → `{request_id, status, submitted_at, decided_at?, rejection_reason?}`. **État seul** : aucune donnée du brouillon exposée. `404` si inconnu |
+| **F3** | Renvoyer l'OTP d'onboarding | bouton « renvoyer le code » | ✅ **LIVRÉ (2026-08-03)** — `POST /api/onboarding/{request_id}/resend-otp`. Nouveau code envoyé **à l'e-mail de la demande** (jamais à une adresse fournie par l'appelant). Refusé si la demande n'attend plus de vérification → `409 ONBOARDING_INVALID_TRANSITION` ; `404` si inconnue |
 | **F4** | Logo à l'onboarding impossible (upload authentifié) | logo posé **après** login (accepté, cf. §2) | — (décision assumée) |
 
-> **F1 et F2 sont bloquants** pour un parcours complet : à prévoir côté backend en parallèle
-> du front. F3 est du confort.
+**Détail F1 — `GET /api/backoffice/me/tenants`** (session owner)
+Renvoie un tableau de `TenantDetailResponse`. Le front l'appelle **juste après login** :
+tableau vide → aucune église ; 1 élément → charger le dashboard ; plusieurs → sélecteur d'église.
+
+**Détail F2 — `GET /api/onboarding/{request_id}`** (public)
+`status` ∈ `submitted` · `email_verified` · `approved` · `rejected`. Sur `approved` → rediriger
+vers `/login` ; sur `rejected` → afficher `rejection_reason`. L'`request_id` (UUID non devinable)
+fait office de **capacité** — à conserver côté client après la soumission.
 
 ---
 
 ## 7. Reco d'implémentation (ordre de démarrage)
 
-1. **Le wizard `/onboarding`** (état local, 4 écrans) + `POST /submit` → écran OTP `/verify-email`.
-   *(Ne dépend d'aucun manque backend — commencer par là.)*
-2. **`/login` + `/verify-device`** (device_id en localStorage, cookie de session).
-3. **`/dashboard`** — dès que **F1** (`GET /me/tenants`) est livré : charger l'église, afficher le profil.
-4. **`/onboarding/pending`** — dès que **F2** est livré : poller le statut, rediriger vers `/login` à l'approbation.
+1. **Le wizard `/onboarding`** (état local, 3 écrans) + `POST /submit` → écran OTP `/verify-email`.
+2. **`/onboarding/pending`** — poller `GET /api/onboarding/{request_id}` (**F1/F2 livrés**).
+3. **`/login` + `/verify-device`** (device_id en localStorage, cookie de session).
+4. **`/dashboard`** — appeler `GET /api/backoffice/me/tenants` pour charger l'église.
 5. **`/church/settings`** — édition profil + upload logo.
+
+> **Le backend ne bloque plus rien** sur ce parcours (hors F3, confort). Tout est appelable.
 
 **Pile suggérée** : Next.js (App Router) · fetch avec `credentials: "include"` · état du wizard en
 mémoire (ou `sessionStorage` pour survivre à un refresh) · gestion d'erreurs sur la forme

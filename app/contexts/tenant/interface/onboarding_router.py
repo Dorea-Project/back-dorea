@@ -12,12 +12,15 @@ from app.contexts.tenant.application.dtos import SubmitOnboardingInput
 from app.contexts.tenant.interface.dependencies import require_platform_token
 from app.contexts.tenant.interface.onboarding_dependencies import (
     ApproveOnboardingDep,
+    GetOnboardingStatusDep,
     RejectOnboardingDep,
+    ResendOnboardingOtpDep,
     SubmitOnboardingDep,
     VerifyOnboardingEmailDep,
 )
 from app.contexts.tenant.interface.schemas import (
     OnboardingResponse,
+    OnboardingStatusResponse,
     ProvisionTenantResponse,
     RejectOnboardingSchema,
     SubmitOnboardingSchema,
@@ -51,6 +54,28 @@ async def verify_email(
 ) -> OnboardingResponse:
     result = await command.execute(request_id=payload.request_id, otp=payload.otp)
     return OnboardingResponse.from_result(result)
+
+
+@public_router.post(
+    "/{request_id}/resend-otp",
+    response_model=OnboardingResponse,
+    summary="Renvoyer le code de vérification e-mail (le mail se perd, l'onboarding non)",
+)
+async def resend_otp(
+    request_id: UUID, command: ResendOnboardingOtpDep
+) -> OnboardingResponse:
+    return OnboardingResponse.from_result(await command.execute(request_id=request_id))
+
+
+@public_router.get(
+    "/{request_id}",
+    response_model=OnboardingStatusResponse,
+    summary="Suivre ma candidature (état seul — l'écran « en attente de validation »)",
+)
+async def get_status(
+    request_id: UUID, query: GetOnboardingStatusDep
+) -> OnboardingStatusResponse:
+    return OnboardingStatusResponse.from_dto(await query.execute(request_id=request_id))
 
 
 # --- Surface backoffice (Dorea) ---

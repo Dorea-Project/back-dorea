@@ -23,6 +23,14 @@ class TenantRepository(Repository):
         """Persiste le profil et le statut (édition / suspension)."""
         ...
 
+    @abstractmethod
+    async def list_children(self, parent_id: UUID) -> list[Tenant]:
+        """Les **annexes** d'un principal — églises-filles par `parent_id` (M0 §4.1).
+
+        Filiation **plate** en V1 : une annexe n'a pas d'annexe, donc ce sont les
+        enfants directs, et il n'y a pas de récursion à faire."""
+        ...
+
 
 class OnboardingRepository(Repository):
     @abstractmethod
@@ -46,6 +54,11 @@ class OwnershipRepository(Repository):
     @abstractmethod
     async def get_active_for_tenant(self, tenant_id: UUID) -> Ownership | None:
         """La propriété active d'un tenant (ou `None` si vacant — anomalie)."""
+        ...
+
+    @abstractmethod
+    async def list_active_tenant_ids(self, account_id: UUID) -> list[UUID]:
+        """Les tenants dont ce compte est l'Owner **actif** (« mes églises »)."""
         ...
 
     @abstractmethod

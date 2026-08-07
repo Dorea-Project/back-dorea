@@ -97,6 +97,22 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.MANAGE_APPOINTMENTS,  # garde l'agenda du pasteur (ses mains)
         }
     ),
+    # Responsable d'église (ou d'annexe) : « un group_leader à l'échelle de l'église ».
+    # Il **conduit et opère** — présence, enrôlement, annonces, groupes — mais ne **gouverne
+    # pas** : ni nommer (MANAGE_STAFF/MANAGE_TEAM), ni faire progresser un statut, ni clôturer,
+    # ni transférer. C'est ce qui le distingue nettement de l'Admin. Portée = le tenant entier
+    # (non scopé, contrairement au group_leader borné par `group_id`). M0 §4.1.
+    RoleCode.CHURCH_LEADER: frozenset(
+        {
+            Permission.VIEW_MEMBER_DIRECTORY,
+            Permission.VIEW_PASTORAL_ALERTS,
+            Permission.RECORD_ATTENDANCE,
+            Permission.QUALIFY_ABSENCE,
+            Permission.ENROLL_MEMBER,
+            Permission.PUBLISH_ANNOUNCEMENT,
+            Permission.MANAGE_GROUP,
+        }
+    ),
     # Responsable de groupe : opérations de portée groupe (1 à 6 par groupe).
     RoleCode.GROUP_LEADER: frozenset(
         {

@@ -136,6 +136,80 @@ async def test_onboarding_carries_church_os_fields_to_materialization(client: As
     assert tenant["slug"] is not None  # auto-généré à la genèse
 
 
+async def test_resend_otp_lets_the_applicant_finish(client: AsyncClient):
+    """F3 — le mail se perd ; la candidature ne doit pas mourir avec lui."""
+    sub = await client.post("/api/onboarding/submit", json=_submission(owner_email="re@t.ci"))
+    request_id = sub.json()["request_id"]
+
+    again = await client.post(f"/api/onboarding/{request_id}/resend-otp")
+    assert again.status_code == 200
+    assert again.json()["status"] == "submitted"  # toujours en attente de vérification
+
+    # Le code renvoyé vérifie bien la demande.
+    ver = await client.post(
+        "/api/onboarding/verify-email", json={"request_id": request_id, "otp": _OTP}
+    )
+    assert ver.status_code == 200
+    assert ver.json()["status"] == "email_verified"
+
+
+async def test_resend_otp_is_refused_once_verified(client: AsyncClient):
+    """Une demande qui n'attend plus de vérification n'a plus de code à recevoir."""
+    sub = await client.post("/api/onboarding/submit", json=_submission(owner_email="rv@t.ci"))
+    request_id = sub.json()["request_id"]
+    await client.post(
+        "/api/onboarding/verify-email", json={"request_id": request_id, "otp": _OTP}
+    )
+    resp = await client.post(f"/api/onboarding/{request_id}/resend-otp")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "ONBOARDING_INVALID_TRANSITION"
+
+
+async def test_resend_otp_on_unknown_request_is_404(client: AsyncClient):
+    from uuid import uuid4
+
+    assert (await client.post(f"/api/onboarding/{uuid4()}/resend-otp")).status_code == 404
+
+
+async def test_onboarding_status_is_publicly_followable(client: AsyncClient):
+    """F2 — l'écran « en attente » suit sa candidature sans compte, sans fuite du brouillon."""
+    sub = await client.post("/api/onboarding/submit", json=_submission(owner_email="s@t.ci"))
+    request_id = sub.json()["request_id"]
+
+    st = await client.get(f"/api/onboarding/{request_id}")
+    assert st.status_code == 200
+    assert st.json()["status"] == "submitted"
+    assert st.json()["submitted_at"] is not None
+    # Aucune donnée sensible du brouillon n'est exposée.
+    for leaked in ("owner_email", "owner_password_hash", "owner_phone", "tenant_name"):
+        assert leaked not in st.json()
+
+    await client.post(
+        "/api/onboarding/verify-email", json={"request_id": request_id, "otp": _OTP}
+    )
+    assert (await client.get(f"/api/onboarding/{request_id}")).json()["status"] == "email_verified"
+
+
+async def test_onboarding_status_exposes_rejection_reason(client: AsyncClient):
+    sub = await client.post("/api/onboarding/submit", json=_submission(owner_email="r@t.ci"))
+    request_id = sub.json()["request_id"]
+    await client.post(
+        f"/api/backoffice/onboarding/{request_id}/reject",
+        headers=_TOKEN,
+        json={"reason": "Église non vérifiable"},
+    )
+    body = (await client.get(f"/api/onboarding/{request_id}")).json()
+    assert body["status"] == "rejected"
+    assert body["rejection_reason"] == "Église non vérifiable"
+    assert body["decided_at"] is not None
+
+
+async def test_unknown_onboarding_status_is_404(client: AsyncClient):
+    from uuid import uuid4
+
+    assert (await client.get(f"/api/onboarding/{uuid4()}")).status_code == 404
+
+
 async def test_approve_before_email_verified_is_rejected(client: AsyncClient):
     sub = await client.post("/api/onboarding/submit", json=_submission(owner_email="a@b.ci"))
     request_id = sub.json()["request_id"]

@@ -48,6 +48,17 @@ class SqlOwnershipRepository(OwnershipRepository):
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return _to_ownership(row) if row is not None else None
 
+    async def list_active_tenant_ids(self, account_id: UUID) -> list[UUID]:
+        stmt = (
+            select(OwnershipModel.tenant_id)
+            .where(
+                OwnershipModel.account_id == account_id,
+                OwnershipModel.status == _ACTIVE,
+            )
+            .order_by(OwnershipModel.started_at)
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
     async def add(self, ownership: Ownership) -> None:
         self._session.add(
             OwnershipModel(

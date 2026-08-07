@@ -31,6 +31,9 @@ class _FakeTenants(TenantRepository):
     async def list_all(self, *, limit, offset):
         return list(self._by_id.values())
 
+    async def list_children(self, parent_id):
+        return [t for t in self._by_id.values() if t.parent_id == parent_id]
+
     async def save(self, tenant):
         self._by_id[tenant.id] = tenant
 

@@ -59,6 +59,22 @@ class AccountModel(Base):
 class MembershipModel(Base):
     __tablename__ = "memberships"
 
+    # DOREA-008 — une seule appartenance **active** par (compte, église). Deux enrôlements
+    # concurrents passaient les gardes applicatives et créaient un doublon : la personne
+    # existait deux fois dans son église, avec deux jeux de rôles. Index *partiel* : les
+    # appartenances **closes** restent en nombre (on peut revenir dans une église qu'on a
+    # quittée — le ré-enrôlement après clôture est un parcours normal).
+    __table_args__ = (
+        Index(
+            "uq_one_active_membership_per_account_tenant",
+            "account_id",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("closed_at IS NULL"),
+            sqlite_where=text("closed_at IS NULL"),
+        ),
+    )
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("accounts.id"))
     tenant_id: Mapped[UUID] = mapped_column(Uuid)

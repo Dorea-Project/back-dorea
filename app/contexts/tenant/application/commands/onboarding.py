@@ -14,13 +14,17 @@ from app.contexts.auth.domain.otp import OtpChannel, OtpPurpose
 from app.contexts.auth.domain.password import Password
 from app.contexts.tenant.application.dtos import (
     OnboardingResult,
+    OnboardingStatusDTO,
     ProvisionTenantResult,
     SubmitOnboardingInput,
 )
 from app.contexts.tenant.application.genesis import build_genesis
 from app.contexts.tenant.application.ports import ProvisioningStore
 from app.contexts.tenant.domain.drafts import OwnerDraft, TenantDraft
-from app.contexts.tenant.domain.errors import OnboardingNotFoundError
+from app.contexts.tenant.domain.errors import (
+    InvalidOnboardingTransitionError,
+    OnboardingNotFoundError,
+)
 from app.contexts.tenant.domain.onboarding import OnboardingRequest, OnboardingStatus
 from app.contexts.tenant.domain.repositories import OnboardingRepository
 
@@ -143,6 +147,57 @@ class ApproveOnboarding:
             tenant_id=genesis.tenant.id,
             owner_account_id=genesis.owner_account.id,
             owner_membership_id=genesis.owner_membership.id,
+        )
+
+
+class ResendOnboardingOtp:
+    """Renvoyer le code de vérification e-mail (F3) — le mail se perd, l'onboarding non.
+
+    Un nouveau code est émis **vers l'e-mail de la demande** (jamais vers une adresse
+    fournie par l'appelant : l'`request_id` est une capacité, pas une autorisation à
+    rediriger). Seule une demande **non encore vérifiée** peut en recevoir un — une
+    demande déjà tranchée n'a plus rien à vérifier."""
+
+    def __init__(self, requests: OnboardingRepository, otp: OtpService) -> None:
+        self._requests = requests
+        self._otp = otp
+
+    async def execute(self, *, request_id: UUID) -> OnboardingResult:
+        request = await self._requests.get_by_id(request_id)
+        if request is None:
+            raise OnboardingNotFoundError("Demande d'onboarding introuvable.")
+        if request.status is not OnboardingStatus.SUBMITTED:
+            raise InvalidOnboardingTransitionError(
+                "Cette demande n'attend plus de vérification d'e-mail.",
+                details={"status": request.status.value},
+            )
+        await self._otp.issue(
+            purpose=OtpPurpose.ONBOARDING_EMAIL,
+            channel=OtpChannel.EMAIL,
+            target=request.owner.email,  # l'e-mail de la demande, jamais celui de l'appelant
+        )
+        return OnboardingResult(request_id=request.id, status=request.status.value)
+
+
+class GetOnboardingStatus:
+    """Suivi **public** d'une candidature (l'écran « en attente de validation »).
+
+    Ne rend que l'état — **jamais** le brouillon (e-mail owner, hash, données du
+    tenant). L'`request_id` (UUID non devinable) fait office de capacité."""
+
+    def __init__(self, requests: OnboardingRepository) -> None:
+        self._requests = requests
+
+    async def execute(self, *, request_id: UUID) -> OnboardingStatusDTO:
+        request = await self._requests.get_by_id(request_id)
+        if request is None:
+            raise OnboardingNotFoundError("Demande d'onboarding introuvable.")
+        return OnboardingStatusDTO(
+            request_id=request.id,
+            status=request.status.value,
+            submitted_at=request.submitted_at,
+            decided_at=request.decided_at,
+            rejection_reason=request.rejection_reason,
         )
 
 

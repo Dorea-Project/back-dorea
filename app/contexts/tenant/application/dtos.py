@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 
@@ -79,6 +80,17 @@ class OnboardingResult:
 
 
 @dataclass(frozen=True)
+class OnboardingStatusDTO:
+    """Suivi public d'une candidature — **l'état seul**, jamais le brouillon."""
+
+    request_id: UUID
+    status: str
+    submitted_at: datetime
+    decided_at: datetime | None = None
+    rejection_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class TenantDetailDTO:
     tenant_id: UUID
     name: str
@@ -102,6 +114,22 @@ class TenantDetailDTO:
     language: str = "fr"
     currency: str = "XOF"
     operates_annexes: bool = False
+
+
+@dataclass(frozen=True)
+class TenantFamilyDTO:
+    """La **famille** d'un principal : lui + ses annexes, et les deux agrégats (M0 §4.2).
+
+    Sert **deux** consommateurs : le tableau de bord Church-OS du principal (il *voit*
+    ses annexes, il n'agit pas dedans — subsidiarité) et l'assiette d'abonnement
+    (`docs/Tenant_Subscription.md` §2 : taille-famille et nombre d'annexes)."""
+
+    principal: TenantDetailDTO
+    annexes: list[TenantDetailDTO]
+    #: Σ des tailles **déclarées** sur la famille — jamais l'effectif réel.
+    family_member_count: int
+    #: Annexes **actives** (une annexe suspendue ne compte pas dans le plan).
+    active_annexe_count: int
 
 
 @dataclass(frozen=True)
