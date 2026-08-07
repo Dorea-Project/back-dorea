@@ -219,6 +219,18 @@ class _FakeAbsences(PlannedAbsenceRepository):
             if x.tenant_id == tenant_id and x.is_neutralization and x.is_open
         ]
 
+    async def list_open_explanations(self, account_id, tenant_id):
+        """Les deux origines : la veille demande si le silence a une explication, pas qui l'a
+        écrite."""
+        return [
+            x
+            for x in self._a
+            if x.account_id == account_id and x.tenant_id == tenant_id and x.is_open
+        ]
+
+    async def list_open_explanations_by_tenant(self, tenant_id):
+        return [x for x in self._a if x.tenant_id == tenant_id and x.is_open]
+
     async def delete_projected(self, tenant_id):
         self._a = [
             x

@@ -9,7 +9,11 @@ from httpx import ASGITransport, AsyncClient
 
 from app.contexts.auth.application.commands.login import Login
 from app.contexts.auth.application.dtos import TokenPair
-from app.contexts.auth.application.ports import PasswordHasher, TokenService
+from app.contexts.auth.application.ports import (
+    PasswordHasher,
+    TokenClaims,
+    TokenService,
+)
 from app.contexts.auth.domain.credentials import AuthCredentials
 from app.contexts.auth.domain.otp import OtpChallenge
 from app.contexts.auth.domain.repositories import CredentialsRepository, DeviceRepository
@@ -58,6 +62,12 @@ class _Devices(DeviceRepository):
     async def trust(self, account_id, device_id, trusted_at: datetime):
         return None
 
+    async def revoke(self, account_id, device_id, revoked_at: datetime):
+        return None
+
+    async def revoke_all(self, account_id, revoked_at: datetime):
+        return 0
+
 
 class _Otp:
     def __init__(self) -> None:
@@ -71,20 +81,20 @@ class _Otp:
 
 
 class _Tokens(TokenService):
-    def issue_pair(self, account_id):
+    def issue_pair(self, account_id, device_id):
         return TokenPair("access-token", "refresh-token", 3600)
 
-    def issue_session(self, account_id):
+    def issue_session(self, account_id, device_id):
         return "session"
 
     def decode_access(self, token):
-        return _ACCOUNT
+        return TokenClaims(account_id=_ACCOUNT, device_id="dev-1")
 
     def decode_refresh(self, token):
-        return _ACCOUNT
+        return TokenClaims(account_id=_ACCOUNT, device_id="dev-1")
 
     def decode_session(self, token):
-        return _ACCOUNT
+        return TokenClaims(account_id=_ACCOUNT, device_id="dev-1")
 
 
 @pytest.fixture

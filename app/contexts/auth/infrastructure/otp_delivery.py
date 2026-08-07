@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 import httpx
@@ -54,7 +55,9 @@ class SmtpEmailOtpSender(OtpSender):
     ) -> None:
         # `smtplib` est bloquant → on l'exécute hors de la boucle asyncio.
         await asyncio.to_thread(self._send_sync, target, code)
-        _logger.info("otp_email_sent", target=target, purpose=purpose.value)
+        # DOREA-027 — l'adresse est une donnée personnelle : elle ne va pas dans les
+        # journaux. Le `purpose` suffit à diagnostiquer un problème d'acheminement.
+        _logger.info("otp_email_sent", purpose=purpose.value)
 
     def _send_sync(self, target: str, code: str) -> None:
         message = EmailMessage()
@@ -64,7 +67,11 @@ class SmtpEmailOtpSender(OtpSender):
         message.set_content(_BODY.format(code=code))
         with smtplib.SMTP(self._host, self._port, timeout=10) as smtp:
             if self._use_tls:
-                smtp.starttls()
+                # DOREA-018 — `starttls()` **sans contexte** n'authentifie rien : ni la
+                # chaîne de certificats, ni le nom d'hôte. Un intermédiaire pouvait se
+                # placer entre nous et le relais, et **lire les codes OTP**.
+                # `create_default_context()` vérifie les deux.
+                smtp.starttls(context=ssl.create_default_context())
             if self._username and self._password:
                 smtp.login(self._username, self._password)
             smtp.send_message(message)
@@ -88,7 +95,8 @@ class HttpSmsOtpSender(OtpSender):
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(self._url, json=payload, headers=headers)
             response.raise_for_status()
-        _logger.info("otp_sms_sent", target=target, purpose=purpose.value)
+        # DOREA-027 — le numéro est une donnée personnelle : hors des journaux.
+        _logger.info("otp_sms_sent", purpose=purpose.value)
 
 
 class RoutingOtpSender(OtpSender):

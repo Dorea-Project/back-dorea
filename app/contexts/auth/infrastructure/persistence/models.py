@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, Integer, String, Uuid
+from sqlalchemy import DateTime, Index, Integer, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -17,14 +17,29 @@ class DeviceModel(Base):
 
     __tablename__ = "trusted_devices"
 
+    # DOREA-016 — l'unicité ne porte que sur les appareils **encore de confiance** :
+    # un appareil révoqué garde sa ligne (trace), et le même appareil peut redevenir
+    # de confiance plus tard (nouvel OTP) sans buter sur l'index.
     __table_args__ = (
-        Index("uq_account_device", "account_id", "device_id", unique=True),
+        Index(
+            "uq_account_device",
+            "account_id",
+            "device_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_id: Mapped[UUID] = mapped_column(Uuid)
     device_id: Mapped[str] = mapped_column(String)
     trusted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # DOREA-016 — la révocation de l'appareil **tue les jetons** qui le portent
+    # (access, refresh et session meurent ensemble : ils désignent le même appareil).
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class LoginAttemptModel(Base):

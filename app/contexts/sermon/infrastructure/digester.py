@@ -62,7 +62,16 @@ class MistralSermonDigester(SermonDigester):
             response_format={"type": "json_object"},
         )
         content = response.choices[0].message.content or "{}"
-        return _from_json(json.loads(content))
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        digest = _from_json(data)
+        if not digest.summary and not digest.capsules:
+            # Sortie inexploitable : on retombe sur le digesteur **déterministe** plutôt que
+            # de rendre un digest vide. Le modèle est un accélérateur, jamais une dépendance.
+            return await KeywordSermonDigester().digest(text, title=title, reference=reference)
+        return digest
 
 
 class KeywordSermonDigester(SermonDigester):
@@ -91,20 +100,39 @@ class KeywordSermonDigester(SermonDigester):
         )
 
 
-def _from_json(data: dict) -> SermonDigest:
+def _objets(value) -> list[dict]:
+    """Ne garde que ce qui est réellement un objet — le modèle rend parfois une chaîne,
+    une liste de chaînes, ou `null` là où le prompt demandait des objets (DOREA-025)."""
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _from_json(data) -> SermonDigest:
+    """Lit la réponse du modèle **sans lui faire confiance**.
+
+    `json_object` promet du JSON, pas une forme. Une liste au lieu d'un objet, une clé
+    absente, un type surprenant : le code levait, donc **500**. Ici tout ce qui n'est pas
+    exploitable est simplement ignoré, et l'appelant reçoit un digest — éventuellement vide,
+    ce que le digesteur de repli sait rattraper."""
+    if not isinstance(data, dict):
+        data = {}
     capsules = tuple(
         Capsule(title=str(c.get("title", "")).strip(), body=str(c.get("body", "")).strip())
-        for c in data.get("capsules", [])
+        for c in _objets(data.get("capsules"))
         if str(c.get("body", "")).strip()
     )
     questions = tuple(
         CompanionQuestion(
             prompt=str(q.get("prompt", "")).strip(), guidance=str(q.get("guidance", "")).strip()
         )
-        for q in data.get("questions", [])
+        for q in _objets(data.get("questions"))
         if str(q.get("prompt", "")).strip()
     )
-    key_points = tuple(str(p).strip() for p in data.get("key_points", []) if str(p).strip())
+    raw_points = data.get("key_points")
+    key_points = tuple(
+        str(p).strip()
+        for p in (raw_points if isinstance(raw_points, list) else [])
+        if str(p).strip()
+    )
     return SermonDigest(
         summary=str(data.get("summary", "")).strip(),
         key_points=key_points,

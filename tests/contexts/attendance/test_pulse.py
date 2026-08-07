@@ -237,6 +237,16 @@ class _FakeAbsences(PlannedAbsenceRepository):
     async def list_open_neutralizations_by_tenant(self, tenant_id):
         return []
 
+    async def list_open_explanations(self, account_id, tenant_id):
+        return [
+            x
+            for x in self._a
+            if x.account_id == account_id and x.tenant_id == tenant_id and x.is_open
+        ]
+
+    async def list_open_explanations_by_tenant(self, tenant_id):
+        return [x for x in self._a if x.tenant_id == tenant_id and x.is_open]
+
     async def delete_projected(self, tenant_id):
         pass
 

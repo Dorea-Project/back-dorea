@@ -39,6 +39,7 @@ async def _do_upload(request: Request, store, settings) -> UploadResponse:
         len(body),
         max_bytes=max_bytes,
         allowed_types=settings.media_allowed_types,
+        content=body,  # DOREA-024 — recoupe le type annoncé aux octets réels
     )
     if is_video:
         # **Mesurée, pas déclarée.** Une limite qui repose sur ce que le client annonce n'est pas

@@ -141,7 +141,34 @@ class PlannedAbsenceRepository(Repository):
     async def list_open_neutralizations_by_tenant(
         self, tenant_id: UUID
     ) -> list[PlannedAbsence]:
-        """Toutes les neutralisations en cours d'une église — la vue que lit le moteur."""
+        """Toutes les neutralisations en cours d'une église — celles que le moteur a posées."""
+        ...
+
+    @abstractmethod
+    async def list_open_explanations(
+        self, account_id: UUID, tenant_id: UUID
+    ) -> list[PlannedAbsence]:
+        """Tout ce qui **explique** le silence de cette personne — les deux origines.
+
+        Deux questions différentes vivaient sous le même mot, et elles ont fini par se contredire :
+
+        - *« quelles lignes le moteur a-t-il posées ? »* — pour les prolonger sans cumuler, et pour
+          savoir ce qu'une reprojection a le droit d'effacer. La réponse est `ANNOUNCEMENT` seul, et
+          c'est `list_open_neutralizations` ;
+        - *« sait-on pourquoi cette personne n'est pas là ? »* — la seule question que la veille
+          pose réellement. La réponse est **les deux origines**, et c'est cette méthode-ci.
+
+        Confondre les deux avait un effet précis : le membre qui prend la peine de dire *« je pars
+        du 5 au 20 »* recevait quand même *« sans nouvelles — 3 rencontres »*. Le roster honorait la
+        dignité de prévenir, la veille l'ignorait — et c'est justement à celui qui a prévenu qu'on
+        allait demander pourquoi il n'était pas venu."""
+        ...
+
+    @abstractmethod
+    async def list_open_explanations_by_tenant(
+        self, tenant_id: UUID
+    ) -> list[PlannedAbsence]:
+        """Toutes les explications en cours d'une église — **la vue que lit le moteur**."""
         ...
 
     @abstractmethod

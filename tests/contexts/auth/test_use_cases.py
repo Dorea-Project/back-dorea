@@ -11,7 +11,11 @@ from app.contexts.auth.application.commands.refresh_token import RefreshToken
 from app.contexts.auth.application.commands.verify_device_login import VerifyDeviceLogin
 from app.contexts.auth.application.dtos import TokenPair
 from app.contexts.auth.application.login_throttle import LoginThrottle
-from app.contexts.auth.application.ports import PasswordHasher, TokenService
+from app.contexts.auth.application.ports import (
+    PasswordHasher,
+    TokenClaims,
+    TokenService,
+)
 from app.contexts.auth.domain.credentials import AuthCredentials
 from app.contexts.auth.domain.errors import (
     AccountInactiveError,
@@ -55,6 +59,14 @@ class FakeDevices(DeviceRepository):
     async def trust(self, account_id, device_id, trusted_at):
         self._trusted.add((account_id, device_id))
         self.trusted_calls.append((account_id, device_id))
+
+    async def revoke(self, account_id, device_id, revoked_at):
+        self._trusted.discard((account_id, device_id))
+
+    async def revoke_all(self, account_id, revoked_at):
+        gone = {t for t in self._trusted if t[0] == account_id}
+        self._trusted -= gone
+        return len(gone)
 
 
 class FakeOtp:
@@ -102,8 +114,12 @@ class FakeHasher(PasswordHasher):
 
 
 class FakeTokens(TokenService):
-    def issue_pair(self, account_id):
-        return TokenPair(f"access::{account_id}", f"refresh::{account_id}", 3600)
+    """Le jeton factice porte l'appareil, comme le vrai (DOREA-016)."""
+
+    def issue_pair(self, account_id, device_id):
+        return TokenPair(
+            f"access::{account_id}::{device_id}", f"refresh::{account_id}::{device_id}", 3600
+        )
 
     def decode_access(self, token):
         return self._parse("access", token)
@@ -111,8 +127,8 @@ class FakeTokens(TokenService):
     def decode_refresh(self, token):
         return self._parse("refresh", token)
 
-    def issue_session(self, account_id):
-        return f"session::{account_id}"
+    def issue_session(self, account_id, device_id):
+        return f"session::{account_id}::{device_id}"
 
     def decode_session(self, token):
         return self._parse("session", token)
@@ -122,7 +138,8 @@ class FakeTokens(TokenService):
         prefix = f"{kind}::"
         if not token.startswith(prefix):
             raise InvalidTokenError("mauvais type de jeton")
-        return UUID(token[len(prefix) :])
+        account_id, _, device_id = token[len(prefix) :].partition("::")
+        return TokenClaims(account_id=UUID(account_id), device_id=device_id or "dev")
 
 
 def _creds(account_id, *, phone="+2250700000001", secret="1234", active=True, has_hash=True):
@@ -157,7 +174,7 @@ async def test_login_trusted_device_issues_pair():
     )
 
     assert outcome.otp_required is False
-    assert outcome.tokens.access_token == f"access::{account}"
+    assert outcome.tokens.access_token == f"access::{account}::{_DEVICE}"
 
 
 async def test_login_new_device_sends_otp_and_withholds_tokens():
@@ -264,7 +281,7 @@ async def test_verify_device_trusts_and_issues_pair():
 
     pair = await verify.execute(phone_number="+2250700000001", otp="000000", device_id=_DEVICE)
 
-    assert pair.access_token == f"access::{account}"
+    assert pair.access_token == f"access::{account}::{_DEVICE}"
     assert (account, _DEVICE) in devices.trusted_calls  # appareil devenu de confiance
 
 
@@ -279,10 +296,41 @@ async def test_verify_device_rejects_mismatched_device():
 
 async def test_refresh_rotates_pair():
     account = uuid4()
-    pair = await RefreshToken(FakeTokens()).execute(refresh_token=f"refresh::{account}")
-    assert pair.access_token == f"access::{account}"
+    devices = FakeDevices([(account, "dev")])  # l'appareil est encore de confiance
+    pair = await RefreshToken(FakeTokens(), devices).execute(
+        refresh_token=f"refresh::{account}::dev"
+    )
+    assert pair.access_token == f"access::{account}::dev"
 
 
 async def test_refresh_rejects_access_token():
     with pytest.raises(InvalidTokenError):
-        await RefreshToken(FakeTokens()).execute(refresh_token=f"access::{uuid4()}")
+        await RefreshToken(FakeTokens(), FakeDevices()).execute(
+            refresh_token=f"access::{uuid4()}"
+        )
+
+
+async def test_refresh_is_refused_after_the_device_is_revoked():
+    """DOREA-016 — le refresh vit 30 jours. Sans ce garde, un appareil déconnecté
+    continuait à se re-délivrer des jetons neufs pendant un mois."""
+    account = uuid4()
+    devices = FakeDevices([(account, "dev")])
+    token = f"refresh::{account}::dev"
+    await RefreshToken(FakeTokens(), devices).execute(refresh_token=token)  # marche
+
+    await devices.revoke(account, "dev", _NOW)  # déconnexion
+
+    with pytest.raises(InvalidTokenError):
+        await RefreshToken(FakeTokens(), devices).execute(refresh_token=token)
+
+
+async def test_revoke_all_kills_every_device_of_the_account():
+    """« Me déconnecter partout » — le geste à faire quand on soupçonne un vol."""
+    account, other = uuid4(), uuid4()
+    devices = FakeDevices([(account, "phone"), (account, "tablet"), (other, "phone")])
+
+    assert await devices.revoke_all(account, _NOW) == 2
+
+    assert not await devices.is_trusted(account, "phone")
+    assert not await devices.is_trusted(account, "tablet")
+    assert await devices.is_trusted(other, "phone")  # le compte voisin n'est pas touché

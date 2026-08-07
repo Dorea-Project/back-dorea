@@ -82,10 +82,33 @@ class DeviceRepository(Repository):
         """Marque un appareil comme de confiance (idempotent)."""
         ...
 
+    @abstractmethod
+    async def revoke(self, account_id: UUID, device_id: str, revoked_at: datetime) -> None:
+        """Révoque **un** appareil : ses jetons cessent d'être acceptés (DOREA-016).
+
+        C'est ce que fait une déconnexion. L'appareil redeviendra de confiance après
+        un nouvel OTP."""
+        ...
+
+    @abstractmethod
+    async def revoke_all(self, account_id: UUID, revoked_at: datetime) -> int:
+        """Révoque **tous** les appareils d'un compte — « me déconnecter partout ».
+
+        Le geste à faire quand on soupçonne un vol. Retourne le nombre d'appareils."""
+        ...
+
 
 class OtpChallengeRepository(Repository):
     @abstractmethod
     async def add(self, challenge: OtpChallenge) -> None: ...
+
+    @abstractmethod
+    async def count_issued_since(self, target: str, since: datetime) -> int:
+        """Combien de codes ont été **envoyés** à ce contact depuis `since` (DOREA-022).
+
+        Le plafond se lit sur les défis eux-mêmes : émettre laisse une trace datée, donc
+        il n'y a rien de plus à stocker pour savoir qu'on émet trop."""
+        ...
 
     @abstractmethod
     async def get_active(

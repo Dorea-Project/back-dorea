@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app._shared.interface.exception_handlers import register_exception_handlers
+from app.api.openapi import DESCRIPTION, TAGS
 from app.api.router import api_router, backoffice_router, public_router
 from app.core.config import get_settings
 from app.core.database import engine
@@ -36,9 +37,12 @@ def create_app() -> FastAPI:
         title="Dorea Church — Backend",
         version="0.1.0",
         summary=(
-            "Backend monolithe. Possède le schéma et le fait évoluer. Deux surfaces : "
-            "/api/backoffice (PWA Next.js) et /api/mobile (Flutter)."
+            "Backend monolithe. Possède le schéma et le fait évoluer. Trois surfaces : "
+            "/api/mobile (Flutter), /api/backoffice (PWA Next.js), /api (publique)."
         ),
+        # La carte du produit, pas la liste des routes — cf. `app/api/openapi.py`.
+        description=DESCRIPTION,
+        openapi_tags=TAGS,
         docs_url="/docs",
         openapi_url="/openapi.json",
         lifespan=lifespan,
@@ -57,6 +61,17 @@ def create_app() -> FastAPI:
     )
 
     _hsts = settings.environment != "local"
+    _media_prefix = settings.media_base_url
+
+    # DOREA-019 — les médias sont servis en **même origine**. Un SVG ouvert directement
+    # dans un onglet s'exécute donc dans l'origine de l'application : c'est un XSS stocké
+    # en puissance. Le générateur de carte missionnaire (M9-1) échappe son texte, donc rien
+    # n'est exploitable aujourd'hui — mais des SVG **existent** dans le dossier média, et la
+    # sûreté ne doit pas reposer sur le fait que chaque futur écrivain pense à échapper.
+    # `sandbox` place la réponse dans une origine unique ; `default-src 'none'` coupe tout
+    # le reste. Un `<img src>` n'est pas affecté (c'est la CSP de la page qui s'applique) :
+    # seule la navigation directe — le vecteur — est neutralisée.
+    _media_csp = "default-src 'none'; sandbox"
 
     @app.middleware("http")
     async def _security_headers(request, call_next):
@@ -66,6 +81,8 @@ def create_app() -> FastAPI:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if request.url.path.startswith(_media_prefix):
+            response.headers.setdefault("Content-Security-Policy", _media_csp)
         if _hsts:
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=63072000; includeSubDomains"

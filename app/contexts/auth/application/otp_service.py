@@ -16,9 +16,16 @@ from app.contexts.auth.domain.errors import (
     OtpInvalidError,
     OtpNotFoundError,
     OtpTooManyAttemptsError,
+    OtpTooManyRequestsError,
 )
 from app.contexts.auth.domain.otp import OtpChallenge, OtpChannel, OtpPurpose
 from app.contexts.auth.domain.repositories import OtpChallengeRepository
+
+# DOREA-022 — plafond d'**émission** par contact. Sans lui, réappuyer sur « renvoyer le
+# code » fait pleuvoir des SMS sur un numéro : harcèlement pour la personne, facture pour
+# l'église. Le compte se lit sur les défis eux-mêmes — émettre laisse déjà une trace datée.
+_MAX_ISSUES = 5
+_ISSUE_WINDOW = timedelta(hours=1)
 
 
 class OtpService:
@@ -48,8 +55,16 @@ class OtpService:
         account_id: UUID | None = None,
         device_id: str | None = None,
     ) -> None:
-        code = self._codes.generate()
         now = self._clock()
+        # Le plafond est ici, au point de passage obligé : toutes les portes (login, nouvel
+        # appareil, inscription, renvoi d'onboarding) émettent par cette méthode.
+        issued = await self._challenges.count_issued_since(target, now - _ISSUE_WINDOW)
+        if issued >= _MAX_ISSUES:
+            raise OtpTooManyRequestsError(
+                "Trop de codes demandés pour ce contact. Réessayez plus tard.",
+                details={"max_par_heure": _MAX_ISSUES},
+            )
+        code = self._codes.generate()
         challenge = OtpChallenge(
             id=uuid4(),
             purpose=purpose,

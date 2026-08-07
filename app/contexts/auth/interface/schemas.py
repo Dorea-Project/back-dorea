@@ -54,3 +54,12 @@ class TokenResponse(BaseModel):
             token_type=pair.token_type,
             expires_in=pair.expires_in,
         )
+
+
+class LogoutRequest(BaseModel):
+    """Déconnexion (DOREA-016). Par défaut : **cet** appareil seulement."""
+
+    everywhere: bool = Field(
+        default=False,
+        description="Révoquer TOUS les appareils du compte — en cas de vol.",
+    )

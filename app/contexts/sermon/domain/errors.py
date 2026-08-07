@@ -32,6 +32,17 @@ class UnsupportedSermonFormatError(SermonError):
     http_status = 422
 
 
+class SermonFileTooComplexError(SermonError):
+    """Le fichier déposé coûte trop cher à ouvrir (DOREA-011).
+
+    Un `.pptx` est un ZIP : quinze mégaoctets compressés peuvent en peser des milliers
+    une fois décompressés. Un PDF peut porter des dizaines de milliers de pages. Le
+    plafond d'upload borne ce qui **entre** ; celui-ci borne ce que ça **coûte**."""
+
+    code = "SER_FILE_TOO_COMPLEX"
+    http_status = 413
+
+
 class SermonNotEditableError(SermonError):
     """Transition de cycle de vie illégale (approuver hors brouillon, publier hors approuvé)."""
 

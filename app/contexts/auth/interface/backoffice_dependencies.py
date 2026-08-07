@@ -65,11 +65,25 @@ BackofficeVerifyDeviceDep = Annotated[
 
 async def get_current_backoffice_user(
     tokens: TokenServiceDep,
+    db: DbSession,
     session: Annotated[str | None, Cookie(alias=BACKOFFICE_SESSION_COOKIE)] = None,
 ) -> Actor:
     if session is None:
         raise InvalidTokenError("Session backoffice requise.")
-    return Actor(account_id=tokens.decode_session(session))
+    claims = tokens.decode_session(session)
+    # DOREA-016 — le cookie effacé côté client ne prouvait rien : le jeton restait
+    # valable 12 h. Ici la déconnexion **révoque l'appareil**, et la session meurt.
+    if not await SqlDeviceRepository(db).is_trusted(claims.account_id, claims.device_id):
+        raise InvalidTokenError("Session révoquée — reconnectez-vous.")
+    return Actor(account_id=claims.account_id)
 
 
 CurrentBackofficeUser = Annotated[Actor, Depends(get_current_backoffice_user)]
+
+
+def get_device_revocation(session: DbSession) -> SqlDeviceRepository:
+    """Le registre des appareils, pour révoquer à la déconnexion (DOREA-016)."""
+    return SqlDeviceRepository(session)
+
+
+DeviceRevocationDep = Annotated[SqlDeviceRepository, Depends(get_device_revocation)]

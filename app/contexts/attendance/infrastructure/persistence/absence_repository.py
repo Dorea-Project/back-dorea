@@ -147,6 +147,32 @@ class SqlPlannedAbsenceRepository(PlannedAbsenceRepository):
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_absence(r) for r in rows]
 
+    async def list_open_explanations(
+        self, account_id: UUID, tenant_id: UUID
+    ) -> list[PlannedAbsence]:
+        """**Aucun filtre sur `source`** — et c'est toute la différence avec la méthode d'au-dessus.
+
+        La veille demande si le silence a une explication ; peu lui importe qui l'a écrite."""
+        stmt = select(PlannedAbsenceModel).where(
+            PlannedAbsenceModel.account_id == account_id,
+            PlannedAbsenceModel.tenant_id == tenant_id,
+            PlannedAbsenceModel.canceled_at.is_(None),
+            PlannedAbsenceModel.outcome.is_(None),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_absence(r) for r in rows]
+
+    async def list_open_explanations_by_tenant(
+        self, tenant_id: UUID
+    ) -> list[PlannedAbsence]:
+        stmt = select(PlannedAbsenceModel).where(
+            PlannedAbsenceModel.tenant_id == tenant_id,
+            PlannedAbsenceModel.canceled_at.is_(None),
+            PlannedAbsenceModel.outcome.is_(None),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_absence(r) for r in rows]
+
     async def delete_projected(self, tenant_id: UUID) -> None:
         """Le filtre sur `source` est la garantie : la parole du membre n'est pas effaçable."""
         await self._session.execute(

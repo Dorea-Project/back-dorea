@@ -90,4 +90,4 @@ class RegisterMember:
         # L'inscription prouve déjà la possession du numéro (OTP) → l'appareil
         # d'inscription est de confiance : pas de nouvel OTP au premier login (M-4).
         await self._devices.trust(account_id, device_id, self._clock())
-        return self._tokens.issue_pair(account_id)
+        return self._tokens.issue_pair(account_id, device_id)

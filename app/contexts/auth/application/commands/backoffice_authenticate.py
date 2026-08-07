@@ -55,7 +55,7 @@ class BackofficeAuthenticate:
             await self._throttle.clear(email)
 
         if await self._devices.is_trusted(cred.account_id, device_id):
-            token = self._tokens.issue_session(cred.account_id)
+            token = self._tokens.issue_session(cred.account_id, device_id)
             return AuthOutcome(session_token=token, otp_required=False)
 
         # Nouvel appareil → défi OTP (email), pas de session encore.

@@ -37,4 +37,4 @@ class BackofficeVerifyDevice:
             raise OtpInvalidError("Code invalide pour cet appareil.")
 
         await self._devices.trust(challenge.account_id, device_id, self._clock())
-        return self._tokens.issue_session(challenge.account_id)
+        return self._tokens.issue_session(challenge.account_id, device_id)

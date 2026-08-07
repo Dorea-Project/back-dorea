@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -17,6 +17,25 @@ class AppointmentModel(Base):
     __table_args__ = (
         Index("ix_appointments_tenant_status", "tenant_id", "status"),
         Index("ix_appointments_requester", "requester_account_id", "tenant_id"),
+        # DOREA-010 — un pasteur ne peut être **confirmé** deux fois sur le même créneau.
+        # Deux confirmations concurrentes lisaient toutes deux « libre » avant d'écrire :
+        # deux personnes se présentaient à la même heure, et c'est le pasteur qui portait
+        # la faute du logiciel. Index *partiel* sur `confirmed` : une fois la rencontre
+        # honorée (ou annulée), le créneau — passé — se libère.
+        Index(
+            "uq_one_confirmed_appointment_per_slot",
+            "with_pastor_account_id",
+            "scheduled_at",
+            unique=True,
+            postgresql_where=text(
+                "status = 'confirmed' AND with_pastor_account_id IS NOT NULL "
+                "AND scheduled_at IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "status = 'confirmed' AND with_pastor_account_id IS NOT NULL "
+                "AND scheduled_at IS NOT NULL"
+            ),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)

@@ -18,6 +18,21 @@ class GatheringModel(Base):
         Index("ix_gatherings_group", "group_id"),
         Index("ix_gatherings_tenant", "tenant_id"),
         Index("ix_gatherings_check_in_code", "check_in_code"),
+        # DOREA-009 — une seule rencontre **église-entière** par (église, type, horaire).
+        # Le culte du jour est créé en *get-or-create* (compagnon S-4, clé déterministe =
+        # minuit du dimanche) : deux « oui » simultanés créaient deux cultes, et la présence
+        # de l'assemblée se scindait en deux. Index *partiel* : les rencontres de **groupe**
+        # (`group_id` non nul) ne sont pas concernées — plusieurs cellules peuvent se réunir
+        # au même moment.
+        Index(
+            "uq_one_church_wide_gathering_per_slot",
+            "tenant_id",
+            "type",
+            "scheduled_at",
+            unique=True,
+            postgresql_where=text("group_id IS NULL"),
+            sqlite_where=text("group_id IS NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)

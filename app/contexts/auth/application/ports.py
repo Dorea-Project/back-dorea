@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from uuid import UUID
 
 from app.contexts.auth.application.dtos import TokenPair
@@ -40,30 +41,41 @@ class PasswordHasher(ABC):
     def hash(self, plain: str) -> str: ...
 
 
+@dataclass(frozen=True, slots=True)
+class TokenClaims:
+    """Ce qu'un jeton valide désigne : **qui**, et **depuis quel appareil**.
+
+    L'appareil (DOREA-016) est ce qui rend la révocation possible : révoquer l'appareil
+    tue d'un coup l'access, le refresh et la session qui le portent."""
+
+    account_id: UUID
+    device_id: str
+
+
 class TokenService(ABC):
     """Émet et décode les jetons : paire mobile (JWT Bearer) + session backoffice."""
 
     @abstractmethod
-    def issue_pair(self, account_id: UUID) -> TokenPair: ...
+    def issue_pair(self, account_id: UUID, device_id: str) -> TokenPair: ...
 
     @abstractmethod
-    def decode_access(self, token: str) -> UUID:
-        """Retourne l'`account_id` porté par un access token valide (sinon lève)."""
+    def decode_access(self, token: str) -> TokenClaims:
+        """Retourne les claims d'un access token valide (sinon lève)."""
         ...
 
     @abstractmethod
-    def decode_refresh(self, token: str) -> UUID:
-        """Retourne l'`account_id` porté par un refresh token valide (sinon lève)."""
+    def decode_refresh(self, token: str) -> TokenClaims:
+        """Retourne les claims d'un refresh token valide (sinon lève)."""
         ...
 
     @abstractmethod
-    def issue_session(self, account_id: UUID) -> str:
+    def issue_session(self, account_id: UUID, device_id: str) -> str:
         """Jeton de **session backoffice** (livré en cookie HttpOnly, TTL long)."""
         ...
 
     @abstractmethod
-    def decode_session(self, token: str) -> UUID:
-        """Retourne l'`account_id` d'un jeton de session valide (sinon lève).
+    def decode_session(self, token: str) -> TokenClaims:
+        """Retourne les claims d'un jeton de session valide (sinon lève).
 
         Un jeton de type `access`/`refresh` est **refusé** ici (types cloisonnés) :
         un JWT mobile ne peut pas servir de session backoffice, et inversement.

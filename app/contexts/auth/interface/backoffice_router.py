@@ -7,17 +7,23 @@ Session livrée via cookie **HttpOnly**.
 
 from __future__ import annotations
 
+from contextlib import suppress
+from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Cookie, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import SettingsDep
+from app.contexts.auth.domain.errors import InvalidTokenError
 from app.contexts.auth.interface.backoffice_dependencies import (
     BACKOFFICE_SESSION_COOKIE,
     BackofficeAuthenticateDep,
     BackofficeVerifyDeviceDep,
     CurrentBackofficeUser,
+    DeviceRevocationDep,
+    TokenServiceDep,
 )
 
 router = APIRouter()
@@ -93,9 +99,21 @@ async def backoffice_verify(
 @router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Déconnexion backoffice (efface le cookie de session)",
+    summary="Déconnexion backoffice — révoque l'appareil et efface le cookie",
 )
-async def backoffice_logout(response: Response, settings: SettingsDep) -> None:
+async def backoffice_logout(
+    response: Response,
+    settings: SettingsDep,
+    devices: DeviceRevocationDep,
+    tokens: TokenServiceDep,
+    session: Annotated[str | None, Cookie(alias=BACKOFFICE_SESSION_COOKIE)] = None,
+) -> None:
+    """DOREA-016 — effacer le cookie ne prouvait rien : le jeton restait valable 12 h.
+    On **révoque l'appareil**, et la session meurt à l'instant."""
+    if session is not None:
+        with suppress(InvalidTokenError):  # jeton déjà mort : la déconnexion réussit
+            claims = tokens.decode_session(session)
+            await devices.revoke(claims.account_id, claims.device_id, datetime.now(UTC))
     response.delete_cookie(BACKOFFICE_SESSION_COOKIE, path=settings.backoffice_prefix)
 
 

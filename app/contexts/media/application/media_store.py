@@ -57,8 +57,39 @@ class MediaStore(ABC):
         ...
 
 
+# DOREA-024 — signatures réelles des formats acceptés. Le `Content-Type` est **déclaré par
+# le client** : il dit ce qu'il veut. Recouper les premiers octets empêche de ranger un
+# fichier arbitraire sous une extension d'image — et donc de le faire servir comme telle.
+_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    # RIFF….WEBP : la taille occupe les octets 4-7, on vérifie les deux bouts.
+    "image/webp": (b"RIFF",),
+    # ISO-BMFF : `ftyp` en position 4.
+    "video/mp4": (b"ftyp",),
+}
+
+
+def _looks_like(content: bytes, content_type: str) -> bool:
+    """Les octets confirment-ils le type annoncé ? (formats non listés : pas d'avis)"""
+    signatures = _MAGIC.get(content_type)
+    if signatures is None:
+        return True
+    if content_type == "video/mp4":
+        return content[4:8] == b"ftyp"
+    if content_type == "image/webp":
+        return content.startswith(b"RIFF") and content[8:12] == b"WEBP"
+    return any(content.startswith(signature) for signature in signatures)
+
+
 def validate_upload(
-    content_type: str, size: int, *, max_bytes: int, allowed_types: list[str]
+    content_type: str,
+    size: int,
+    *,
+    max_bytes: int,
+    allowed_types: list[str],
+    content: bytes | None = None,
 ) -> None:
     if content_type not in allowed_types:
         raise MediaTypeNotAllowedError(
@@ -70,6 +101,12 @@ def validate_upload(
     if size > max_bytes:
         raise MediaTooLargeError(
             "Fichier trop volumineux.", details={"size": size, "max_bytes": max_bytes}
+        )
+    # DOREA-024 — dernier contrôle : ce que le fichier **est**, pas ce qu'il prétend être.
+    if content is not None and not _looks_like(content, content_type):
+        raise MediaTypeNotAllowedError(
+            "Le contenu du fichier ne correspond pas au type annoncé.",
+            details={"content_type": content_type},
         )
 
 

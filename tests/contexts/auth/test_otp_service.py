@@ -5,13 +5,18 @@ from uuid import uuid4
 
 import pytest
 
-from app.contexts.auth.application.otp_service import OtpService
+from app.contexts.auth.application.otp_service import (
+    _ISSUE_WINDOW,
+    _MAX_ISSUES,
+    OtpService,
+)
 from app.contexts.auth.application.ports import CodeGenerator, OtpSender, PasswordHasher
 from app.contexts.auth.domain.errors import (
     OtpExpiredError,
     OtpInvalidError,
     OtpNotFoundError,
     OtpTooManyAttemptsError,
+    OtpTooManyRequestsError,
 )
 from app.contexts.auth.domain.otp import MAX_ATTEMPTS, OtpChallenge, OtpChannel, OtpPurpose
 from app.contexts.auth.domain.repositories import OtpChallengeRepository
@@ -58,6 +63,9 @@ class _FakeChallenges(OtpChallengeRepository):
 
     async def add(self, challenge):
         self.items.append(challenge)
+
+    async def count_issued_since(self, target, since):
+        return sum(1 for c in self.items if c.target == target and c.created_at >= since)
 
     async def get_active(self, purpose, target, now):
         matches = [
@@ -158,3 +166,47 @@ async def test_unknown_target_raises_not_found():
     svc = _service(_FakeChallenges(), clock=_Clock(_NOW))
     with pytest.raises(OtpNotFoundError):
         await svc.verify(purpose=OtpPurpose.NEW_DEVICE, target="+225", code="123456")
+
+
+# --------------------------------------------------------- DOREA-022 · plafond d'émission
+
+
+async def _issue(svc, target="+2250700000001"):
+    await svc.issue(purpose=OtpPurpose.NEW_DEVICE, channel=OtpChannel.SMS, target=target)
+
+
+async def test_le_plafond_arrete_le_deluge_de_sms():
+    """Sans plafond, réappuyer sur « renvoyer le code » fait pleuvoir des SMS sur un
+    numéro : harcèlement pour la personne, facture pour l'église."""
+    challenges, sender = _FakeChallenges(), _FakeSender()
+    svc = _service(challenges, clock=_Clock(_NOW), sender=sender)
+
+    for _ in range(_MAX_ISSUES):
+        await _issue(svc)
+    assert len(sender.sent) == _MAX_ISSUES
+
+    with pytest.raises(OtpTooManyRequestsError):
+        await _issue(svc)
+    assert len(sender.sent) == _MAX_ISSUES  # rien de plus n'est parti
+
+
+async def test_le_plafond_est_par_contact():
+    """Le voisin n'est pas puni parce qu'un numéro a été martelé."""
+    challenges = _FakeChallenges()
+    svc = _service(challenges, clock=_Clock(_NOW))
+    for _ in range(_MAX_ISSUES):
+        await _issue(svc, "+2250700000001")
+
+    await _issue(svc, "+2250700000002")  # ne lève pas
+
+
+async def test_le_plafond_se_desserre_avec_le_temps():
+    """C'est une fenêtre glissante, pas un bannissement."""
+    challenges = _FakeChallenges()
+    clock = _Clock(_NOW)
+    svc = _service(challenges, clock=clock)
+    for _ in range(_MAX_ISSUES):
+        await _issue(svc)
+
+    clock.t = _NOW + _ISSUE_WINDOW + timedelta(minutes=1)
+    await _issue(svc)  # ne lève pas

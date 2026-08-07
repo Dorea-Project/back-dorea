@@ -1,16 +1,21 @@
 """Routes HTTP du contexte Auth (canal mobile)."""
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Response, status
 
 from app.contexts.auth.domain.secret_code import SecretCode
 from app.contexts.auth.interface.dependencies import (
+    CurrentActorClaims,
     LoginDep,
+    MobileDeviceRevocationDep,
     RefreshTokenDep,
     RegisterMemberDep,
     VerifyDeviceLoginDep,
 )
 from app.contexts.auth.interface.schemas import (
     LoginRequest,
+    LogoutRequest,
     OtpRequiredResponse,
     RefreshRequest,
     RegisterConfirmRequest,
@@ -91,3 +96,25 @@ async def verify_device(
 async def refresh(payload: RefreshRequest, command: RefreshTokenDep) -> TokenResponse:
     pair = await command.execute(refresh_token=payload.refresh_token)
     return TokenResponse.from_pair(pair)
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Se déconnecter — révoque cet appareil (ou tous)",
+)
+async def logout(
+    payload: LogoutRequest,
+    actor: CurrentActorClaims,
+    devices: MobileDeviceRevocationDep,
+) -> None:
+    """DOREA-016 — le mobile n'avait **aucune** déconnexion : les jetons vivaient
+    jusqu'à expiration (30 jours pour le refresh). Révoquer l'appareil les tue tous.
+
+    `everywhere=true` révoque **tous** les appareils du compte — le geste à faire quand
+    on soupçonne un vol."""
+    now = datetime.now(UTC)
+    if payload.everywhere:
+        await devices.revoke_all(actor.account_id, now)
+    else:
+        await devices.revoke(actor.account_id, actor.device_id, now)

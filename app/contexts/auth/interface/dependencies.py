@@ -16,7 +16,7 @@ from app.contexts.auth.application.commands.refresh_token import RefreshToken
 from app.contexts.auth.application.commands.register_member import RegisterMember
 from app.contexts.auth.application.commands.verify_device_login import VerifyDeviceLogin
 from app.contexts.auth.application.login_throttle import LoginThrottle
-from app.contexts.auth.application.ports import PasswordHasher, TokenService
+from app.contexts.auth.application.ports import PasswordHasher, TokenClaims, TokenService
 from app.contexts.auth.domain.errors import InvalidTokenError
 from app.contexts.auth.domain.repositories import CredentialsRepository
 from app.contexts.auth.infrastructure.hashing import HASH_ALGO_VERSION, Argon2PasswordHasher
@@ -84,8 +84,8 @@ def get_verify_device_login_command(
     )
 
 
-def get_refresh_command(tokens: TokenServiceDep) -> RefreshToken:
-    return RefreshToken(tokens)
+def get_refresh_command(tokens: TokenServiceDep, session: DbSession) -> RefreshToken:
+    return RefreshToken(tokens, SqlDeviceRepository(session))
 
 
 def get_register_member_command(
@@ -117,17 +117,41 @@ RegisterMemberDep = Annotated[RegisterMember, Depends(get_register_member_comman
 _bearer = HTTPBearer(auto_error=False, description="JWT d'accès mobile")
 
 
-async def get_current_actor(
+async def get_current_claims(
     tokens: TokenServiceDep,
+    session: DbSession,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-) -> Actor:
+) -> TokenClaims:
+    """Qui, et **depuis quel appareil** — la porte d'entrée mobile."""
     if credentials is None:
         raise InvalidTokenError("Jeton d'accès requis.")
-    account_id = tokens.decode_access(credentials.credentials)
-    return Actor(account_id=account_id)
+    claims = tokens.decode_access(credentials.credentials)
+    # DOREA-016 — la signature ne suffit pas : l'appareil doit être **encore** de
+    # confiance. Un appareil déconnecté ou révoqué est refusé à la porte, sans
+    # attendre l'expiration du jeton.
+    if not await SqlDeviceRepository(session).is_trusted(claims.account_id, claims.device_id):
+        raise InvalidTokenError("Appareil révoqué — reconnectez-vous.")
+    return claims
+
+
+CurrentActorClaims = Annotated[TokenClaims, Depends(get_current_claims)]
+
+
+async def get_current_actor(claims: CurrentActorClaims) -> Actor:
+    return Actor(account_id=claims.account_id)
 
 
 CurrentActor = Annotated[Actor, Depends(get_current_actor)]
+
+
+def get_mobile_device_revocation(session: DbSession) -> SqlDeviceRepository:
+    """Le registre des appareils, pour la déconnexion mobile (DOREA-016)."""
+    return SqlDeviceRepository(session)
+
+
+MobileDeviceRevocationDep = Annotated[
+    SqlDeviceRepository, Depends(get_mobile_device_revocation)
+]
 
 
 # --- Opérations sensibles membre (P5) ---

@@ -69,6 +69,17 @@ class OtpInvalidError(AuthError):
     http_status = 401
 
 
+class OtpTooManyRequestsError(AuthError):
+    """Trop de codes **demandés** pour ce contact (DOREA-022).
+
+    Distinct de `OtpTooManyAttemptsError`, qui borne les **essais** sur un code reçu. Ici on
+    borne les **envois** : sans plafond, un tiers peut faire pleuvoir des SMS sur un numéro
+    — c'est du harcèlement, et c'est facturé à l'église."""
+
+    code = "AUTH_OTP_TOO_MANY_REQUESTS"
+    http_status = 429
+
+
 class OtpTooManyAttemptsError(AuthError):
     code = "AUTH_OTP_TOO_MANY_ATTEMPTS"
     http_status = 429

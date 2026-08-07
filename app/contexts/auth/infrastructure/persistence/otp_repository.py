@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.auth.domain.otp import OtpChallenge, OtpChannel, OtpPurpose
@@ -37,6 +37,12 @@ def _to_challenge(row: OtpChallengeModel) -> OtpChallenge:
 class SqlOtpChallengeRepository(OtpChallengeRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def count_issued_since(self, target: str, since) -> int:
+        stmt = select(func.count()).where(
+            OtpChallengeModel.target == target, OtpChallengeModel.created_at >= since
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
 
     async def add(self, challenge: OtpChallenge) -> None:
         self._session.add(

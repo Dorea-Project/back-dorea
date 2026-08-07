@@ -52,7 +52,7 @@ class Login:
             await self._throttle.clear(phone_number)
 
         if await self._devices.is_trusted(cred.account_id, device_id):
-            pair = self._tokens.issue_pair(cred.account_id)
+            pair = self._tokens.issue_pair(cred.account_id, device_id)
             return MobileAuthOutcome(tokens=pair, otp_required=False)
 
         # Nouvel appareil → défi OTP (SMS sur le numéro), pas de jetons encore.
