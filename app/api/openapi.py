@@ -58,11 +58,11 @@ a posé.
 TAGS: list[dict[str, str]] = [
     # --- Mobile : le parcours d'un membre ---------------------------------------------------
     {
-        "name": "system",
+        "name": "Système",
         "description": "Santé du service — la seule route qui ne demande rien à personne.",
     },
     {
-        "name": "auth",
+        "name": "Membres · auth",
         "description": (
             "Entrer. Deux profils, deux identifiants : le membre par téléphone + code secret, "
             "le propriétaire par e-mail + mot de passe. **L'OTP vérifie l'appareil, jamais "
@@ -70,25 +70,25 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "account",
+        "name": "Membres · account",
         "description": "Changer son numéro ou son code secret — chaque fois confirmé par un OTP.",
     },
     {
-        "name": "iam",
+        "name": "Membres · iam",
         "description": (
             "Appartenir. Rejoindre une église par code, lire ses appartenances et ses rôles, "
             "poser sa date de naissance et **choisir qui la voit**."
         ),
     },
     {
-        "name": "groups",
+        "name": "Membres · groups",
         "description": (
             "Rejoindre un groupe par lien d'invitation, ou le quitter. L'arbre des groupes et "
             "les nominations se gèrent au backoffice."
         ),
     },
     {
-        "name": "attendance",
+        "name": "Vie d'église · attendance",
         "description": (
             "La présence, à **deux voix** : le responsable pointe, ou le membre saisit le code "
             "de séance affiché. On n'enregistre que des présences — l'absence est *déduite*, "
@@ -97,7 +97,7 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "announcements",
+        "name": "Communication · announcements",
         "description": (
             "Le fil de l'église. Le **type** de l'annonce pilote sa couleur, ses emojis et son "
             "intention ; on réagit, on s'engage, et le sujet d'une annonce qui le nomme doit y "
@@ -105,14 +105,14 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "appointments",
+        "name": "Vie d'église · appointments",
         "description": (
             "L'agenda du pasteur, gardé par la secrétaire. Le membre demande avec un sujet "
             "**confidentiel** ; on confirme, ou l'on décline toujours avec un mot."
         ),
     },
     {
-        "name": "events",
+        "name": "Vie d'église · events",
         "description": (
             "Le happening publié — date, lieu, géo. Tout membre publie pour son église ; les "
             "portées élargies s'ouvrent avec le compte Business. Le tableau de rayonnement dit "
@@ -120,7 +120,7 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "mission",
+        "name": "Vie d'église · mission",
         "description": (
             "La main tendue vers l'extérieur : un lien d'invitation qui s'ouvre sur une carte, "
             "un chercheur qu'on accompagne, puis qu'on intègre. **L'IA retrouve la référence du "
@@ -128,7 +128,7 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "sermons",
+        "name": "Vie d'église · sermons",
         "description": (
             "La Parole après dimanche : le pasteur dépose, l'IA résume en capsules publiées au "
             "fil, et un compagnon privé accompagne le membre. ⚠️ **Contexte en cours de retrait** "
@@ -136,7 +136,7 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "urim",
+        "name": "Urim · préparation",
         "description": (
             "L'atelier du pasteur **avant** le dimanche : il entre par une référence, une "
             "citation approximative ou une simple conviction, et huit étages l'accompagnent "
@@ -148,7 +148,7 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "watch",
+        "name": "Veille · watch",
         "description": (
             "La veille fraternelle, côté membre **et** côté responsable. Le membre signale une "
             "inquiétude, déclare un geste posé pour quelqu'un, indique par qui on peut le "
@@ -157,28 +157,34 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "notifications",
+        "name": "Communication · notifications",
         "description": "Enregistrer et oublier ses appareils — le socle des notifications push.",
     },
     {
-        "name": "billing",
+        "name": "Membres · billing",
         "description": (
             "Le compte Business d'une **personne**, activé par carte prépayée Visa et non "
             "facturé. Il ouvre les portées élargies d'un événement."
         ),
     },
-    {"name": "media", "description": "Téléverser une image — corps brut, sans multipart."},
-    # --- Backoffice : ce que l'église administre --------------------------------------------
-    {"name": "backoffice:auth", "description": "Session backoffice par cookie, appareil vérifié."},
     {
-        "name": "backoffice:tenant",
+        "name": "Communication · media",
+        "description": "Téléverser une image — corps brut, sans multipart.",
+    },
+    # --- Backoffice : ce que l'église administre --------------------------------------------
+    {
+        "name": "Membres · auth (backoffice)",
+        "description": "Session backoffice par cookie, appareil vérifié.",
+    },
+    {
+        "name": "Vie d'église · tenant (backoffice)",
         "description": (
             "L'église elle-même : profil, annexes, famille, et la succession du siège de "
             "propriétaire. Le provisionnement est un acte de la Plateforme."
         ),
     },
     {
-        "name": "backoffice:iam",
+        "name": "Membres · iam (backoffice)",
         "description": (
             "Enrôler, attribuer et révoquer des rôles, faire évoluer un statut — et le "
             "**transfert de membre** entre églises, que la destination initie et que la source "
@@ -186,42 +192,48 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "backoffice:groups",
+        "name": "Membres · groups (backoffice)",
         "description": (
             "L'arbre des groupes : créer, nommer des responsables, **multiplier** une cellule "
             "en déplaçant des membres, et jusqu'à émanciper un groupe en église autonome."
         ),
     },
     {
-        "name": "backoffice:attendance",
+        "name": "Vie d'église · attendance (backoffice)",
         "description": (
             "Les lectures pastorales : tableau de bord, liste « à interpeller », tendance d'un "
             "groupe, trajectoire d'un membre, arbre de multiplication."
         ),
     },
     {
-        "name": "backoffice:watch",
+        "name": "Veille · watch (backoffice)",
         "description": (
             "Le **rodage** : voir ce que Dorea aurait signalé pendant que l'église observe, puis "
             "décider de la laisser parler. Et arbitrer ce que la mesure suggère de changer."
         ),
     },
     {
-        "name": "backoffice:announcements",
+        "name": "Communication · announcements (backoffice)",
         "description": "L'archive du fil, et la publication depuis le poste de l'église.",
     },
     {
-        "name": "backoffice:appointments",
+        "name": "Vie d'église · appointments (backoffice)",
         "description": (
             "La file des demandes, l'agenda des créneaux confirmés, les disponibilités "
             "récurrentes d'un pasteur."
         ),
     },
-    {"name": "backoffice:onboarding", "description": "Valider ou rejeter une demande d'église."},
-    {"name": "backoffice:media", "description": "Téléverser une image depuis le backoffice."},
+    {
+        "name": "Vie d'église · onboarding (backoffice)",
+        "description": "Valider ou rejeter une demande d'église.",
+    },
+    {
+        "name": "Communication · media (backoffice)",
+        "description": "Téléverser une image depuis le backoffice.",
+    },
     # --- Plateforme : les cadences, pas des humains ------------------------------------------
     {
-        "name": "platform:urim",
+        "name": "Urim · curation (plateforme)",
         "description": (
             "**Curation du corpus.** L'unique surface où un humain signe ce qu'Urim dira aux "
             "pasteurs : bornes d'une unité littéraire et leur motif, pesées sur les dix loci, "
@@ -233,44 +245,70 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
-        "name": "platform:watch",
+        "name": "Veille · watch (cron)",
         "description": (
             "**Cron.** La passe de veille (échéances dues, escalades, garde-fous), la boucle "
             "froide qui mesure les seuils, et le résumé aux églises en rodage."
         ),
     },
     {
-        "name": "platform:notifications",
+        "name": "Communication · notifications (cron)",
         "description": "**Cron.** Dispatcher les notifications planifiées arrivées à échéance.",
     },
     {
-        "name": "platform:announcements",
+        "name": "Communication · announcements (Dorea)",
         "description": "Publier une annonce Dorea vers toutes les églises.",
     },
     {
-        "name": "platform:events",
+        "name": "Vie d'église · events (modération)",
         "description": "Modération : la file des événements signalés, et leur retrait.",
     },
     # --- Publique : le code est l'autorisation ------------------------------------------------
     {
-        "name": "onboarding",
+        "name": "Vie d'église · onboarding (public)",
         "description": (
             "Sans authentification. Un aspirant propriétaire dépose sa demande, vérifie son "
             "e-mail, et suit l'état de sa candidature."
         ),
     },
     {
-        "name": "mission:public",
+        "name": "Vie d'église · mission (public)",
         "description": (
             "Sans authentification — **le code de la carte est l'entrée**. Voir l'invitation, "
             "y répondre en laissant un contact, ou simplement réagir."
         ),
     },
     {
-        "name": "events:public",
+        "name": "Vie d'église · events (public)",
         "description": (
             "La carte d'un événement, partageable hors de Dorea. Ce qui est rationné est la "
             "notification, jamais la diffusion."
         ),
     },
 ]
+
+
+#: Les **familles de produit**, dans leur ordre d'affichage.
+#:
+#: Swagger UI ne connaît pas les groupes de tags — `x-tagGroups` est une extension Redoc.
+#: Le regroupement ne peut donc passer que par le **nom** et l'**ordre** : un tag préfixé
+#: `Membres · `, `Vie d'église · `, `Communication · `, `Veille · ` ou `Urim · ` se lit comme
+#: appartenant à sa gamme, et le tri
+#: ci-dessous les rend contigus à l'écran.
+#:
+#: ⚠️ **`Finance` n'y figure pas, et c'est voulu.** Le contexte n'existe pas encore ; un tag
+#: décrit sans route ferait échouer `test_aucune_description_ne_survit_a_ses_routes`. Le dépôt
+#: s'interdit d'annoncer dans sa documentation une gamme qui ne sert rien — la ligne s'ajoutera
+#: le jour où elle ouvrira sa première route, pas avant.
+_FAMILLES = ("Système", "Membres", "Vie d'église", "Communication", "Veille", "Urim")
+
+
+def _rang(tag: dict[str, str]) -> int:
+    return next(
+        (i for i, f in enumerate(_FAMILLES) if tag["name"].startswith(f)), len(_FAMILLES)
+    )
+
+
+# Tri **stable** : les familles se regroupent, et à l'intérieur de chacune l'ordre de
+# déclaration est conservé — celui qui suit le parcours réel du produit plutôt que l'alphabet.
+TAGS.sort(key=_rang)

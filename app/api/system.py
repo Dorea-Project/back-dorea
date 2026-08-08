@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.api.deps import DbSession, SettingsDep
 
-router = APIRouter(tags=["system"])
+router = APIRouter(tags=["Système"])
 
 
 class HealthResponse(BaseModel):
