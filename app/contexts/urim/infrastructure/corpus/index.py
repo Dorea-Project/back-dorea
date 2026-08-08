@@ -50,6 +50,7 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusHomileticFeasibilityModel,
     CorpusIdfModel,
     CorpusPericopeModel,
+    CorpusTextualVariantModel,
     CorpusVerseModel,
     CorpusVersionModel,
 )
@@ -84,6 +85,29 @@ class VerseRow:
     #: un verset long l'emporte toujours : Matthieu 26:75 contient « Jésus » et « pleura »
     #: au milieu de vingt autres mots, et battait Jean 11:35 qui **est** « Jésus pleura ».
     weight: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class VariantRow:
+    """Une variante textuelle — **ce que le texte EST**, pas ce qu'on en pense.
+
+    S17 : le Texte Reçu ajoute à Romains 8:1 « qui ne marchent pas selon la chair », et la
+    non-condamnation devient conditionnelle. *Sans la clause elle est inconditionnelle ; avec
+    elle c'est une condition morale — deux sermons opposés.* La table existait depuis le début
+    et **aucun étage ne la lisait** : l'information n'atteignait jamais le pasteur.
+
+    Elle n'a pas à entrer dans le raisonnement d'un étage. Une variante ne se décide pas, elle
+    **se montre** — à côté du texte, au moment où il est servi."""
+
+    book_id: int
+    chapter: int
+    verse: int
+    body: str
+    families_with: tuple[str, ...]
+    families_without: tuple[str, ...]
+    doctrinal_weight: str
+    note: str
+    source_ref: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +167,12 @@ class CorpusIndex:
     notes: Mapping[UUID, tuple[ContextNote, ...]]
     couples: Mapping[UUID, tuple[Feasibility, ...]]
     dominant: Mapping[UUID, str]
+
+    #: Les variantes, clées sur **le verset** — pas sur la péricope : une variante porte sur
+    #: un mot du texte, elle existe que le passage soit curé ou non.
+    variants: Mapping[tuple[int, int, int], tuple[VariantRow, ...]] = field(
+        default_factory=dict
+    )
 
     #: Les dix loci, dans l'ordre canonique — l'écran de base du mode conviction (S12).
     axes: tuple[DoctrinalAxis, ...] = ()
@@ -342,6 +372,15 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
             )
         )
 
+    variants: dict[tuple[int, int, int], list[VariantRow]] = defaultdict(list)
+    for v in (await session.execute(select(CorpusTextualVariantModel))).scalars():
+        variants[(v.book_id, v.chapter, v.verse)].append(VariantRow(
+            book_id=v.book_id, chapter=v.chapter, verse=v.verse, body=v.body,
+            families_with=tuple(v.families_with or ()),
+            families_without=tuple(v.families_without or ()),
+            doctrinal_weight=v.doctrinal_weight, note=v.note, source_ref=v.source_ref,
+        ))
+
     derniere = await session.scalar(select(func.max(CorpusPericopeModel.reviewed_at)))
 
     return CorpusIndex(
@@ -370,6 +409,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         notes={k: tuple(v) for k, v in notes.items()},
         couples={k: tuple(v) for k, v in couples.items()},
         dominant=dominant,
+        variants={k: tuple(v) for k, v in variants.items()},
         axes=axes,
         sites_by_axis=sites_by_axis,
     )
@@ -417,3 +457,17 @@ def _empreinte(
         derniere_relecture.isoformat() if derniere_relecture else "-",
     ))
     return hashlib.sha256(graine.encode()).hexdigest()[:16]
+
+
+def verses_between(
+    index: CorpusIndex, book_id: int, debut: tuple[int, int], fin: tuple[int, int]
+) -> tuple[VerseRow, ...]:
+    """Les versets d'un intervalle, dans l'ordre — **la présentation, jamais un étage**.
+
+    Aucun étage n'a besoin du texte : ils raisonnent sur des bornes, des axes et des motifs.
+    C'est le pasteur qui a besoin des mots, et cette lecture existe pour lui."""
+    return tuple(
+        v
+        for v in index.verses
+        if v.book_id == book_id and debut <= (v.chapter, v.verse) <= fin
+    )

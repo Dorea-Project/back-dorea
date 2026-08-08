@@ -86,7 +86,19 @@ class StudyState:
     author_id: UUID
     corpus_snapshot: str  # version du corpus — clé du déterminisme
 
-    entry_mode: EntryMode
+    #: **`None` par défaut, et c'est le cas normal** — le pasteur n'indique aucun mode.
+    #:
+    #: Il n'y a plus d'onglet : un champ, et le moteur reconnaît. `entry_mode` ne porte donc
+    #: plus « ce que le client a coché » mais **« ce que le pasteur a tranché »** — et il ne
+    #: peut être posé que par une correction explicite (« ce n'est pas ça »). La différence
+    #: n'est pas cosmétique : tant qu'un défaut le remplissait d'office, l'étage 0 posait une
+    #: question de désaccord à quelqu'un qui n'avait rien dit, et la reposait indéfiniment
+    #: puisque la trace n'est pas persistée et qu'il se ré-exécute à chaque rejeu.
+    #:
+    #: ⚠️ Trois étages le lisent — `route_entry`, `resolve_passage.applies`,
+    #: `weigh_conviction.applies`. Un `None` qui survivrait à l'étage 0 arrêterait le pipeline
+    #: en silence : c'est l'invariant que `route_entry` doit toujours poser un mode.
+    entry_mode: EntryMode | None
     raw_input: str
 
     #: Tapée ou dictée (S36). Par défaut tapée : une saisie dont on ignore l'origine se traite

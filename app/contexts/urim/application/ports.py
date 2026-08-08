@@ -15,6 +15,9 @@ from datetime import date, datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.contexts.urim.engine.deps import AxisBearing, ContextNote, Feasibility
+from app.contexts.urim.engine.state import Reference
+
 
 @dataclass(slots=True)
 class PreparationRecord:
@@ -70,6 +73,34 @@ class UsageSnapshot:
 
 
 @dataclass(slots=True)
+class VerseServed:
+    """Un verset **rendu au pasteur** — la chose pour laquelle Urim existe.
+
+    Elle manquait : `serve_corpus` annonçait « texte servi depuis une version du domaine
+    public », posait `version_id`, et la réponse ne portait que cet identifiant. Le pasteur
+    recevait une référence et un UUID à la place de soixante-trois caractères."""
+
+    reference: str
+    text: str
+
+
+@dataclass(slots=True)
+class VariantSeen:
+    """Une variante textuelle **affichée à côté du texte** (S17).
+
+    Elle ne change aucun raisonnement : elle prévient. *Prêcher Romains 8:1 sans signaler que
+    le Texte Reçu y ajoute une condition expose à une contradiction avec l'auditoire.*"""
+
+    reference: str
+    body: str
+    doctrinal_weight: str
+    note: str
+    families_with: tuple[str, ...]
+    families_without: tuple[str, ...]
+    source_ref: str
+
+
+@dataclass(slots=True)
 class StudyDTO:
     """Ce que le pasteur voit — la trace **rejouée**, pas relue."""
 
@@ -80,6 +111,22 @@ class StudyDTO:
     options: tuple[tuple[str, str, str], ...] = ()
     elements: tuple[ElementRecord, ...] = ()
     resolved_label: str | None = None
+
+    #: ⚠️ **Ce sur quoi le raisonnement porte** — distinct de la trace, qui est le raisonnement.
+    #:
+    #: Tout cela existait déjà dans l'index et ne sortait qu'écrasé dans des phrases : un front
+    #: ne pouvait ni afficher une mise en garde à part, ni marquer le texte qui **résiste**, ni
+    #: citer le relecteur. Aucun étage n'a bougé — le moteur avait tout, il ne le laissait pas
+    #: passer.
+    verses: tuple[VerseServed, ...] = ()
+    variants: tuple[VariantSeen, ...] = ()
+    bearings: tuple[AxisBearing, ...] = ()
+    caveats: tuple[str, ...] = ()
+    context: tuple[ContextNote, ...] = ()
+    couples: tuple[Feasibility, ...] = ()
+    #: Le mode **retenu par l'étage 0** — distinct de la colonne, qui ne porte qu'une
+    #: correction du pasteur.
+    entry_mode: str | None = None
     #: Vrai quand le corpus a bougé depuis l'ouverture — la trace affichée n'est plus
     #: celle qui a été produite ce jour-là, et le pasteur doit le savoir.
     corpus_drifted: bool = False
@@ -116,6 +163,39 @@ class StudyRepository(Protocol):
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]: ...
 
 
+class AssistedResolver(Protocol):
+    """L'IA de la bordure — **elle retrouve la référence, jamais le texte** (M9-1).
+
+    Elle est appelée **avant** `run()`, parce que le moteur est pur : aucun étage ne peut
+    attendre un réseau sans perdre le déterminisme et le rejeu. Son verdict est ensuite
+    enregistré comme une décision (`chosen_by = 'ia'`), et les affichages suivants le
+    relisent au lieu de rappeler le modèle — deux vues d'une même étude doivent raconter la
+    même histoire."""
+
+    async def resolve(self, text: str) -> Reference | None:
+        """Le passage reconnu derrière une saisie que le déterministe n'a pas su lire."""
+        ...
+
+    async def lever(self, text: str) -> tuple[str, ...]:
+        """Les drapeaux de risque d'une intention — **l'effet, jamais l'état de l'auteur**."""
+        ...
+
+
+class NullVerseResolver:
+    """Aucun modèle branché — **un état de production, pas un mode dégradé**.
+
+    Architecture v2 §10 veut Urim utilisable hors ligne sur le domaine public : tablette,
+    connexion irrégulière, plafond atteint. Le résolveur déterministe travaille alors seul, et
+    le pasteur ne voit pas la différence. L'objet nul vit avec le **port**, pas avec
+    l'adaptateur : c'est le contrat qui définit ce que « rien » veut dire."""
+
+    async def resolve(self, text: str) -> Reference | None:
+        return None
+
+    async def lever(self, text: str) -> tuple[str, ...]:
+        return ()
+
+
 class PreacherAuthorization(Protocol):
     """A-t-on le droit de préparer dans cette église ?
 
@@ -141,7 +221,13 @@ class ReservationPort(Protocol):
         ...
 
     async def rekey_for(
-        self, *, church_id: UUID, provisional_key: str, pericope_key: str, at: datetime
+        self,
+        *,
+        church_id: UUID,
+        author_id: UUID,
+        provisional_key: str,
+        pericope_key: str,
+        at: datetime,
     ) -> None:
         """Re-clé sur la péricope réellement résolue (S9).
 

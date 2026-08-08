@@ -144,7 +144,7 @@ class UrimResolutionAttemptModel(Base):
     __tablename__ = "urim_resolution_attempt"
 
     __table_args__ = (
-        CheckConstraint("chosen_by IN ('moteur','pasteur')", name="attempt_chosen_by"),
+        CheckConstraint("chosen_by IN ('moteur','pasteur','ia')", name="attempt_chosen_by"),
         Index("ix_urim_attempt_prep", "preparation_id", "attempted_at"),
     )
 

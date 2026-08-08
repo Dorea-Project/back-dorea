@@ -48,7 +48,6 @@ async def open_study(
         actor_account_id=actor.account_id,
         church_id=tenant_id,
         raw_input=payload.raw_input,
-        entry_mode=payload.entry_mode,
         entry_origin=payload.entry_origin,
         service_date=payload.service_date,
     )

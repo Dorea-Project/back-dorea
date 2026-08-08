@@ -20,12 +20,16 @@ from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 from app.contexts.urim.application.ports import (
+    AssistedResolver,
     ElementRecord,
+    NullVerseResolver,
     PreacherAuthorization,
     PreparationRecord,
     ReservationPort,
     StudyDTO,
     StudyRepository,
+    VariantSeen,
+    VerseServed,
 )
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
 from app.contexts.urim.domain.errors import (
@@ -39,6 +43,7 @@ from app.contexts.urim.engine.deps import (
 )
 from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.pipeline import UrimEngine
+from app.contexts.urim.engine.stages.route_entry import REFORMULER
 from app.contexts.urim.engine.state import (
     Bounds,
     EntryMode,
@@ -46,7 +51,7 @@ from app.contexts.urim.engine.state import (
     Reference,
     StudyState,
 )
-from app.contexts.urim.infrastructure.corpus.index import CorpusIndex
+from app.contexts.urim.infrastructure.corpus.index import CorpusIndex, verses_between
 from app.contexts.urim.infrastructure.corpus.readers import (
     IndexedCorpusReader,
     IndexedDoctrineReader,
@@ -113,6 +118,8 @@ class UrimStudyService:
     clock: object  # callable[[], datetime]
     #: Model-optional (S12, S37) : le défaut ne lit aucun modèle et ne casse rien.
     conviction: ConvictionReader = field(default_factory=NullConvictionReader)
+    #: L'IA de la bordure. Sans clé, `NullVerseResolver` — et Urim tourne entier.
+    resolver: AssistedResolver = field(default_factory=NullVerseResolver)
 
     # -- ouverture -------------------------------------------------------------
 
@@ -122,7 +129,6 @@ class UrimStudyService:
         actor_account_id: UUID,
         church_id: UUID,
         raw_input: str,
-        entry_mode: EntryMode,
         entry_origin: EntryOrigin = EntryOrigin.TYPED,
         service_date: date | None = None,
     ) -> StudyDTO:
@@ -134,7 +140,9 @@ class UrimStudyService:
             church_id=church_id,
             author_id=actor_account_id,
             raw_input=raw_input,
-            entry_mode=entry_mode.value,
+            # `entry_mode` reste **vide** : personne n'a rien indiqué. L'étage 0 le posera,
+            # et il ne descendra en base que si le pasteur corrige lui-même.
+            entry_mode=None,
             entry_origin=entry_origin.value,
             corpus_snapshot=self.index.snapshot,
             service_date=service_date,
@@ -176,6 +184,15 @@ class UrimStudyService:
         # La décision est **appliquée à l'enregistrement**, puis le pipeline est rejoué
         # depuis le début. C'est plus simple qu'une reprise à l'étage N, et c'est surtout
         # plus honnête : un choix amont peut changer ce que les étages avals proposent.
+        if stage_code == "route_entry" and option_code == REFORMULER:
+            # Le garde-fou du micro resté ouvert. L'étage 0 proposait ce bouton et l'API le
+            # refusait en 422 : une porte offerte, puis claquée. Elle **rouvre la saisie sans
+            # rien conserver** — la préparation est abandonnée, pas corrigée.
+            record.status = "abandonnee"
+            record.closed_at = self.clock()
+            await self.studies.save(record)
+            return await self._rejouer(record, persist=False)
+
         self._appliquer(record, stage_code, option_code)
         await self.studies.save(record)
         return await self._rejouer(record, chosen_by="pasteur")
@@ -319,22 +336,15 @@ class UrimStudyService:
             conviction=self.conviction,
         )
 
-        # Le risque est une propriété de la **saisie**, pas une étape du raisonnement : il se
-        # lève ici, une fois, et il survit au rejeu sans colonne dédiée puisqu'il se recalcule
-        # à l'identique depuis `raw_input`. L'étage qui le lira dira son effet ; celui-ci ne
-        # fait que le porter.
-        drapeaux = tuple(self.conviction.risk_flags(record.raw_input))
-
         resolu = _deserialiser(record.resolved_ref)
         etat = StudyState(
             session_id=record.id,
             church_id=record.church_id,
             author_id=record.author_id,
             corpus_snapshot=record.corpus_snapshot or self.index.snapshot,
-            entry_mode=EntryMode(record.entry_mode or EntryMode.REFERENCE.value),
+            entry_mode=EntryMode(record.entry_mode) if record.entry_mode else None,
             raw_input=record.raw_input,
             entry_origin=EntryOrigin(record.entry_origin or EntryOrigin.TYPED.value),
-            risk_flags=drapeaux,
             resolved=resolu,
             bounds=self._bornes(record),
             pericope_id=record.pericope_id,
@@ -346,7 +356,53 @@ class UrimStudyService:
             theme=record.theme,
         )
 
-        run = UrimEngine(deps).run(etat)
+        moteur = UrimEngine(deps)
+        run = moteur.run(etat)
+
+        # ⚠️ **L'IA est consultée quand le moteur n'a RIEN résolu, et pas avant.**
+        #
+        # Le garde porte sur le **résultat**, jamais sur une pré-analyse de la saisie : j'avais
+        # d'abord regardé si un nom de livre s'y trouvait, et « Miriam chantait le cantique »
+        # contenait *Cantique des cantiques* — l'IA n'était jamais appelée. Ce que l'on veut
+        # savoir n'est pas « y a-t-il un mot qui ressemble à un livre », c'est « le déterministe
+        # a-t-il abouti ».
+        #
+        # Elle prend donc exactement le milieu difficile : citation de mémoire, paraphrase,
+        # personnage nommé autrement que dans la traduction. « Jean 3:16 » se résout sans elle,
+        # et ne coûte ni argent ni latence.
+        #
+        # L'IA **teinte la provenance**, elle n'ouvre pas un second point d'écriture. J'avais
+        # d'abord posé ici un `record_attempt` à part : il dupliquait le calcul du condensat,
+        # court-circuitait la garde « seulement quand la résolution change » — et il lui
+        # manquait `chosen_ref`, ce qui a mis toutes les ouvertures en 500. Un seul évier, en
+        # bas, qui écrit `ia` au lieu de `moteur` : ni le moteur ni le pasteur n'a tranché, et
+        # confondre les trois effacerait la seule chose que cette colonne existe pour porter.
+        provenance = chosen_by
+        if persist and record.resolved_ref is None and run.state.resolved is None:
+            trouve = await self.resolver.resolve(record.raw_input)
+            if trouve is not None and IndexedCorpusReader(self.index).check_reference(
+                trouve
+            ).exists:
+                provenance = "ia"
+                run = moteur.run(etat.with_(resolved=trouve))
+
+        # ⚠️ **Le risque ne se lève qu'APRÈS le verdict, et seulement s'il n'y a pas de texte.**
+        #
+        # L'émotion ne classe rien : c'est le croisement sur les 31 170 versets qui a dit
+        # « pas une citation », en ne trouvant aucune suite de mots. Elle sert ensuite, dans
+        # le chemin conviction, à élargir les textes qui **résistent** et à relever le risque
+        # de proof-texting.
+        #
+        # Si elle entrait dans le classement, elle déciderait de la lecture — et *une lecture
+        # émotionnelle juste produit quand même un sermon qui blesse* (S10, S20, S37).
+        #
+        # Le second passage est **pur et déterministe**, donc sans conséquence ; et sans modèle
+        # branché il n'a jamais lieu, puisque `NullConvictionReader` ne lève aucun drapeau.
+        if run.state.entry_mode is EntryMode.CONVICTION:
+            drapeaux = await self.resolver.lever(record.raw_input)
+            if drapeaux:
+                run = moteur.run(etat.with_(risk_flags=drapeaux))
+
         final = run.state
         dernier = run.results[-1] if run.results else None
 
@@ -377,7 +433,7 @@ class UrimStudyService:
                     ).hexdigest()[:32],
                     candidates=[_afficher(final.resolved) or ""],
                     chosen_ref=record.resolved_ref,
-                    chosen_by=chosen_by or "moteur",
+                    chosen_by=provenance or "moteur",
                     at=maintenant,
                 )
 
@@ -393,13 +449,21 @@ class UrimStudyService:
             if final.pericope_id is not None:
                 await self.reservations.rekey_for(
                     church_id=record.church_id,
+                    author_id=record.author_id,
                     provisional_key=_cle_provisoire(record.raw_input),
                     pericope_key=f"pericope:{final.pericope_id}",
                     at=maintenant,
                 )
 
+        servis, variantes = self._texte_servi(final)
         return StudyDTO(
             record=record,
+            verses=servis,
+            variants=variantes,
+            bearings=self.index.bearings.get(final.pericope_id, ()),
+            caveats=self.index.caveats.get(final.pericope_id, ()),
+            context=self.index.notes.get(final.pericope_id, ()),
+            couples=self.index.couples.get(final.pericope_id, ()),
             outcome=str(dernier.outcome) if dernier else "continue",
             rationale=dernier.rationale if dernier else "",
             trace=tuple((e.stage_code, e.rationale) for e in final.trace),
@@ -407,12 +471,56 @@ class UrimStudyService:
                 (o.code, o.label, o.rationale) for o in (dernier.options if dernier else ())
             ),
             elements=tuple(await self.studies.list_elements(record.id)),
+            # Le mode **retenu par le moteur**, pas la colonne : elle reste vide tant que le
+            # pasteur n'a rien corrigé, et le pasteur veut voir comment il a été lu.
+            entry_mode=final.entry_mode.value if final.entry_mode else None,
             resolved_label=_afficher(final.resolved),
             corpus_drifted=(
                 record.corpus_snapshot is not None
                 and record.corpus_snapshot != self.index.snapshot
             ),
         )
+
+    def _texte_servi(
+        self, etat: StudyState
+    ) -> tuple[tuple[VerseServed, ...], tuple[VariantSeen, ...]]:
+        """Les versets **et leurs variantes** — la présentation, jamais un étage.
+
+        Les bornes retenues, exactement : ni un verset avant, ni un après. Élargir serait
+        cadrer à la place du pasteur, et c'est précisément ce que l'étage 2 lui laisse décider.
+
+        Le texte sort **même hors unité curée** : c'est la curation qui manque là, pas le
+        texte. Un `degrade` ne prive pas de la Parole, il prive de ce qu'on en a relu."""
+        etendue = etat.bounds or (
+            Bounds(start=etat.resolved, end=etat.resolved) if etat.resolved else None
+        )
+        if etendue is None or etendue.start is None:
+            return (), ()
+
+        livre = self.index.book_by_label.get(etendue.start.book)
+        if livre is None:
+            return (), ()
+
+        debut = (etendue.start.chapter or 1, etendue.start.verse_start or 1)
+        fin_ref = etendue.end or etendue.start
+        fin = (
+            fin_ref.chapter or debut[0],
+            fin_ref.verse_end or fin_ref.verse_start or debut[1],
+        )
+
+        servis, variantes = [], []
+        for v in verses_between(self.index, livre, debut, fin):
+            reference = f"{etendue.start.book} {v.chapter}:{v.verse}"
+            servis.append(VerseServed(reference=reference, text=v.body))
+            for var in self.index.variants.get((livre, v.chapter, v.verse), ()):
+                variantes.append(VariantSeen(
+                    reference=reference, body=var.body,
+                    doctrinal_weight=var.doctrinal_weight, note=var.note,
+                    families_with=var.families_with,
+                    families_without=var.families_without,
+                    source_ref=var.source_ref,
+                ))
+        return tuple(servis), tuple(variantes)
 
     def _bornes(self, record: PreparationRecord) -> Bounds | None:
         """Reconstituer les bornes d'une décision déjà prise — **les deux cas**.

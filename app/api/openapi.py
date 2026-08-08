@@ -138,8 +138,10 @@ TAGS: list[dict[str, str]] = [
     {
         "name": "Urim · préparation",
         "description": (
-            "L'atelier du pasteur **avant** le dimanche : il entre par une référence, une "
-            "citation approximative ou une simple conviction, et huit étages l'accompagnent "
+            "L'atelier du pasteur **avant** le dimanche. **Un seul champ, rien à cocher** : "
+            "référence, citation ou intention ne sont pas des cases à remplir — le moteur les "
+            "reconnaît en croisant la saisie avec les 31 170 versets, sur l'ordre des mots et "
+            "non sur le vocabulaire. Puis huit étages l'accompagnent "
             "jusqu'au texte — unité littéraire motivée, contexte sourcé, axes doctrinaux portés "
             "ou **résistants**, mises en garde, couple plan x matière dont les refus sont "
             "expliqués. Le moteur ne choisit jamais à sa place : quand il hésite, il rend la "

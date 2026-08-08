@@ -107,7 +107,7 @@ class RouteEntry:
     def execute(self, state: StudyState, deps: EngineDeps) -> StageResult:
         mots = decouper(state.raw_input)
         if not mots:
-            return self._refuser(state)
+            return self._refuser(state, mots)
 
         bloc = _bloc_de_reference(deps.corpus.find_reference_span(mots), mots)
         cite = deps.corpus.scripture_affinity(mots) >= CITATION_AFFINITY
@@ -135,6 +135,16 @@ class RouteEntry:
                 state, EntryMode.CITATION, "Recouvrement fort avec le texte biblique."
             )
 
+        # **Une référence dont le livre reste inconnu n'est pas une intention.**
+        #
+        # Ce test passe **avant** le décompte de S34, et il le faut : « Zorobabel 3:5 » a un
+        # mot que le corpus connaît (Aggée 1:1), donc le décompte l'enverrait en conviction —
+        # et le pasteur recevrait les dix loci pour ce qui est manifestement une référence.
+        # Ici la forme prime sur le vocabulaire.
+        inconnu = _nom_de_livre_suppose(mots)
+        if inconnu is not None:
+            return self._refuser(state, mots)
+
         # Ni livre, ni texte biblique : reste à savoir si c'est une phrase ou un clavier. Le
         # décompte suffit — **un seul mot reconnu** ouvre la porte de la conviction (S34).
         if deps.corpus.known_words(mots) >= MOTS_RECONNUS_MINIMUM:
@@ -142,11 +152,33 @@ class RouteEntry:
                 state, EntryMode.CONVICTION, "Ni référence ni citation, mais une phrase lisible."
             )
 
-        return self._refuser(state)
+        return self._refuser(state, mots)
 
     # --- Les trois sorties ------------------------------------------------------------------
 
-    def _refuser(self, state: StudyState) -> StageResult:
+    def _refuser(self, state: StudyState, mots: Sequence[str] = ()) -> StageResult:
+        """⚠️ **Un refus dit ce qui manque au MOTEUR, jamais ce qui manque au pasteur.**
+
+        La règle est née de trois échecs de suite qui disaient tous la même chose de travers :
+        *« votre mémoire a fusionné plusieurs passages »* alors que la Bible n'était pas
+        chargée ; puis alors que Miriam s'appelle Marie en Segond ; puis *« je n'arrive pas à
+        lire ceci »* pour un `t` manquant à Matthieu. Trois fois, le motif était bien écrit et
+        désignait le mauvais responsable.
+
+        Une saisie qui a la **forme** d'une référence — un mot, puis des chiffres — n'est pas
+        du charabia, même quand le livre reste inconnu. Le dire évite au pasteur de chercher
+        ce qui cloche dans une phrase qui, elle, allait très bien."""
+        inconnu = _nom_de_livre_suppose(mots)
+        if inconnu is not None:
+            return StageResult(
+                outcome=Outcome.REFUSE,
+                rationale=(
+                    f"Je ne connais pas de livre nommé « {inconnu} ». Vérifiez l'orthographe, "
+                    "ou écrivez le passage autrement."
+                ),
+                state=state,
+            )
+
         dicte = state.entry_origin is EntryOrigin.DICTATED
         return StageResult(
             outcome=Outcome.REFUSE,
@@ -163,37 +195,44 @@ class RouteEntry:
         confirmer même quand elle est cohérente avec l'onglet, parce que le doute ne porte alors
         pas sur la lecture — il porte sur le fait que le pasteur ait voulu saisir quoi que ce
         soit."""
+        # **Le pasteur a tranché lui-même — on ne rouvre pas.**
+        #
+        # `entry_mode` ne peut plus valoir que ça : il a disparu du corps HTTP, et la seule
+        # écriture qui subsiste est la correction « ce n'est pas ça ». Reconstester ici
+        # reposerait éternellement la même question, puisque la trace n'est pas persistée et
+        # que cet étage se ré-exécute à chaque rejeu. C'est le même défaut que le bornage :
+        # une décision enregistrée, invisible pour l'étage qui la relit.
+        if state.entry_mode is not None:
+            return StageResult(
+                outcome=Outcome.CONTINUE,
+                rationale=f"Lecture retenue par vous : {_LIBELLES[state.entry_mode]}.",
+                state=state,
+            )
+
         dicte = state.entry_origin is EntryOrigin.DICTATED
         a_confirmer = dicte and detecte is EntryMode.CONVICTION
 
-        if (force or detecte is state.entry_mode) and not a_confirmer:
-            return StageResult(
-                outcome=Outcome.CONTINUE,
-                rationale=f"Lu comme {_LIBELLES[detecte]}. {motif}",
-                state=state.with_(entry_mode=detecte),
-            )
-
         if a_confirmer:
+            # ⚠️ **Le seul cas où l'on rend encore la main**, et il est plus nécessaire sans
+            # onglet, pas moins : le doute ne porte pas sur la lecture, il porte sur le fait
+            # que le pasteur ait voulu saisir quoi que ce soit. C'est le garde-fou du micro
+            # resté ouvert, et il n'y a plus aucune autre barrière entre une poche et une
+            # préparation.
             return StageResult(
                 outcome=Outcome.AWAIT,
                 rationale=(
                     f"J'ai entendu : « {state.raw_input} ». C'est bien ce que vous vouliez ?"
                 ),
                 state=state,
-                options=(_reformuler(), *_deux_lectures(detecte, state.entry_mode, motif)),
+                options=(_reformuler(), *_la_lecture(detecte, motif)),
             )
 
-        # Le signal contredit l'onglet. On ne tranche pas : on montre les deux lectures, chacune
-        # motivée, et le pasteur choisit. L'option porte le code du mode — la décision se
-        # contente de poser `entry_mode`.
+        # Rien n'a été indiqué : il n'y a rien à contredire. Le détecté s'applique, avec son
+        # motif — et « ce n'est pas ça » reste offert par l'interface, après coup.
         return StageResult(
-            outcome=Outcome.AWAIT,
-            rationale=(
-                f"Saisi comme {_LIBELLES[state.entry_mode]}, mais lu comme "
-                f"{_LIBELLES[detecte]}. {motif}"
-            ),
-            state=state,
-            options=_deux_lectures(detecte, state.entry_mode, motif),
+            outcome=Outcome.CONTINUE,
+            rationale=f"Lu comme {_LIBELLES[detecte]}. {motif}",
+            state=state.with_(entry_mode=detecte),
         )
 
 
@@ -240,27 +279,41 @@ def _reformuler() -> Option:
     )
 
 
-def _deux_lectures(
-    detecte: EntryMode, saisi: EntryMode, motif: str
-) -> tuple[Option, ...]:
-    """Le détecté d'abord — c'est celui que les faits soutiennent, pas celui qu'on impose.
+def _la_lecture(detecte: EntryMode, motif: str) -> tuple[Option, ...]:
+    """**Une seule lecture, celle que les faits soutiennent.**
 
-    Si les deux coïncident (cas d'une dictée cohérente), une seule lecture est proposée : on ne
-    fabrique pas un choix là où il n'y en a pas."""
-    lectures = [
-        Option(code=detecte.value, label=_LIBELLES[detecte].capitalize(), rationale=motif)
-    ]
-    if saisi is not detecte:
-        lectures.append(
-            Option(
-                code=saisi.value,
-                label=_LIBELLES[saisi].capitalize(),
-                rationale="Ce que vous aviez indiqué — gardez-le si c'était bien votre intention.",
-            )
-        )
-    return tuple(lectures)
+    Il y en avait deux tant qu'un onglet pouvait contredire le détecteur — la seconde option
+    disait « ce que vous aviez indiqué ». Le pasteur n'indique plus rien : proposer un choix
+    entre le détecté et un défaut fantôme fabriquerait une alternative qui n'existe pas."""
+    return (
+        Option(code=detecte.value, label=_LIBELLES[detecte].capitalize(), rationale=motif),
+    )
 
 
 def modes_proposes(options: Sequence[Option]) -> tuple[EntryMode, ...]:
     """Les modes derrière une liste d'options — `reformuler` n'en est pas un, il rouvre."""
     return tuple(EntryMode(o.code) for o in options if o.code != REFORMULER)
+
+
+def _nom_de_livre_suppose(mots: Sequence[str]) -> str | None:
+    """Le mot qui **prétendait** nommer un livre — ou `None` si la saisie n'y ressemble pas.
+
+    ⚠️ **La saisie doit être entièrement un nom suivi de chiffres.** C'est le même critère que
+    la seconde forme du bloc de référence (S35), et il est indispensable ici :
+
+        « Zorobabel 3:5 »                        → le tout est un nom + des chiffres
+        « ma voiture 406, a besoin de… »         → du texte continue après le nombre
+
+    Sans lui, la porte 16 repartirait en refus au lieu d'aller en conviction — l'inverse exact
+    de l'asymétrie du doute. Et sans chiffre du tout, il n'y a rien à supposer : « jefgf
+    paradis » n'est pas une référence ratée, c'est un micro resté ouvert.
+
+    Un nom de livre tient en trois mots au plus — « Cantique des cantiques » est le plus long."""
+    rang = 0
+    while rang < len(mots) and not mots[rang].isdigit():
+        rang += 1
+    if rang == 0 or rang > 3 or rang == len(mots):
+        return None
+    if not all(mot.isdigit() for mot in mots[rang:]):
+        return None
+    return " ".join(mots[:rang])

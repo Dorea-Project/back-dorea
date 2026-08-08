@@ -14,14 +14,26 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
-from app.contexts.urim.engine.state import EntryMode, EntryOrigin
+from app.contexts.urim.engine.state import EntryOrigin
 
 
 class OpenStudyBody(BaseModel):
+    """Un champ, et rien à cocher.
+
+    ⚠️ **`entry_mode` n'est plus ici, et son absence est la fonctionnalité.** Référence,
+    citation et intention ne sont pas des cases que le pasteur remplit : c'est au moteur de
+    les reconnaître, en croisant la saisie avec les 31 170 versets. Tant qu'un défaut
+    `reference` comblait le silence, l'étage 0 posait une question de désaccord à quelqu'un
+    qui n'avait rien dit — deux saisies sur trois interrompues avant que le moteur n'ait rien
+    fait d'utile.
+
+    Le mode ne s'écrit plus que par une correction explicite, sur la route de décision.
+    """
+
     raw_input: str = Field(min_length=1, max_length=4000)
-    entry_mode: EntryMode = EntryMode.REFERENCE
     #: Tapée ou dictée (S36). Le système **sait** d'où vient la chaîne — le module de
-    #: capture connaît son `provider`. Il n'a donc pas à le déduire des mots.
+    #: capture connaît son `provider`. Il n'a donc pas à le déduire des mots. C'est le seul
+    #: signal d'entrée qui reste, et il ne dit rien du *contenu*, seulement de sa provenance.
     entry_origin: EntryOrigin = EntryOrigin.TYPED
     service_date: date | None = None
 
@@ -58,9 +70,59 @@ class ElementView(BaseModel):
     body: str | None
 
 
+class VerseView(BaseModel):
+    reference: str
+    text: str
+
+
+class VariantView(BaseModel):
+    """⚠️ S17 — **à afficher avec le texte, toujours.**
+
+    Prêcher Romains 8:1 sans signaler que le Texte Reçu y ajoute « qui ne marchent pas selon
+    la chair » expose à une contradiction avec l'auditoire : sans la clause, la non-condamnation
+    est inconditionnelle ; avec elle, c'est une condition morale."""
+
+    reference: str
+    body: str
+    doctrinal_weight: str
+    note: str
+    families_with: list[str]
+    families_without: list[str]
+    source_ref: str
+
+
+class BearingView(BaseModel):
+    """`strength` a quatre valeurs, et **`resiste` est celle qui compte** — un texte qui
+    complique un axe n'est pas un texte qui s'en tait. Elle s'affiche au même rang."""
+
+    axis_code: str
+    label: str
+    strength: str
+    rationale: str
+
+
+class ContextView(BaseModel):
+    kind: str
+    body: str
+    source_ref: str
+
+
+class CoupleView(BaseModel):
+    """Les refusés voyagent avec les faisables : *une combinaison impossible est signalée,
+    jamais fabriquée*. Les cacher laisserait croire qu'on n'y a pas pensé."""
+
+    plan_source: str
+    subject_matter: str
+    feasible: bool
+    refusal_reason: str
+    proof_text_risk: str
+
+
 class StudyView(BaseModel):
     id: UUID
     status: str
+    #: Le mode **retenu par le moteur** — ce que le pasteur veut voir. La colonne, elle,
+    #: reste vide tant qu'il n'a rien corrigé.
     entry_mode: str | None
     raw_input: str
 
@@ -81,6 +143,15 @@ class StudyView(BaseModel):
     theme: str | None
 
     elements: list[ElementView]
+
+    #: **Ce sur quoi le raisonnement porte** — la `trace` est le raisonnement lui-même.
+    verses: list[VerseView]
+    variants: list[VariantView]
+    bearings: list[BearingView]
+    caveats: list[str]
+    context: list[ContextView]
+    couples: list[CoupleView]
+
     corpus_snapshot: str | None
     corpus_drifted: bool
 
@@ -90,7 +161,7 @@ class StudyView(BaseModel):
         return cls(
             id=r.id,
             status=r.status,
-            entry_mode=r.entry_mode,
+            entry_mode=dto.entry_mode,
             raw_input=r.raw_input,
             outcome=dto.outcome,
             rationale=dto.rationale,
@@ -109,6 +180,37 @@ class StudyView(BaseModel):
             elements=[
                 ElementView(element_code=e.element_code, ordinal=e.ordinal, body=e.body)
                 for e in dto.elements
+            ],
+            verses=[VerseView(reference=v.reference, text=v.text) for v in dto.verses],
+            variants=[
+                VariantView(
+                    reference=v.reference, body=v.body,
+                    doctrinal_weight=v.doctrinal_weight, note=v.note,
+                    families_with=list(v.families_with),
+                    families_without=list(v.families_without),
+                    source_ref=v.source_ref,
+                )
+                for v in dto.variants
+            ],
+            bearings=[
+                BearingView(
+                    axis_code=b.axis_code, label=b.label,
+                    strength=b.strength, rationale=b.rationale,
+                )
+                for b in dto.bearings
+            ],
+            caveats=list(dto.caveats),
+            context=[
+                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref)
+                for c in dto.context
+            ],
+            couples=[
+                CoupleView(
+                    plan_source=c.plan_source, subject_matter=c.subject_matter,
+                    feasible=c.feasible, refusal_reason=c.refusal_reason,
+                    proof_text_risk=c.proof_text_risk,
+                )
+                for c in dto.couples
             ],
             corpus_snapshot=r.corpus_snapshot,
             corpus_drifted=dto.corpus_drifted,

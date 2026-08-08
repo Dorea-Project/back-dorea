@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.urim.application.ports import (
@@ -201,9 +201,12 @@ class SqlReservationRepository:
     async def reserve(
         self, *, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
     ) -> UUID:
-        existante = await self._active(church_id, pericope_key, at)
+        existante = await self._active(church_id, author_id, pericope_key, at)
         if existante is not None:
             return existante
+
+        await self._liberer_les_perimees(church_id, author_id, pericope_key, at)
+
         reservation = UrimStudyReservationModel(
             id=uuid4(), church_id=church_id, author_id=author_id,
             pericope_key=pericope_key, window_id=None,
@@ -214,30 +217,74 @@ class SqlReservationRepository:
         return reservation.id
 
     async def rekey_for(
-        self, *, church_id: UUID, provisional_key: str, pericope_key: str, at: datetime
+        self,
+        *,
+        church_id: UUID,
+        author_id: UUID,
+        provisional_key: str,
+        pericope_key: str,
+        at: datetime,
     ) -> None:
         """S9 — la réservation se cale sur le texte résolu.
 
         Si une autre réservation tient déjà ce texte, la nôtre se **libère** : les deux
         entrées désignaient le même travail, et le facturer deux fois serait faire payer
         une hésitation de formulation."""
-        courante = await self._active(church_id, provisional_key, at)
+        courante = await self._active(church_id, author_id, provisional_key, at)
         if courante is None:
             return  # déjà re-clée, ou périmée — dans les deux cas rien à faire
         row = await self._s.get(UrimStudyReservationModel, courante)
-        deja = await self._active(church_id, pericope_key, at, sauf=courante)
+        deja = await self._active(church_id, author_id, pericope_key, at, sauf=courante)
         if deja is not None:
             row.released_at = at
         else:
+            # ⚠️ **Ici aussi.** On s'apprête à occuper `pericope_key` ; une ligne périmée et
+            # jamais relâchée la tiendrait encore du point de vue de l'index. Le correctif
+            # posé à la réservation ne suffisait pas — il manquait partout où l'on **prend**
+            # une clé, et le re-clage en est un.
+            await self._liberer_les_perimees(church_id, author_id, pericope_key, at)
             row.pericope_key = pericope_key
         await self._s.flush()
 
+    async def _liberer_les_perimees(
+        self, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
+    ) -> None:
+        """🐛 **Périmer, c'est relâcher.**
+
+        L'index unique porte `WHERE released_at IS NULL` — il ignore l'échéance. Le code, lui,
+        tenait une réservation pour inactive dès qu'elle était périmée. Une ligne périmée et
+        jamais relâchée devenait donc **invisible au code et bloquante pour la base** :
+        rouvrir le même passage le lendemain rendait un 409.
+
+        Le commentaire de `_DUREE_RESERVATION` promettait qu'une réservation « se périme
+        d'elle-même ». Elle ne périmait rien. Deux définitions d'« active » qui divergent, et
+        c'est toujours la base qui gagne — d'où cet appel **partout où l'on prend une clé**.
+        """
+        await self._s.execute(
+            update(UrimStudyReservationModel)
+            .where(UrimStudyReservationModel.church_id == church_id)
+            .where(UrimStudyReservationModel.author_id == author_id)
+            .where(UrimStudyReservationModel.pericope_key == pericope_key)
+            .where(UrimStudyReservationModel.released_at.is_(None))
+            .where(UrimStudyReservationModel.expires_at <= at)
+            .values(released_at=at)
+        )
+
     async def _active(
-        self, church_id: UUID, pericope_key: str, at: datetime, sauf: UUID | None = None
+        self,
+        church_id: UUID,
+        author_id: UUID,
+        pericope_key: str,
+        at: datetime,
+        sauf: UUID | None = None,
     ) -> UUID | None:
+        # ⚠️ **`author_id` compte**, parce que l'index unique le compte. Sans lui, deux
+        # pasteurs de la même église préparant le même passage se seraient partagé une seule
+        # réservation — celle du premier arrivé.
         requete = (
             select(UrimStudyReservationModel.id)
             .where(UrimStudyReservationModel.church_id == church_id)
+            .where(UrimStudyReservationModel.author_id == author_id)
             .where(UrimStudyReservationModel.pericope_key == pericope_key)
             .where(UrimStudyReservationModel.released_at.is_(None))
             .where(UrimStudyReservationModel.expires_at > at)

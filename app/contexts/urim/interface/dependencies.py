@@ -26,6 +26,7 @@ from app.contexts.tenant.infrastructure.persistence.ownership_repo import (
     SqlOwnershipRepository,
 )
 from app.contexts.urim.adapters.authorization import GroupAccessPreacherAuthorization
+from app.contexts.urim.adapters.mistral import build_verse_resolver
 from app.contexts.urim.application.curation import UrimCuration
 from app.contexts.urim.application.study_service import UrimStudyService
 from app.contexts.urim.domain.errors import CorpusNonSemeError
@@ -41,6 +42,7 @@ from app.contexts.urim.infrastructure.persistence.study_repository import (
     SqlReservationRepository,
     SqlStudyRepository,
 )
+from app.core.config import get_settings
 
 _index: CorpusIndex | None = None
 _verrou = asyncio.Lock()
@@ -85,6 +87,7 @@ def get_study_service(
         ),
         index=index,
         clock=_now,
+        resolver=build_verse_resolver(get_settings()),
     )
 
 

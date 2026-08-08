@@ -106,10 +106,14 @@ def _affinite(saisie: str) -> float:
 # ================================================================ la suite contiguë, seule
 
 
-def test_la_suite_contigue_ne_compte_que_ce_qui_se_suit():
-    assert _plus_longue_suite(("a", "b", "c"), ("x", "a", "b", "c", "y")) == 3
-    assert _plus_longue_suite(("a", "b", "c"), ("a", "x", "b", "x", "c")) == 1
-    assert _plus_longue_suite(("a", "b"), ("c", "d")) == 0
+def test_la_suite_contigue_rend_les_mots_pas_leur_nombre():
+    """Elle rend la **suite**, parce que deux mots qui se suivent ne se valent pas.
+
+    `jésus pleura` désigne un verset ; `le cantique` n'en désigne aucun. Compter les mots
+    faisait franchir le seuil au second — il faut pouvoir les peser."""
+    assert _plus_longue_suite(("a", "b", "c"), ("x", "a", "b", "c", "y")) == ("a", "b", "c")
+    assert _plus_longue_suite(("a", "b", "c"), ("a", "x", "b", "x", "c")) == ("a",)
+    assert _plus_longue_suite(("a", "b"), ("c", "d")) == ()
 
 
 # ============================================================= le discriminant, sur du réel
@@ -117,6 +121,15 @@ def test_la_suite_contigue_ne_compte_que_ce_qui_se_suit():
 
 def test_une_citation_exacte_atteint_un():
     assert _affinite("je puis tout par celui qui me fortifie") == 1.0
+
+
+def test_une_suite_faite_d_articles_ne_fait_pas_une_citation():
+    """🔴 **Le cas « Miriam chantait le cantique ».**
+
+    Deux mots qui se suivent — `le cantique`, dans *Cantique des cantiques 1:1* — sur quatre
+    faisaient 0,50 et franchissaient le seuil. Or un article ne désigne rien. Pesée par l'idf,
+    la même suite tombe sous le seuil, tandis qu'une vraie citation **monte**."""
+    assert _affinite("le cantique de Salomon que Miriam chantait") < 0.45
 
 
 def test_un_extrait_contigu_d_un_long_verset_reste_une_citation():

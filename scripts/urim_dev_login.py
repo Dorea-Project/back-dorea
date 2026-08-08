@@ -95,10 +95,13 @@ async def main() -> None:
         await s.commit()
 
     reglages = get_settings()
+    # ⚠️ **Douze heures, et non l'heure de production.** Un jeton d'essai qui expire au milieu
+    # d'une séance de test fait perdre plus de temps que le risque qu'il crée : il ne vaut que
+    # sur une base locale, pour un compte de démonstration, sur un serveur qu'on arrête le soir.
     paire = JwtTokenService(
         secret=reglages.jwt_secret,
         algorithm=reglages.jwt_algorithm,
-        access_ttl_seconds=reglages.jwt_access_ttl_seconds,
+        access_ttl_seconds=12 * 3600,
         refresh_ttl_seconds=reglages.jwt_refresh_ttl_seconds,
         session_ttl_seconds=reglages.jwt_session_ttl_seconds,
     ).issue_pair(COMPTE_ID, APPAREIL)

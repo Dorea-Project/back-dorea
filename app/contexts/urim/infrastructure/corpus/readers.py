@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from uuid import UUID
 
 from app.contexts.urim.engine.deps import (
@@ -37,6 +38,24 @@ _CANDIDATS_MAX = 5
 #: Borne haute conventionnelle pour « jusqu'à la fin du chapitre ».
 _FIN_DE_CHAPITRE = 10**6
 
+#: Longueur minimale d'un nom de livre pour qu'on tolère une faute dessus.
+#:
+#: **Mesuré sur les 277 formes**, le chiffre étant exigé exact : 5 → aucune paire ambiguë ;
+#: 4 → une seule, `phil` (Philippiens) ~ `phile` (Philémon), et toutes deux existent
+#: *exactement*, donc l'approximation ne les départage presque jamais ; 3 → s'y ajoute
+#: `jea` ~ `jean`, inoffensive, mais surtout on se met à deviner sur trois lettres.
+#:
+#: On s'arrête donc à 4. `jan` ressemble à `jean` (0,86) et à `jonas` (0,50) ; trois
+#: caractères sont autant un mot français qu'un nom de livre, et le produit dit **ne pas
+#: deviner à la place du pasteur**. Le refus nomme le livre inconnu — il corrige d'un
+#: caractère, et personne ne lui a substitué une épître.
+_NOM_MINIMUM = 4
+
+#: Ressemblance exigée entre le nom saisi et un nom connu. Mesuré sur les 277 formes du
+#: corpus : à ce seuil, et le chiffre étant exigé exact, **aucune paire de livres distincts**
+#: ne devient ambiguë.
+_RESSEMBLANCE_MINIMUM = 0.85
+
 #: Combien de versets présélectionnés subissent la comparaison de séquences.
 #:
 #: La contiguïté est quadratique en la longueur des deux suites — négligeable sur un verset,
@@ -45,23 +64,26 @@ _FIN_DE_CHAPITRE = 10**6
 _ANCRAGE_MAX = 25
 
 
-def _plus_longue_suite(saisie: tuple[str, ...], verset: tuple[str, ...]) -> int:
-    """Le plus long segment de mots **consécutifs** commun aux deux suites.
+def _plus_longue_suite(
+    saisie: tuple[str, ...], verset: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Le plus long segment de mots **consécutifs** commun aux deux suites — les mots eux-mêmes.
 
-    Programmation dynamique ordinaire, sur deux suites courtes. On garde la longueur et non
-    les positions : ce qui se mesure ici est *à quel point la saisie suit le texte*, pas où.
+    Programmation dynamique ordinaire, sur deux suites courtes. On rend la **suite** et non sa
+    longueur, parce que deux mots qui se suivent ne se valent pas : `jésus pleura` désigne un
+    verset, `le cantique` n'en désigne aucun. Il faut pouvoir les peser.
     """
     precedent = [0] * (len(verset) + 1)
-    meilleur = 0
-    for mot in saisie:
+    meilleur = fin = 0
+    for i, mot in enumerate(saisie, start=1):
         courant = [0] * (len(verset) + 1)
         for rang, autre in enumerate(verset, start=1):
             if mot == autre:
                 courant[rang] = precedent[rang - 1] + 1
                 if courant[rang] > meilleur:
-                    meilleur = courant[rang]
+                    meilleur, fin = courant[rang], i
         precedent = courant
-    return meilleur
+    return saisie[fin - meilleur : fin] if meilleur else ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +121,49 @@ class IndexedCorpusReader:
                 fin = debut + len(forme)
                 if fin <= len(mots) and mots[debut:fin] == forme:
                     return forme, debut, fin
-        return None
+        return self._empan_approche(mots)
+
+    def _empan_approche(self, mots: tuple[str, ...]) -> tuple[tuple[str, ...], int, int] | None:
+        """Le nom **approché** — parce qu'une lettre ne doit pas coûter une préparation.
+
+        « Mathieu 4:4 » était refusé avec *« je n'arrive pas à lire ceci »* : un `t` de moins,
+        et le moteur ne voyait plus ni référence, ni citation, ni intention. C'était la moitié
+        de S21 restée en chemin — le normaliseur pardonne déjà les accents et les apostrophes
+        (*« exiger l'orthographe, c'est refuser le terrain »*), l'index des noms, lui, exigeait
+        encore la lettre exacte.
+
+        ⚠️ **Le chiffre ne se rattrape jamais.** « 1 corinthiens » et « 2 corinthiens » sont à
+        0,92 de similarité : une approximation naïve les confondrait, et confondre les deux
+        épîtres est pire que refuser. On sépare donc le chiffre du nom, on exige l'égalité sur
+        le premier et on ne tolère l'à-peu-près que sur le second. Mesuré sur les 277 formes :
+        **zéro paire ambiguë**.
+
+        Le nom doit faire au moins `_NOM_MINIMUM` caractères — une abréviation de trois
+        lettres n'a pas de quoi porter une faute, et `jos`/`job` se ressemblent trop.
+        """
+        candidates: list[tuple[float, tuple[str, ...], int, int]] = []
+        formes = [(f, *_chiffre_et_nom(" ".join(f))) for f in self.index.books_by_form]
+
+        for debut in range(len(mots)):
+            for longueur in (3, 2, 1):
+                fin = debut + longueur
+                if fin > len(mots):
+                    continue
+                chiffre, nom = _chiffre_et_nom(" ".join(mots[debut:fin]))
+                if len(nom) < _NOM_MINIMUM:
+                    continue
+                for forme, chiffre_connu, nom_connu in formes:
+                    if chiffre_connu != chiffre or len(nom_connu) < _NOM_MINIMUM:
+                        continue
+                    ratio = SequenceMatcher(None, nom, nom_connu).ratio()
+                    if ratio >= _RESSEMBLANCE_MINIMUM:
+                        candidates.append((ratio, forme, debut, fin))
+
+        if not candidates:
+            return None
+        # Le plus ressemblant ; à égalité, la forme la plus longue puis la plus précoce.
+        ratio, forme, debut, fin = max(candidates, key=lambda c: (c[0], c[3] - c[2], -c[2]))
+        return forme, debut, fin
 
     def find_reference_span(self, tokens: Sequence[str]) -> ReferenceSpan | None:
         trouve = self._empan(tokens)
@@ -209,12 +273,27 @@ class IndexedCorpusReader:
         # Le sac de mots **présélectionne**, la contiguïté **tranche**. Comparer les
         # séquences est quadratique : on ne le fait que sur une courte liste, celle que le
         # score lexical a déjà retenue.
-        meilleur = 0
+        #
+        # ⚠️ **La suite se pèse, elle ne se compte pas.** Compter les mots faisait franchir le
+        # seuil à « Miriam chantait le cantique » : deux mots qui se suivent — `le cantique`,
+        # dans *Cantique des cantiques 1:1* — sur quatre, soit 0,50. Or un article ne désigne
+        # rien. Pesée par l'idf, la même suite tombe à 0,26, tandis que `jésus pleura` monte
+        # de 0,67 à 0,96 : la mesure s'améliore **des deux côtés à la fois**.
+        total = sum(self.index.idf.get(mot, 0.0) for mot in mots)
+        if total <= 0:
+            return 0.0
+
+        meilleur = 0.0
         for _, _, verset in self._meilleurs_versets(ancres)[:_ANCRAGE_MAX]:
             suite = _plus_longue_suite(mots, verset.sequence)
-            if suite > meilleur:
-                meilleur = suite
-        return meilleur / len(mots) if meilleur >= 2 else 0.0
+            # Un mot seul n'est pas une contiguïté — sans ce plancher, toute saisie contenant
+            # un mot biblique passerait pour une citation.
+            if len(suite) < 2:
+                continue
+            poids = sum(self.index.idf.get(mot, 0.0) for mot in suite) / total
+            if poids > meilleur:
+                meilleur = poids
+        return meilleur
 
     def resolve_citation(self, tokens: Sequence[str]) -> Sequence[CitationCandidate]:
         ancres = self._ancres(tokens)
@@ -447,3 +526,18 @@ class IndexedVersionResolver:
         # `licence_coherente` interdit qu'une version du domaine public soit plafonnée :
         # le filet ne peut pas céder, et ce n'est pas une intention de code.
         return self.index.fallback_version_id
+
+
+def _chiffre_et_nom(forme: str) -> tuple[str, str]:
+    """Sépare le chiffre de tête du nom — « 1 corinthiens » → `("1", "corinthiens")`.
+
+    C'est cette séparation qui rend l'approximation sûre : le chiffre identifie **le livre**,
+    le nom seulement sa graphie. L'un ne se devine pas, l'autre si."""
+    mots = forme.split()
+    if not mots:
+        return "", forme
+    if mots[0].isdigit():
+        return mots[0], " ".join(mots[1:])
+    if mots[0][:1].isdigit():
+        return mots[0][0], " ".join((mots[0][1:], *mots[1:])).strip()
+    return "", forme

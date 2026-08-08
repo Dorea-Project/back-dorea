@@ -23,7 +23,6 @@ import pytest
 
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
 from app.contexts.urim.engine import (
-    Decision,
     EngineDeps,
     EntryMode,
     EntryOrigin,
@@ -89,7 +88,12 @@ def _deps(corpus: _Corpus) -> EngineDeps:
     )
 
 
-def _state(saisi, texte, *, origine=EntryOrigin.TYPED, trace=()) -> StudyState:
+def _state(texte, *, saisi=None, origine=EntryOrigin.TYPED, trace=()) -> StudyState:
+    """⚠️ `saisi` vaut **None** par défaut, et c'est tout le sujet de ces tests.
+
+    Il n'y a plus d'onglet : rien n'est coché, donc le détecteur travaille seul. Passer un
+    mode ici ne simule plus « ce que le client a envoyé » — cela simule **une correction du
+    pasteur**, la seule écriture qui subsiste."""
     return StudyState(
         session_id=uuid4(),
         church_id=uuid4(),
@@ -116,7 +120,7 @@ def _codes(resultat):
 def test_une_reference_saisie_comme_reference_passe_sans_rien_demander():
     """*On ne fatigue pas quelqu'un qui a visé juste* — la règle du bornage, appliquée en amont."""
     resultat = _executer(
-        _state(EntryMode.REFERENCE, "Romains 8 10 15"), _Corpus(livre="romains", code="Rom")
+        _state("Romains 8 10 15"), _Corpus(livre="romains", code="Rom")
     )
 
     assert resultat.outcome is Outcome.CONTINUE
@@ -129,7 +133,7 @@ def test_un_nom_de_livre_seul_couvre_toute_la_saisie_donc_c_est_une_reference():
 
     Aucun chiffre n'est exigé quand le nom **couvre toute la saisie** : c'est la seconde forme
     acceptée du bloc de référence."""
-    resultat = _executer(_state(EntryMode.REFERENCE, "Rois"), _Corpus(livre="rois", code="1Kgs"))
+    resultat = _executer(_state("Rois"), _Corpus(livre="rois", code="1Kgs"))
 
     assert resultat.outcome is Outcome.CONTINUE
     assert resultat.state.entry_mode is EntryMode.REFERENCE
@@ -153,7 +157,7 @@ def test_un_mot_francais_qui_est_aussi_un_livre_ne_fait_pas_une_reference(saisie
     « il y a trop de juges dans cette assemblée » est même, pour couronner le tout, l'accusation
     de S20 — la conviction la plus délicate du produit routée vers le livre des Juges."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, saisie), _Corpus(livre=livre, code="XXX")
+        _state(saisie), _Corpus(livre=livre, code="XXX")
     )
 
     assert resultat.outcome is Outcome.CONTINUE
@@ -163,7 +167,7 @@ def test_un_mot_francais_qui_est_aussi_un_livre_ne_fait_pas_une_reference(saisie
 def test_le_meme_mot_suivi_d_un_chiffre_contigu_redevient_une_reference():
     """La contiguïté est le seul juge : « Job 38 » est un bloc, « mon job » n'en est pas un."""
     resultat = _executer(
-        _state(EntryMode.REFERENCE, "Job 38"), _Corpus(livre="job", code="Job")
+        _state("Job 38"), _Corpus(livre="job", code="Job")
     )
 
     assert resultat.outcome is Outcome.CONTINUE
@@ -175,7 +179,7 @@ def test_un_chiffre_eloigne_du_nom_ne_fabrique_pas_un_bloc():
 
     « Ma voiture 406 » en contient un — mais entre « ma » et « 406 » il y a « voiture »."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, "ma voiture 406 est en panne"),
+        _state("ma voiture 406 est en panne"),
         _Corpus(livre="ma", code="Mal"),
     )
 
@@ -186,55 +190,67 @@ def test_un_chiffre_eloigne_du_nom_ne_fabrique_pas_un_bloc():
 # --- Le signal contredit l'onglet : on rend la main ------------------------------------------
 
 
-def test_une_conviction_saisie_dans_reference_rend_la_main_au_lieu_de_fausser_le_calcul():
-    """**Le cas qui a motivé tout ce lot.**
+def test_une_conviction_passe_sans_qu_on_demande_rien():
+    """**Le cas qui a motivé la suppression du mode.**
 
-    Reclasser en silence donnerait au pasteur le pipeline de la conviction sans qu'il comprenne —
-    la machine déciderait à sa place (S10). Continuer comme si c'était une référence fausserait
-    tout l'aval."""
+    Avant, un défaut `reference` comblait le silence et l'étage posait une question de
+    désaccord à quelqu'un qui n'avait rien dit. Deux saisies sur trois étaient interrompues
+    avant que le moteur n'ait rien fait d'utile — et la première impression d'Urim était une
+    question administrative."""
+    resultat = _executer(_state("l amour fraternel n existe plus dans l eglise"), _Corpus())
+
+    assert resultat.outcome is Outcome.CONTINUE
+    assert resultat.state.entry_mode is EntryMode.CONVICTION
+    assert resultat.rationale.startswith("Lu comme une intention")
+
+
+def test_une_lecture_tranchee_par_le_pasteur_n_est_jamais_recontestee():
+    """⚠️ **Le seul sens que `entry_mode` peut encore avoir.**
+
+    Il a disparu du corps HTTP : la seule écriture qui subsiste est la correction « ce n'est
+    pas ça ». Le recontester reposerait éternellement la même question — le défaut déjà commis
+    sur le bornage, une décision enregistrée et invisible pour l'étage qui la relit."""
     resultat = _executer(
-        _state(EntryMode.REFERENCE, "l amour fraternel n existe plus dans l eglise"),
-        _Corpus(),
+        _state("l amour fraternel a disparu", saisi=EntryMode.REFERENCE), _Corpus()
     )
 
-    assert resultat.outcome is Outcome.AWAIT
-    assert resultat.state.entry_mode is EntryMode.REFERENCE  # rien n'est décidé
-    assert _codes(resultat) == ["conviction", "reference"]
-    assert all(option.rationale for option in resultat.options)
+    assert resultat.outcome is Outcome.CONTINUE
+    assert resultat.state.entry_mode is EntryMode.REFERENCE
+    assert "retenue par vous" in resultat.rationale
 
 
-def test_la_lecture_soutenue_par_les_faits_est_proposee_en_premier():
-    """L'ordre n'est pas cosmétique : le détecté d'abord, le saisi ensuite — sans jamais le
-    retirer."""
+def test_la_sortie_est_offerte_avant_la_lecture_sur_une_dictee():
+    """L'ordre n'est pas cosmétique. Sur une dictée, la première option est **la sortie** :
+    quelqu'un dont le micro s'est ouvert cherche à refermer, pas à choisir une lecture.
+
+    Il n'y a plus qu'**une** lecture proposée — la seconde disait « ce que vous aviez
+    indiqué », et le pasteur n'indique plus rien."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, "Romains 8"), _Corpus(livre="romains", code="Rom")
+        _state("l amour fraternel a disparu", origine=EntryOrigin.DICTATED), _Corpus()
     )
 
-    assert _codes(resultat) == ["reference", "conviction"]
+    assert _codes(resultat) == [REFORMULER, "conviction"]
 
 
 def test_le_pasteur_tranche_et_le_moteur_ne_redemande_jamais():
-    """**Le garde qui évite la boucle infinie.**
+    """🔴 **Le garde anti-boucle, éprouvé sur le vrai chemin.**
 
-    Sans lui : le pasteur choisit, le moteur repart, l'étage 0 s'applique de nouveau, re-détecte,
-    et redemande la même chose."""
-    corpus = _Corpus()
-    moteur = UrimEngine(_deps(corpus), pipeline=(RouteEntry(),))
-    depart = moteur.run(_state(EntryMode.REFERENCE, "l amour fraternel a disparu"))
-    assert depart.halted
+    L'ancienne version rejouait avec la trace de la première exécution, donc l'étage ne
+    s'appliquait plus. Elle ne prouvait rien : **le service ne persiste pas la trace**. Elle
+    repart vide à chaque rejeu, l'étage se ré-exécute toujours, et un pasteur qui maintenait
+    sa lecture contre le détecteur recevait la même question indéfiniment.
 
-    reprise = moteur.resume(
-        depart.state,
-        Decision(
-            stage_code="route_entry",
-            option_code="conviction",
-            decided_by=uuid4(),
-            changes=(("entry_mode", EntryMode.CONVICTION),),
-        ),
-    )
+    On rejoue donc ici comme le service le fait réellement — trace vide, trois fois."""
+    moteur = UrimEngine(_deps(_Corpus()), pipeline=(RouteEntry(),))
 
-    assert reprise.results == ()  # l'étage ne s'applique plus
-    assert reprise.state.entry_mode is EntryMode.CONVICTION
+    depart = moteur.run(_state("l amour fraternel a disparu"))
+    assert depart.state.entry_mode is EntryMode.CONVICTION  # détecté, rien n'était indiqué
+
+    tranche = _state("l amour fraternel a disparu", saisi=EntryMode.REFERENCE)
+    for _ in range(3):
+        reprise = moteur.run(tranche)
+        assert reprise.results[-1].outcome is Outcome.CONTINUE, "le moteur redemande"
+        assert reprise.state.entry_mode is EntryMode.REFERENCE
 
 
 # --- L'entrée hybride : un cadeau, pas un conflit ---------------------------------------------
@@ -247,7 +263,7 @@ def test_une_reference_avec_sa_citation_ne_rend_jamais_la_main():
     citation servira à vérifier, et c'est elle qui attrape « vous citez Rm 8:1 mais votre texte
     est Rm 8:34 »."""
     resultat = _executer(
-        _state(EntryMode.CITATION, "Romains 8 1 il n y a donc maintenant aucune condamnation"),
+        _state("Romains 8 1 il n y a donc maintenant aucune condamnation"),
         _Corpus(livre="romains", code="Rom", affinite=0.9),
     )
 
@@ -265,7 +281,7 @@ def test_un_seul_mot_reconnu_suffit_a_ouvrir_la_conviction():
 
     C'est ce qui empêche un token pourri sur neuf de faire basculer une phrase entière."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, "azkkq paradis mlfjz qqz"),
+        _state("azkkq paradis mlfjz qqz"),
         _Corpus(connus={"paradis"}),
     )
 
@@ -279,7 +295,7 @@ def test_seul_ce_qui_n_a_rien_de_reconnaissable_est_refuse():
 
     « Aucune péricope ne porte cet axe » accuserait le corpus d'un clavier."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, "azkkq mlfjz qqz"), _Corpus(connus=set())
+        _state("azkkq mlfjz qqz"), _Corpus(connus=set())
     )
 
     assert resultat.outcome is Outcome.REFUSE
@@ -290,13 +306,13 @@ def test_seul_ce_qui_n_a_rien_de_reconnaissable_est_refuse():
 @pytest.mark.parametrize("vide", ["", "   ", "\n\t", "!!! ??? ...", "'''"])
 def test_une_saisie_sans_un_seul_mot_est_refusee(vide: str):
     """Ponctuation seule, apostrophes seules, espaces : il n'y a rien à router."""
-    assert _executer(_state(EntryMode.CONVICTION, vide), _Corpus()).outcome is Outcome.REFUSE
+    assert _executer(_state(vide), _Corpus()).outcome is Outcome.REFUSE
 
 
 def test_le_seuil_de_citation_est_inclusif():
     """Pile au seuil, on lit une citation — la borne penche vers l'interprétation la plus riche."""
     resultat = _executer(
-        _state(EntryMode.CITATION, "aucune condamnation pour ceux qui sont en Jesus Christ"),
+        _state("aucune condamnation pour ceux qui sont en Jesus Christ"),
         _Corpus(affinite=CITATION_AFFINITY),
     )
 
@@ -313,7 +329,7 @@ def test_une_dictee_qui_donne_une_intention_se_fait_toujours_confirmer():
     Le doute ne porte pas sur la lecture : il porte sur le fait que le pasteur ait voulu saisir
     quoi que ce soit. Le moteur lui rend ce qu'il a entendu, et attend."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, PORTE_16, origine=EntryOrigin.DICTATED), _Corpus()
+        _state(PORTE_16, origine=EntryOrigin.DICTATED), _Corpus()
     )
 
     assert resultat.outcome is Outcome.AWAIT
@@ -327,7 +343,7 @@ def test_la_meme_saisie_tapee_ne_demande_rien():
 
     Quelqu'un qui tape ces mots les a voulus ; quelqu'un dont le micro s'est ouvert, non."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, PORTE_16, origine=EntryOrigin.TYPED), _Corpus()
+        _state(PORTE_16, origine=EntryOrigin.TYPED), _Corpus()
     )
 
     assert resultat.outcome is Outcome.CONTINUE
@@ -338,7 +354,7 @@ def test_une_dictee_univoque_passe_sans_confirmation():
     """On ne fait pas confirmer une dictée nette : « Romains 8 » sorti d'un micro reste
     « Romains 8 ». La friction est réservée au doute."""
     resultat = _executer(
-        _state(EntryMode.REFERENCE, "Romains 8", origine=EntryOrigin.DICTATED),
+        _state("Romains 8", origine=EntryOrigin.DICTATED),
         _Corpus(livre="romains", code="Rom"),
     )
 
@@ -349,7 +365,7 @@ def test_un_charabia_dicte_dit_que_le_micro_a_pu_se_declencher_seul():
     """Le motif change avec la provenance : accuser quelqu'un d'avoir mal tapé alors que son
     téléphone l'a trahi, c'est le laisser chercher au mauvais endroit."""
     resultat = _executer(
-        _state(EntryMode.CONVICTION, "azkkq mlfjz", origine=EntryOrigin.DICTATED),
+        _state("azkkq mlfjz", origine=EntryOrigin.DICTATED),
         _Corpus(connus=set()),
     )
 
@@ -375,7 +391,7 @@ def test_porte_16_le_micro_ouvert_de_pasteur_cedric():
     )
 
     resultat = _executer(
-        _state(EntryMode.REFERENCE, PORTE_16, origine=EntryOrigin.DICTATED),
+        _state(PORTE_16, origine=EntryOrigin.DICTATED),
         # « ma » reconnu comme Malachie, et un seul mot du lexique : le pire cas plausible.
         _Corpus(livre="ma", code="Mal", connus={"paradis"}),
     )
@@ -390,7 +406,7 @@ def test_porte_16_le_micro_ouvert_de_pasteur_cedric():
 
 def test_l_etage_ne_s_applique_qu_une_fois():
     etage = RouteEntry()
-    vierge = _state(EntryMode.REFERENCE, "Romains 8")
+    vierge = _state("Romains 8")
 
     assert etage.applies(vierge)
     assert not etage.applies(vierge.with_(trace=(TraceEntry("route_entry", "déjà routé"),)))
@@ -399,7 +415,7 @@ def test_l_etage_ne_s_applique_qu_une_fois():
 def test_le_detecteur_est_deterministe():
     """Même saisie, même corpus ⇒ même sortie. Cent fois."""
     corpus = _Corpus()
-    state = _state(EntryMode.REFERENCE, "l amour fraternel a disparu")
+    state = _state("l amour fraternel a disparu")
 
     sorties = {
         (r.outcome, r.rationale, tuple(_codes(r)))
