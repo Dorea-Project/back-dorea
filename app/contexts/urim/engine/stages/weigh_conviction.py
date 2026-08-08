@@ -89,7 +89,14 @@ class WeighConviction:
             )
 
         # Le modèle **annote**, il n'écarte pas : les dix sortent toujours.
-        suggeres = frozenset(deps.conviction.candidate_axes(state.raw_input))
+        #
+        # Deux sources, **réunies** : le port synchrone (hors ligne, sans réseau) et l'état
+        # rejoué depuis la bordure (Mistral). Une union, jamais un choix — chacune ne peut
+        # qu'ajouter une phrase à une option qui sortait de toute façon, et c'est ce qui rend
+        # leur erreur inoffensive (S37).
+        suggeres = frozenset(deps.conviction.candidate_axes(state.raw_input)) | frozenset(
+            state.suggested_axes
+        )
         options = tuple(
             Option(
                 code=f"axe:{axe.code}",

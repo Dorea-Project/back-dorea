@@ -13,6 +13,7 @@ si le corpus a bougé, la trace rejouée n'est plus celle du jour, et on le **di
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -398,10 +399,21 @@ class UrimStudyService:
         #
         # Le second passage est **pur et déterministe**, donc sans conséquence ; et sans modèle
         # branché il n'a jamais lieu, puisque `NullConvictionReader` ne lève aucun drapeau.
+        #
+        # **Les deux lectures de l'intention partent ensemble**, et rejouent une seule fois.
+        # Elles répondent à deux questions distinctes — *quels loci cette formulation
+        # touche-t-elle ?* et *quelles marques de forme appellent un garde-fou ?* — mais elles
+        # portent sur la même saisie et aboutissent au même étage. Deux rejeus successifs
+        # auraient fait perdre au second les annotations du premier.
         if run.state.entry_mode is EntryMode.CONVICTION:
-            drapeaux = await self.resolver.lever(record.raw_input)
-            if drapeaux:
-                run = moteur.run(etat.with_(risk_flags=drapeaux))
+            loci, drapeaux = await asyncio.gather(
+                self.resolver.axes(record.raw_input),
+                self.resolver.lever(record.raw_input),
+            )
+            if loci or drapeaux:
+                run = moteur.run(
+                    etat.with_(suggested_axes=tuple(loci), risk_flags=tuple(drapeaux))
+                )
 
         final = run.state
         dernier = run.results[-1] if run.results else None

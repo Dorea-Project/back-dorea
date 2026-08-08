@@ -185,6 +185,15 @@ class AssistedResolver(Protocol):
         """Le passage reconnu derrière une saisie que le déterministe n'a pas su lire."""
         ...
 
+    async def axes(self, text: str) -> tuple[str, ...]:
+        """Les loci qu'une intention touche — **annotation, jamais filtre**.
+
+        Le port jumeau `ConvictionReader` prévoyait déjà cette lecture, mais il est synchrone
+        parce que le moteur l'est, et rien ne pouvait donc l'y brancher : les dix loci
+        sortaient tous avec la même phrase creuse. La lecture se fait ici, à la bordure, et
+        redescend par `StudyState.suggested_axes`."""
+        ...
+
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque d'une intention — **l'effet, jamais l'état de l'auteur**."""
         ...
@@ -200,6 +209,9 @@ class NullVerseResolver:
 
     async def resolve(self, text: str) -> Reference | None:
         return None
+
+    async def axes(self, text: str) -> tuple[str, ...]:
+        return ()
 
     async def lever(self, text: str) -> tuple[str, ...]:
         return ()

@@ -73,6 +73,28 @@ _SYSTEME_RISQUE = (
 )
 
 
+#: Les dix loci, tels qu'ils sont en base. Le modèle **annote**, il n'écarte pas : l'invite ne
+#: lui demande donc pas de classer ni de choisir, seulement de dire lesquels la formulation
+#: touche. Ce qu'il oublie reste offert au pasteur, ce qu'il ajoute à tort reste une phrase.
+_SYSTEME_AXES = (
+    "Tu analyses l'intention de prédication d'un pasteur. Dis quels loci de la dogmatique "
+    "classique cette formulation TOUCHE, parmi exactement : theologie_propre, christologie, "
+    "pneumatologie, anthropologie, hamartiologie, soteriologie, ecclesiologie, angelologie, "
+    "demonologie, eschatologie. "
+    "Une intention en touche souvent plusieurs — « trop de malades malgré les prières » touche "
+    "la théologie propre et l'anthropologie. N'en invente pas : si la formulation est trop "
+    "courte ou trop vague pour rattacher quoi que ce soit, renvoie une liste vide. "
+    "Tu ne diagnostiques JAMAIS l'état intérieur du pasteur et tu ne nommes aucun sentiment. "
+    'Réponds par un objet JSON : {"loci": [...]} avec zéro, un ou plusieurs de ces codes '
+    "exactement. Aucun autre code, aucun commentaire."
+)
+
+_LOCI_CONNUS = frozenset({
+    "theologie_propre", "christologie", "pneumatologie", "anthropologie", "hamartiologie",
+    "soteriologie", "ecclesiologie", "angelologie", "demonologie", "eschatologie",
+})
+
+
 def _reference_depuis(contenu: str) -> Reference | None:
     """Le JSON du modèle → une `Reference`, ou rien. **Aucune confiance accordée à la forme.**"""
     bloc = re.search(r"\{.*\}", contenu, re.S)
@@ -145,20 +167,42 @@ class MistralAssistant:
         contenu = await self.demander(_SYSTEME_REFERENCE, text)
         return _reference_depuis(contenu) if contenu else None
 
+    async def axes(self, text: str) -> tuple[str, ...]:
+        """Les loci que l'intention touche — **annotation, jamais filtre**.
+
+        L'étage réunit ce retour avec les dix loci qu'il affiche de toute façon. Un oubli du
+        modèle laisse une option moins bien motivée ; un ajout erroné laisse une phrase de
+        trop. Ni l'un ni l'autre ne retire au pasteur ce qu'il pouvait choisir."""
+        return await self._codes(_SYSTEME_AXES, text, "loci", _LOCI_CONNUS)
+
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque — **des marques de forme, jamais un sentiment**."""
-        contenu = await self.demander(_SYSTEME_RISQUE, text)
+        return await self._codes(
+            _SYSTEME_RISQUE, text, "flags",
+            frozenset({"charge_forte", "accusation", "intention_persuasive"}),
+        )
+
+    async def _codes(
+        self, systeme: str, texte: str, cle: str, connus: frozenset[str]
+    ) -> tuple[str, ...]:
+        """Une liste de codes d'un vocabulaire **fermé** — le tronc commun d'`axes` et `lever`.
+
+        Le filtre sur `connus` n'est pas une politesse : sans lui, un code inventé par le
+        modèle traverserait jusqu'à une clé étrangère ou à un `if` qui ne le reconnaît pas, et
+        échouerait loin d'ici. On coupe au plus près de la source."""
+        contenu = await self.demander(systeme, texte)
         if not contenu:
             return ()
         bloc = re.search(r"\{.*\}", contenu, re.S)
         if bloc is None:
             return ()
-        connus = {"charge_forte", "accusation", "intention_persuasive"}
         try:
-            leves = json.loads(bloc.group(0)).get("flags", [])
+            rendus = json.loads(bloc.group(0)).get(cle, [])
         except json.JSONDecodeError:
             return ()
-        return tuple(f for f in leves if f in connus)
+        if not isinstance(rendus, list):
+            return ()
+        return tuple(c for c in rendus if c in connus)
 
 
 def build_verse_resolver(settings: Settings):

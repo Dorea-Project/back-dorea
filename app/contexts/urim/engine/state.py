@@ -121,6 +121,22 @@ class StudyState:
     #: « vous êtes dans la plainte » est un diagnostic, et S10 l'interdit.
     risk_flags: tuple[str, ...] = ()
 
+    #: Loci que le modèle **suggère** pour une intention — il annote, il n'écarte jamais.
+    #:
+    #: ⚠️ **Pourquoi ce champ existe alors qu'un port le prévoyait déjà.** `ConvictionReader`
+    #: est synchrone, parce que le moteur l'est ; Mistral est asynchrone. `get_study_service`
+    #: câblait donc `resolver=` et laissait `conviction=` sur `NullConvictionReader` — le
+    #: modèle était branché sur le chemin référence et sur rien du côté intention. Une saisie
+    #: comme « Salut » sortait avec dix loci portant tous la même phrase creuse.
+    #:
+    #: Le contournement est celui de `risk_flags` : l'appel se fait à la bordure, et l'état
+    #: rejoué porte le résultat. Le moteur reste pur et rejouable, et le port synchrone garde
+    #: son sens — il sert le cas hors ligne, où rien n'a pu être demandé à personne.
+    #:
+    #: La propriété de sûreté de S37 tient parce que l'étage **réunit** les deux sources et
+    #: n'en retire jamais : dix loci entrent, dix loci sortent, certains mieux motivés.
+    suggested_axes: tuple[str, ...] = ()
+
     #: Axes que le pasteur **refuse** explicitement (« mais je ne veux pas de X »), S18.
     #: Une contrainte négative ne refuse pas le texte : elle **ordonne les options de
     #: bornage** — on préfère des bornes dont l'axe dominant n'est pas celui-là. Vide =
