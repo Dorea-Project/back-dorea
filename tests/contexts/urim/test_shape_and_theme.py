@@ -25,6 +25,7 @@ from app.contexts.urim.engine import (
     Feasibility,
     LoadContext,
     Outcome,
+    PericopeView,
     ProposeTheme,
     Reference,
     ShapeHomiletic,
@@ -36,6 +37,15 @@ from app.contexts.urim.engine.stages.shape_homiletic import RISQUES
 ROM_8 = Reference(book="Romains", chapter=8, verse_start=9, verse_end=17)
 BORNES = Bounds(start=ROM_8, end=ROM_8)
 PERICOPE = uuid4()
+
+#: Une unité curée qui **couvrait** le passage — de quoi distinguer un choix du pasteur d'un
+#: trou du corpus, au seul étage qui doit encore les nommer autrement (`propose_theme`).
+_UNITE = PericopeView(
+    id=PERICOPE,
+    bounds=BORNES,
+    label="Vivre par l'Esprit",
+    rationale="L'unité tient du v.9 au v.17.",
+)
 
 EXPOSITIF = Feasibility(
     plan_source="expositif", subject_matter="doctrinal", feasible=True,
@@ -52,14 +62,20 @@ THEMATIQUE = Feasibility(
 
 
 class _Corpus:
-    def __init__(self, notes=()):
+    def __init__(self, notes=(), unites=()):
         self._notes = tuple(notes)
+        #: Ce que le corpus **avait à proposer** sur le passage. Vide par défaut, comme les
+        #: 99,77 % de l'Écriture qui ne sont pas encore curés.
+        self._unites = tuple(unites)
 
     def snapshot(self) -> str:
         return "corpus-2026-08"
 
     def context_for(self, pericope_id):
         return self._notes
+
+    def pericopes_for(self, reference):
+        return self._unites
 
 
 class _Homiletique:
@@ -257,10 +273,26 @@ def test_l_archive_informe_et_n_interdit_rien():
     assert "déjà prêché" in resultat.rationale
 
 
-def test_des_bornes_forcees_sont_dites_jusque_dans_le_theme():
+def test_un_trou_du_corpus_ne_se_dit_pas_comme_un_forcage_du_pasteur():
+    """⚠️ **Le motif dit ce qui manque au moteur, jamais ce qui manque au pasteur.**
+
+    `bounds_overridden` est vrai pour deux raisons opposées, et l'étage disait « Bornes forcées »
+    dans les deux. À 0,23 % de couverture curée, c'était l'ordinaire : presque chaque préparation
+    s'entendait reprocher un forçage qui n'avait pas eu lieu — `jn 2:3` le premier."""
     resultat = ProposeTheme().execute(_state(bounds_overridden=True), _deps())
 
-    assert "Bornes forcées" in resultat.rationale
+    assert "Hors unité curée" in resultat.rationale
+    assert "forcées" not in resultat.rationale
+
+
+def test_des_bornes_que_le_pasteur_a_conservees_sont_dites_comme_les_siennes():
+    """L'autre moitié : une unité **existait**, et il a préféré les siennes. On le lui rappelle —
+    sans reproche, parce que c'était une option offerte et qu'elle disait son coût."""
+    corpus = _Corpus(unites=(_UNITE,))
+
+    resultat = ProposeTheme().execute(_state(bounds_overridden=True), _deps(corpus=corpus))
+
+    assert "Bornes que vous avez conservées" in resultat.rationale
 
 
 def test_le_gabarit_du_theme_est_deterministe():

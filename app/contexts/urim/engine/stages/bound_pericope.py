@@ -44,7 +44,13 @@ from app.contexts.urim.engine.errors import StagePrerequisiteError
 from app.contexts.urim.engine.outcomes import Option, Outcome, StageResult
 from app.contexts.urim.engine.state import Bounds, Reference, StudyState
 
-#: Le code de l'option « gardez mes bornes » — la seule qui pose `bounds_overridden`.
+#: Le code de l'option « gardez mes bornes ».
+#:
+#: ⚠️ Ce n'est **pas** le seul chemin vers `bounds_overridden` — la docstring l'a prétendu, et
+#: `_hors_corpus_cure` le contredit trois écrans plus bas. Les deux chemins se rejoignent parce
+#: que leur conséquence est identique (rien de curé n'est lisible en aval, S22) ; mais l'un est
+#: une décision du pasteur et l'autre un trou du corpus, et `propose_theme` doit les distinguer
+#: pour ne pas reprocher un forçage qui n'a pas eu lieu.
 TEL_QUEL = "tel_quel"
 
 #: Le code de l'option « tout, en un sermon expositif » quand la demande couvre plusieurs unités.

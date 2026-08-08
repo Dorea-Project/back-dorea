@@ -37,7 +37,9 @@ class LoadContext:
             raise StagePrerequisiteError("le contexte exige un passage borné")
 
         if state.pericope_id is None:
-            # Bornes forcées : rien de curé à lire. On le dit, et on avance.
+            # Pas d'unité curée : rien de relu à lire. On le dit, et on avance. « Bornes
+            # forcées » serait faux une fois sur deux — le pasteur n'a le plus souvent rien
+            # forcé du tout, c'est le corpus qui n'avait rien à cet endroit.
             return StageResult(
                 outcome=Outcome.CONTINUE,
                 rationale="Bornes hors unité curée — aucun contexte relu sur ce passage.",
