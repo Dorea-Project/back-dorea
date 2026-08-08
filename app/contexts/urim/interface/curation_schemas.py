@@ -38,6 +38,21 @@ class PericopeBody(BaseModel):
     reviewed_by: str = Field(min_length=3, max_length=120)
 
 
+class ResignBody(BaseModel):
+    """Reprendre une unité à son compte — **la sortie de `ia-mistral`**.
+
+    Les bornes ne sont pas ici, et c'est délibéré : les déplacer en re-signant laisserait les
+    pesées déjà accrochées à une unité qui n'est plus celle qu'on avait pesée. Pour d'autres
+    bornes, on crée une autre unité.
+
+    L'intitulé et le motif, eux, se corrigent — on ne signe pas une phrase qu'on n'a pas le
+    droit d'amender."""
+
+    reviewed_by: str = Field(min_length=3, max_length=120)
+    label: str | None = Field(default=None, max_length=200)
+    rationale: str | None = Field(default=None, min_length=20, max_length=2000)
+
+
 class PericopeCreatedView(BaseModel):
     id: UUID
 

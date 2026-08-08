@@ -152,6 +152,17 @@ class StudyView(BaseModel):
     context: list[ContextView]
     couples: list[CoupleView]
 
+    #: L'intitulé de l'unité littéraire retenue — il n'apparaissait que noyé dans le motif de
+    #: l'étage 2, donc illisible pour un front qui veut l'afficher en titre.
+    pericope_label: str | None
+    #: ⚠️ **Qui a signé cette unité** — `ia-mistral` ou le nom d'un relecteur.
+    #:
+    #: C'est la contrepartie du découpage produit par le modèle, et elle n'est pas cosmétique :
+    #: sans elle, une structure générée arrive sur l'écran du pasteur exactement comme une
+    #: structure relue par un bibliste. `reviewed_by NOT NULL` porte cette distinction depuis le
+    #: premier jour ; elle ne servait à rien tant qu'elle s'arrêtait à la base.
+    curation_reviewed_by: str | None
+
     corpus_snapshot: str | None
     corpus_drifted: bool
 
@@ -171,6 +182,8 @@ class StudyView(BaseModel):
             ],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,
+            pericope_label=dto.pericope_label,
+            curation_reviewed_by=dto.pericope_reviewed_by,
             bounds_overridden=r.bounds_overridden,
             version_id=r.version_id,
             axis_code=r.axis_code,

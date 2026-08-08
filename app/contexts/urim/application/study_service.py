@@ -456,6 +456,12 @@ class UrimStudyService:
                 )
 
         servis, variantes = self._texte_servi(final)
+        # L'unité retenue, cherchée par son identité — c'est elle qui porte la signature, et
+        # c'est la seule chose de la curation que le pasteur ne pouvait pas voir jusqu'ici.
+        unite = next(
+            (p for p in self.index.pericopes if p.id == final.pericope_id),
+            None,
+        ) if final.pericope_id is not None else None
         return StudyDTO(
             record=record,
             verses=servis,
@@ -464,6 +470,8 @@ class UrimStudyService:
             caveats=self.index.caveats.get(final.pericope_id, ()),
             context=self.index.notes.get(final.pericope_id, ()),
             couples=self.index.couples.get(final.pericope_id, ()),
+            pericope_label=unite.label or None if unite else None,
+            pericope_reviewed_by=unite.reviewed_by or None if unite else None,
             outcome=str(dernier.outcome) if dernier else "continue",
             rationale=dernier.rationale if dernier else "",
             trace=tuple((e.stage_code, e.rationale) for e in final.trace),

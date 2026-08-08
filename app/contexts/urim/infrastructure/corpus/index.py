@@ -122,6 +122,14 @@ class PericopeRow:
     end_v: int
     label: str
     rationale: str
+    #: ⚠️ **Qui a signé** — et il faut que ça remonte jusqu'au pasteur.
+    #:
+    #: `reviewed_by NOT NULL` n'a jamais exigé un humain : il exige une signature, et les huit
+    #: unités de démonstration portaient `semis-demo`. Le découpage produit par le modèle porte
+    #: `ia-mistral`, ce qui est plus honnête — à une condition, que la distinction soit
+    #: **visible**. Un pasteur qui ne peut pas distinguer une structure générée d'une structure
+    #: relue a perdu exactement l'information que cette colonne existe pour porter.
+    reviewed_by: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,7 +305,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
     pericopes = tuple(
         PericopeRow(
             p.id, p.book_id, p.start_ch, p.start_v, p.end_ch, p.end_v,
-            p.label or "", p.rationale,
+            p.label or "", p.rationale, p.reviewed_by,
         )
         for p in sorted(peri, key=lambda p: (p.book_id, p.start_ch, p.start_v, p.end_ch, p.end_v))
     )

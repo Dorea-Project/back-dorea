@@ -114,8 +114,11 @@ class MistralAssistant:
         self._client = Mistral(api_key=api_key)
         self._model = model
 
-    async def _demander(self, systeme: str, texte: str) -> str | None:
-        """Un appel, une invite. Toute panne rend `None` — jamais une exception qui remonte."""
+    async def demander(self, systeme: str, texte: str) -> str | None:
+        """Un appel, une invite. Toute panne rend `None` — jamais une exception qui remonte.
+
+        Publique parce que la curation s'en sert : découper un chapitre en unités littéraires
+        est un troisième usage, hors ligne celui-là, et il n'a pas à recopier ce transport."""
         try:
             reponse = await self._client.chat.complete_async(
                 model=self._model,
@@ -139,12 +142,12 @@ class MistralAssistant:
             return None
 
     async def resolve(self, text: str) -> Reference | None:
-        contenu = await self._demander(_SYSTEME_REFERENCE, text)
+        contenu = await self.demander(_SYSTEME_REFERENCE, text)
         return _reference_depuis(contenu) if contenu else None
 
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque — **des marques de forme, jamais un sentiment**."""
-        contenu = await self._demander(_SYSTEME_RISQUE, text)
+        contenu = await self.demander(_SYSTEME_RISQUE, text)
         if not contenu:
             return ()
         bloc = re.search(r"\{.*\}", contenu, re.S)

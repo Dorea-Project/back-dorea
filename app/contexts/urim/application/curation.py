@@ -36,6 +36,22 @@ from app.contexts.urim.infrastructure.corpus.index import CorpusIndex
 #: Signatures interdites — celles qui ne désignent personne.
 _SIGNATURES_REFUSEES = frozenset({"semis-demo", "demo", "test", "machine", "ia", "auto"})
 
+#: ⚠️ **La seule signature non humaine admise**, et c'en est une décision, pas une faille.
+#:
+#: Le garde ci-dessus refuse « ia » — mais `ia-mistral` passait par simple différence de chaîne,
+#: ce qui est exactement la façon dont une règle se contourne sans que personne ne l'ait voulu.
+#: Elle est donc nommée ici.
+#:
+#: Ce qu'elle autorise est étroit : le **découpage littéraire**, produit en masse par le modèle
+#: pour que le moteur cesse de dégrader sur 99,77 % de l'Écriture. Une péricope dit où un récit
+#: se referme ; elle ne dit pas ce que le texte enseigne. Les pesées doctrinales, les mises en
+#: garde et la faisabilité restent à quelqu'un qui répond de ce qu'il affirme.
+#:
+#: Et elle ne vaut que parce qu'elle **se voit** : `StudyView.curation_reviewed_by` la porte
+#: jusqu'à l'écran du pasteur, et `PATCH /pericopes/{id}` permet à un relecteur de la remplacer
+#: par la sienne. Sans ces deux-là, ce serait une signature qui ment.
+SIGNATAIRE_IA = "ia-mistral"
+
 #: Longueur minimale d'un motif. Un `rationale` vide passerait le `NOT NULL` de la base et
 #: ne dirait rien au pasteur — or c'est *la* phrase qu'il lit pour comprendre ces bornes-là.
 _MOTIF_MINIMUM = 20
@@ -149,6 +165,11 @@ class CurationRepository(Protocol):
     async def replace_feasibility(
         self, pericope_id: UUID, drafts: list[FeasibilityDraft], reviewed_by: str
     ) -> None: ...
+
+    async def resign_pericope(
+        self, pericope_id: UUID, *, reviewed_by: str,
+        label: str | None, rationale: str | None,
+    ) -> bool: ...
 
     async def delete_pericope(self, pericope_id: UUID) -> bool: ...
 
@@ -280,6 +301,35 @@ class UrimCuration:
         await self.repo.replace_feasibility(pericope_id, drafts, reviewed_by)
         self.invalidate()
 
+    async def resign_pericope(
+        self, pericope_id: UUID, *, reviewed_by: str,
+        label: str | None = None, rationale: str | None = None,
+    ) -> bool:
+        """**Un relecteur reprend à son compte une unité découpée par le modèle.**
+
+        C'est ce qui rend `ia-mistral` acceptable : la signature du modèle est un point de
+        départ, pas un état définitif. Sans cette route, le découpage généré aurait été une
+        porte à sens unique — un relecteur n'aurait pu qu'effacer et retaper, en perdant au
+        passage les pesées déjà accrochées à l'unité.
+
+        L'intitulé et le motif se corrigent au passage, parce qu'on ne signe pas une phrase
+        qu'on n'a pas le droit d'amender : re-signer sans pouvoir rectifier reviendrait à
+        approuver en bloc, et c'est le contraire d'une relecture."""
+        self._verifier_signature(reviewed_by)
+        if rationale is not None and len(rationale.strip()) < _MOTIF_MINIMUM:
+            raise CurationInvalideError(
+                "Le motif doit dire pourquoi ces bornes-là — c'est la phrase que le pasteur lit."
+            )
+        repris = await self.repo.resign_pericope(
+            pericope_id,
+            reviewed_by=reviewed_by.strip(),
+            label=label,
+            rationale=rationale.strip() if rationale else None,
+        )
+        if repris:
+            self.invalidate()
+        return repris
+
     async def delete_pericope(self, pericope_id: UUID) -> bool:
         """Retirer une curation fautive. Sans cela, une erreur de relecture serait définitive."""
         retire = await self.repo.delete_pericope(pericope_id)
@@ -302,6 +352,8 @@ class UrimCuration:
 
     def _verifier_signature(self, reviewed_by: str) -> None:
         nom = reviewed_by.strip()
+        if nom.lower() == SIGNATAIRE_IA:
+            return
         if len(nom) < 3 or nom.lower() in _SIGNATURES_REFUSEES:
             raise CurationInvalideError(
                 "Signez d'un nom qui désigne quelqu'un. Ce champ dit au pasteur qui a pesé "

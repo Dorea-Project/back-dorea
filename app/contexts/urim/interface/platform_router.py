@@ -36,6 +36,7 @@ from app.contexts.urim.interface.curation_schemas import (
     PericopeBody,
     PericopeCreatedView,
     PericopeView,
+    ResignBody,
 )
 from app.contexts.urim.interface.dependencies import CurationDep
 
@@ -152,6 +153,23 @@ async def set_feasibility(
             for c in payload.couples
         ],
         payload.reviewed_by,
+    )
+
+
+@router.patch(
+    "/urim/pericopes/{pericope_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Reprendre à son compte une unité découpée par le modèle",
+)
+async def resign_pericope(
+    pericope_id: UUID, payload: ResignBody, curation: CurationDep
+) -> None:
+    """La contrepartie de `ia-mistral` — sans elle, le découpage généré serait sans retour."""
+    await curation.resign_pericope(
+        pericope_id,
+        reviewed_by=payload.reviewed_by,
+        label=payload.label,
+        rationale=payload.rationale,
     )
 
 

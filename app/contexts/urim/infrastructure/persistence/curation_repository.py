@@ -122,6 +122,27 @@ class SqlCurationRepository:
             ))
         await self._s.flush()
 
+    async def resign_pericope(
+        self, pericope_id: UUID, *, reviewed_by: str,
+        label: str | None, rationale: str | None,
+    ) -> bool:
+        """La signature change, les bornes **non**.
+
+        Déplacer les bornes en re-signant casserait silencieusement les pesées déjà accrochées :
+        elles resteraient attachées à une unité qui n'est plus celle qu'on avait pesée. Pour
+        d'autres bornes, on crée une autre unité — c'est plus long, et c'est honnête."""
+        row = await self._s.get(CorpusPericopeModel, pericope_id)
+        if row is None:
+            return False
+        row.reviewed_by = reviewed_by
+        row.reviewed_at = datetime.now(UTC)
+        if label is not None:
+            row.label = label
+        if rationale is not None:
+            row.rationale = rationale
+        await self._s.flush()
+        return True
+
     async def delete_pericope(self, pericope_id: UUID) -> bool:
         row = await self._s.get(CorpusPericopeModel, pericope_id)
         if row is None:

@@ -124,6 +124,15 @@ class StudyDTO:
     caveats: tuple[str, ...] = ()
     context: tuple[ContextNote, ...] = ()
     couples: tuple[Feasibility, ...] = ()
+    #: L'unité littéraire retenue, et **qui l'a signée**.
+    #:
+    #: `reviewed_by` n'a jamais exigé un humain, seulement une signature — les huit unités de
+    #: démonstration portaient `semis-demo`, et le découpage produit par le modèle porte
+    #: `ia-mistral`. La distinction n'a de valeur que si elle **sort** : sans elle, une
+    #: structure générée et une structure relue arrivent identiques sur l'écran du pasteur, ce
+    #: qui est exactement la confusion que la colonne existe pour empêcher.
+    pericope_label: str | None = None
+    pericope_reviewed_by: str | None = None
     #: Le mode **retenu par l'étage 0** — distinct de la colonne, qui ne porte qu'une
     #: correction du pasteur.
     entry_mode: str | None = None
