@@ -587,7 +587,7 @@ class UrimStudyService:
             conviction=self.conviction,
         )
 
-        resolu = _deserialiser(record.resolved_ref)
+        resolu = _deserialiser(record.resolved_ref) or self._passage_de_l_unite(record)
         etat = StudyState(
             session_id=record.id,
             church_id=record.church_id,
@@ -826,6 +826,32 @@ class UrimStudyService:
                     source_ref=var.source_ref,
                 ))
         return tuple(servis), tuple(variantes)
+
+    def _passage_de_l_unite(self, record: PreparationRecord) -> Reference | None:
+        """L'unité curée **est** le passage — sans quoi le chemin conviction boucle.
+
+        ⚠️ Il n'existe pas de colonne `resolved_ref` : la référence n'est persistée que sous
+        forme de bornes forcées (`override_*`), et le reste du temps elle est censée se
+        **déduire** de la péricope. `_bornes` faisait cette déduction ; `resolved` ne la
+        faisait pas.
+
+        Le chemin référence masquait le trou en se réparant tout seul : `resolve_passage`
+        reparse « Romains 8:1-11 » à chaque rejeu. Une intention ne se reparse pas — « je veux
+        faire un culte sur l'adultère » ne redonnera jamais Hébreux 13. Le pasteur qui venait
+        de choisir son unité retombait donc sur l'écran des axes, sa décision enregistrée et
+        invisible pour l'étage qui la lisait.
+
+        C'est le **même défaut que le bornage** (voir `_bornes`), au même endroit, et pour la
+        même raison : une décision qui vit dans une colonne et se lit dans une autre."""
+        if record.pericope_id is None:
+            return None
+        unite = next(
+            (p for p in self.index.pericopes if p.id == record.pericope_id), None
+        )
+        if unite is None:
+            return None
+        livre = self.index.label_by_book.get(unite.book_id, "")
+        return Reference(livre, unite.start_ch, unite.start_v, unite.end_v)
 
     def _bornes(self, record: PreparationRecord) -> Bounds | None:
         """Reconstituer les bornes d'une décision déjà prise — **les deux cas**.
