@@ -215,7 +215,9 @@ async def evaluer(livre_voulu: str | None, limite: int | None) -> None:
                 subject_matter=couple["matiere"], feasible=couple["faisable"],
                 refusal_reason=couple["motif"] or None,
                 proof_text_risk=couple["risque"],
-                source_ref=f"Mistral {reglages.mistral_model} sur LSG 1910 — non relu",
+                # ⚠️ Pas de `source_ref` ici : cette table n'en porte pas, contrairement aux
+                # péricopes et aux pesées. Je l'avais recopié du script voisin et le semis est
+                # tombé au premier lot — la provenance tient donc au seul `reviewed_by`.
                 reviewed_by=SIGNATAIRE_IA, reviewed_at=maintenant,
             ))
         faites += 1

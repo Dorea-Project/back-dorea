@@ -390,6 +390,22 @@ class UrimStudyService:
                     Reference(livre, cible.start_ch, cible.start_v, cible.end_v)
                 )
                 return
+            # ⚠️ **Le passage proposé par le sens, désigné par son libellé.**
+            #
+            # Les deux préfixes couvraient tout tant que cet étage ne proposait que des axes
+            # et des unités curées. En y ajoutant les passages du modèle — « Genèse 2:24-25 »,
+            # sans préfixe, parce que le libellé EST la référence — j'ai fabriqué six options
+            # que le service refusait au clic. Le défaut ne se voyait pas dans la réponse :
+            # elle était juste, c'est le coup d'après qui tombait.
+            #
+            # Le libellé se relit ici comme à l'étage 1, et l'existence est **vérifiée** : un
+            # code fabriqué à la main ne doit pas poser une référence que le corpus ignore.
+            reference = self._reference_depuis_libelle(option)
+            if reference is not None and IndexedCorpusReader(self.index).check_reference(
+                reference
+            ).exists:
+                record.resolved_ref = _serialiser(reference)
+                return
             raise OptionInconnueError(f"« {option} » n'est pas une option de cet étage.")
 
         if stage == "bear_axes":

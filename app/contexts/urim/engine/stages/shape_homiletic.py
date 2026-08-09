@@ -70,6 +70,27 @@ class ShapeHomiletic:
             )
 
         couples = list(deps.homiletics.couples_for(state.pericope_id))
+
+        # ⚠️ **Aucune ligne n'est pas la même chose que « rien n'est faisable ».**
+        #
+        #     aucune ligne  →  personne n'a encore regardé
+        #     que des refus →  quelqu'un a regardé, et rien ne tient sur ce texte
+        #
+        # `bear_axes` tient cette distinction depuis le début ; cet étage ne la tenait pas, et
+        # le défaut n'apparaissait qu'une fois la curation *améliorée* : sans péricope il
+        # dégradait et continuait, avec une péricope pesée mais sans faisabilité il refusait.
+        # Ajouter du relu rendait la sortie pire, ce qui est le signe d'une confusion et non
+        # d'une sévérité.
+        if not couples:
+            return StageResult(
+                outcome=Outcome.DEGRADE,
+                rationale=(
+                    "Aucune faisabilité n'a encore été relue sur cette unité — ni mise en "
+                    "forme proposée, ni alerte de proof-texting. La préparation continue."
+                ),
+                state=state,
+            )
+
         faisables = [couple for couple in couples if couple.feasible]
         refuses = [couple for couple in couples if not couple.feasible]
 
