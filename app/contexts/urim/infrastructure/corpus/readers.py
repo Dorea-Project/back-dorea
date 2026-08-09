@@ -64,26 +64,48 @@ _RESSEMBLANCE_MINIMUM = 0.85
 _ANCRAGE_MAX = 25
 
 
-def _plus_longue_suite(
+#: Longueur minimale d'une suite pour qu'elle compte. Un mot seul n'est pas une contiguïté.
+_SUITE_MINIMUM = 2
+
+
+def _suites_communes(
     saisie: tuple[str, ...], verset: tuple[str, ...]
 ) -> tuple[str, ...]:
-    """Le plus long segment de mots **consécutifs** commun aux deux suites — les mots eux-mêmes.
+    """**Toutes** les suites de mots consécutifs communes, et non la plus longue seule.
 
-    Programmation dynamique ordinaire, sur deux suites courtes. On rend la **suite** et non sa
-    longueur, parce que deux mots qui se suivent ne se valent pas : `jésus pleura` désigne un
-    verset, `le cantique` n'en désigne aucun. Il faut pouvoir les peser.
-    """
-    precedent = [0] * (len(verset) + 1)
-    meilleur = fin = 0
-    for i, mot in enumerate(saisie, start=1):
-        courant = [0] * (len(verset) + 1)
-        for rang, autre in enumerate(verset, start=1):
-            if mot == autre:
-                courant[rang] = precedent[rang - 1] + 1
-                if courant[rang] > meilleur:
-                    meilleur, fin = courant[rang], i
-        precedent = courant
-    return saisie[fin - meilleur : fin] if meilleur else ()
+    ⚠️ **Une faute coupe une suite en deux ; elle ne rend pas la citation moins citation.**
+
+    Je ne gardais que le plus long segment, et Jean 3:16 récité de mémoire tombait en
+    conviction : trois écarts — *aimer* pour *aimé*, *afin quiconque* pour *afin que
+    quiconque*, *éternel* pour *éternelle* — découpaient vingt-trois mots repris en quatre
+    morceaux, dont le plus long ne pesait plus assez. Or ces fautes-là **sont** la citation de
+    mémoire : c'est exactement le cas que ce chemin existe pour servir.
+
+    Les segments sont pris de gauche à droite, sans réutiliser une position de la saisie :
+    additionner des recouvrements compterait deux fois le même mot et gonflerait le score.
+
+    Le plancher reste : `lamour du prochain` n'a aucune suite de deux mots dans Romains 13:10,
+    et reste donc une intention — la mesure s'ouvre aux citations abîmées sans s'ouvrir aux
+    sujets écrits en vocabulaire biblique."""
+    retenus: list[str] = []
+    depart = 0
+    while depart < len(saisie):
+        longueur = 0
+        for rang in range(len(verset)):
+            courant = 0
+            while (
+                depart + courant < len(saisie)
+                and rang + courant < len(verset)
+                and saisie[depart + courant] == verset[rang + courant]
+            ):
+                courant += 1
+            longueur = max(longueur, courant)
+        if longueur >= _SUITE_MINIMUM:
+            retenus.extend(saisie[depart : depart + longueur])
+            depart += longueur
+        else:
+            depart += 1
+    return tuple(retenus)
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,10 +307,11 @@ class IndexedCorpusReader:
 
         meilleur = 0.0
         for _, _, verset in self._meilleurs_versets(ancres)[:_ANCRAGE_MAX]:
-            suite = _plus_longue_suite(mots, verset.sequence)
+            suite = _suites_communes(mots, verset.sequence)
             # Un mot seul n'est pas une contiguïté — sans ce plancher, toute saisie contenant
-            # un mot biblique passerait pour une citation.
-            if len(suite) < 2:
+            # un mot biblique passerait pour une citation. `_suites_communes` l'applique déjà
+            # à chaque segment ; ce test attrape le cas où aucun n'a survécu.
+            if len(suite) < _SUITE_MINIMUM:
                 continue
             poids = sum(self.index.idf.get(mot, 0.0) for mot in suite) / total
             if poids > meilleur:

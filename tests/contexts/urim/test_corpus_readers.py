@@ -17,7 +17,7 @@ from app.contexts.urim.engine.state import Reference
 from app.contexts.urim.infrastructure.corpus.index import CorpusIndex, VerseRow
 from app.contexts.urim.infrastructure.corpus.readers import (
     IndexedCorpusReader,
-    _plus_longue_suite,
+    _suites_communes,
 )
 
 #: Un corpus minuscule mais **réaliste sur le point qui compte** : les convictions y
@@ -107,13 +107,44 @@ def _affinite(saisie: str) -> float:
 
 
 def test_la_suite_contigue_rend_les_mots_pas_leur_nombre():
-    """Elle rend la **suite**, parce que deux mots qui se suivent ne se valent pas.
+    """Elle rend les **mots**, parce que deux mots qui se suivent ne se valent pas.
 
     `jésus pleura` désigne un verset ; `le cantique` n'en désigne aucun. Compter les mots
     faisait franchir le seuil au second — il faut pouvoir les peser."""
-    assert _plus_longue_suite(("a", "b", "c"), ("x", "a", "b", "c", "y")) == ("a", "b", "c")
-    assert _plus_longue_suite(("a", "b", "c"), ("a", "x", "b", "x", "c")) == ("a",)
-    assert _plus_longue_suite(("a", "b"), ("c", "d")) == ()
+    assert _suites_communes(("a", "b", "c"), ("x", "a", "b", "c", "y")) == ("a", "b", "c")
+    assert _suites_communes(("a", "b"), ("c", "d")) == ()
+    # Un mot isolé entre deux ruptures n'est pas une contiguïté — le plancher tient.
+    assert _suites_communes(("a", "b", "c"), ("a", "x", "b", "x", "c")) == ()
+
+
+def test_toutes_les_suites_comptent_pas_seulement_la_plus_longue():
+    """🔴 **Le cas « Jean 3:16 récité de mémoire ».**
+
+    Trois écarts — *aimer* pour *aimé*, *afin quiconque* pour *afin que quiconque*, *éternel*
+    pour *éternelle* — découpaient vingt-trois mots repris en quatre morceaux, dont le plus
+    long ne pesait plus assez : la citation partait en conviction. Or ces fautes-là **sont**
+    la citation de mémoire.
+
+    Une faute coupe une suite en deux ; elle ne rend pas la citation moins citation."""
+    saisie = ("a", "b", "c", "FAUTE", "d", "e", "f")
+    verset = ("a", "b", "c", "x", "d", "e", "f")
+
+    assert _suites_communes(saisie, verset) == ("a", "b", "c", "d", "e", "f")
+
+
+def test_les_suites_ne_se_recouvrent_pas():
+    """Additionner des recouvrements compterait deux fois le même mot et gonflerait le score.
+
+    Les segments sont pris de gauche à droite, sans réutiliser une position de la saisie."""
+    assert len(_suites_communes(("a", "b", "a", "b"), ("a", "b"))) == 4
+
+
+def test_une_citation_abimee_reste_une_citation():
+    """La mesure de bout en bout, sur la vraie saisie qui a révélé le défaut."""
+    assert _affinite(
+        "Car Dieu a tant aimer le monde qu'il a donne son fils unique afin quiconque "
+        "croit ne perisse point mais qu'il ait la vie eternel"
+    ) >= 0.45
 
 
 # ============================================================= le discriminant, sur du réel
