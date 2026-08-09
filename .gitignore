@@ -33,3 +33,4 @@ docs/scratch/
 # le convertit en `data/ls1910.json`, qui lui est versionne. Versionner les deux stockerait deux
 # fois la meme Bible, dont une que rien ne lit.
 data/ls1910_raw.json
+data/morphgnt/

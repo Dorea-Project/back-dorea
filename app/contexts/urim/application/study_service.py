@@ -185,6 +185,14 @@ def _est_une_impasse_de_recherche(run) -> bool:
     )
 
 
+def _chapitre_verset(reference: str) -> tuple[int, int]:
+    """« Romains 8:1 » → `(8, 1)`. Le libellé vient d'être fabriqué par `_texte_servi`, donc
+    sa forme est connue — c'est le seul endroit où l'on peut se permettre de le relire."""
+    _, _, fin = reference.rpartition(" ")
+    chapitre, _, verset = fin.partition(":")
+    return int(chapitre), int(verset)
+
+
 def _cle_provisoire(raw_input: str) -> str:
     """La clé de réservation **avant** de savoir sur quel texte on travaille.
 
@@ -479,6 +487,7 @@ class UrimStudyService:
             pericope_id=pid,
         )
         servis, variantes = self._texte_servi(etat)
+        livre = self.index.book_by_label.get(ref.book)
 
         return PassageDetailDTO(
             reference=_afficher(ref) or reference,
@@ -499,6 +508,14 @@ class UrimStudyService:
             resisting_elsewhere=_resistent_ailleurs(
                 self.index, self.index.dominant.get(pid) if pid else None, pid
             ),
+            # L'original **du texte servi**, pas de l'unité : on annote ce qu'on affiche.
+            original=tuple(
+                (v.reference, mot.position, mot.surface, mot.lemma, mot.pos, mot.parsing)
+                for v in servis
+                for mot in self.index.originals.get(
+                    (livre, *_chapitre_verset(v.reference)), ()
+                )
+            ) if livre is not None else (),
         )
 
     async def _passages_verifies(self, saisie: str) -> tuple[PassageSuggestion, ...]:

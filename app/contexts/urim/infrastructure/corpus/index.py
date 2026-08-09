@@ -49,8 +49,10 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusDoctrinalCaveatModel,
     CorpusHomileticFeasibilityModel,
     CorpusIdfModel,
+    CorpusLemmaModel,
     CorpusPericopeModel,
     CorpusTextualVariantModel,
+    CorpusTokenModel,
     CorpusVerseModel,
     CorpusVersionModel,
 )
@@ -133,6 +135,22 @@ class PericopeRow:
 
 
 @dataclass(frozen=True, slots=True)
+class OriginalWord:
+    """Un mot de l'original, tel que le pasteur le voit en cliquant sur un verset.
+
+    ⚠️ `parsing` est le **code brut** de MorphGNT ; c'est `morphology.decrire` qui le rend
+    lisible, et le décodage vit à la présentation. Garder le code ici permet de changer la
+    façon de le dire sans retoucher au corpus — et de vérifier une traduction contestée contre
+    la source."""
+
+    position: int
+    surface: str
+    lemma: str
+    pos: str
+    parsing: str
+
+
+@dataclass(frozen=True, slots=True)
 class CorpusIndex:
     """Tout ce que les lecteurs ont besoin de savoir — gelé, sans connexion."""
 
@@ -190,6 +208,12 @@ class CorpusIndex:
     #: revanche `resiste` y figure **au même rang** que `porte` — c'est toute la protection
     #: du mode conviction, et elle ne dépend pas de la justesse de l'axe retenu.
     sites_by_axis: Mapping[str, tuple[BearingSite, ...]] = field(default_factory=dict)
+
+    #: Les mots de l'original, par `(book_id, chapitre, verset)` — le grec du NT aujourd'hui,
+    #: l'hébreu quand il sera semé. Vide sur l'AT, et c'est un état normal qui se voit.
+    originals: Mapping[tuple[int, int, int], tuple[OriginalWord, ...]] = field(
+        default_factory=dict
+    )
 
     # -- comptages : LUS DANS LE TEXTE, jamais ailleurs ---------------------------
     #
@@ -299,6 +323,31 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
 
     plafond = max(1, int(len(verses) * _PART_MAX_POSTINGS))
     postings = {t: tuple(r) for t, r in brut.items() if len(r) <= plafond}
+
+    # --- l'original ---------------------------------------------------------------
+    #
+    # Le grec du NT (MorphGNT), l'hébreu quand il sera semé. Chargé avec le reste plutôt que
+    # lu par requête : les ports du moteur sont synchrones, et l'exploration d'un passage doit
+    # répondre sans toucher la base — c'est toute la raison d'être de cet index.
+    originaux: dict[tuple[int, int, int], list[OriginalWord]] = defaultdict(list)
+    lignes_mots = await session.execute(
+        select(
+            CorpusVerseModel.book_id, CorpusVerseModel.chapter, CorpusVerseModel.verse,
+            CorpusTokenModel.position, CorpusTokenModel.surface,
+            CorpusLemmaModel.lemma, CorpusTokenModel.morph_code,
+        )
+        .join(CorpusTokenModel, CorpusTokenModel.verse_id == CorpusVerseModel.id)
+        .join(CorpusLemmaModel, CorpusLemmaModel.id == CorpusTokenModel.lemma_id)
+        .order_by(CorpusTokenModel.verse_id, CorpusTokenModel.position)
+    )
+    for rang, chapitre, verset, position, surface, lemme, code in lignes_mots:
+        # `nature|parsing` : les deux voyagent ensemble, parce que `V-` sans `2FAI-S--` ne dit
+        # pas le mode, et `2FAI-S--` sans `V-` ne dit pas que c'est un verbe.
+        nature, _, parsing = (code or "|").partition("|")
+        originaux[(rang, chapitre, verset)].append(
+            OriginalWord(position, surface, lemme, nature, parsing)
+        )
+    originals = {cle: tuple(mots) for cle, mots in originaux.items()}
 
     # --- la curation --------------------------------------------------------------
     peri = (await session.execute(select(CorpusPericopeModel))).scalars().all()
@@ -420,6 +469,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         variants={k: tuple(v) for k, v in variants.items()},
         axes=axes,
         sites_by_axis=sites_by_axis,
+        originals=originals,
     )
 
 

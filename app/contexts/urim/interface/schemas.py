@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
 from app.contexts.urim.engine.state import EntryOrigin
+from app.contexts.urim.infrastructure.corpus.morphology import decrire, nature
 
 
 class OpenStudyBody(BaseModel):
@@ -280,6 +281,32 @@ class StudyView(BaseModel):
         )
 
 
+class OriginalWordView(BaseModel):
+    """Un mot de l'original — **ce que sa forme fait**, pas ce qu'il signifie.
+
+    `Ἀγαπήσεις` dans Luc 10:27 est un futur de l'indicatif : « tu aimeras », et non
+    l'impératif qu'on prêche d'ordinaire. La différence change le sermon.
+
+    ⚠️ **`gloss` n'existe pas et c'est assumé.** MorphGNT ne porte aucune traduction, et les
+    lexiques libres sont en anglais. Le pasteur voit le lemme et la forme, pas « aimer ». Une
+    glose inventée aurait l'air d'une source — personne ne relit une analyse grammaticale, on
+    la croit, et l'erreur ressort en chaire.
+
+    `parsing` porte le code brut à côté du texte décodé : une analyse contestée doit pouvoir
+    se vérifier contre la source."""
+
+    reference: str
+    position: int
+    surface: str
+    lemma: str
+    #: « verbe », « nom », « article »… — vide si la nature est absente.
+    pos: str
+    #: « 2ᵉ personne · futur · actif · indicatif · singulier ».
+    morphology: str
+    #: Le code MorphGNT tel quel, ex. `2FAI-S--`.
+    parsing: str
+
+
 class UnitRefView(BaseModel):
     """Une unité littéraire qui couvre le passage demandé — son nom et pourquoi ces bornes."""
 
@@ -333,6 +360,10 @@ class PassageDetailView(BaseModel):
     couples: list[CoupleView]
     resisting_elsewhere: list[ResistingElsewhereView]
 
+    #: Les mots de l'original. **Vide sur l'Ancien Testament** tant que l'hébreu n'est pas
+    #: semé — un état normal, qui se voit plutôt qu'il ne se devine.
+    original: list[OriginalWordView]
+
     @classmethod
     def from_dto(cls, dto) -> PassageDetailView:
         return cls(
@@ -381,5 +412,12 @@ class PassageDetailView(BaseModel):
                     reference=_borne(s.bounds), label=s.label, rationale=s.rationale
                 )
                 for s in dto.resisting_elsewhere
+            ],
+            original=[
+                OriginalWordView(
+                    reference=r, position=p, surface=s, lemma=lem,
+                    pos=nature(nat), morphology=decrire(par), parsing=par,
+                )
+                for r, p, s, lem, nat, par in dto.original
             ],
         )

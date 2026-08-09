@@ -201,6 +201,18 @@ class PassageDetailDTO:
     couples: tuple[Feasibility, ...] = ()
     resisting_elsewhere: tuple[BearingSite, ...] = ()
 
+    #: ⚠️ **L'original, verset par verset** — `(référence, position, surface, lemme, nature,
+    #: parsing)`, le parsing en code brut.
+    #:
+    #: C'est ce qui donne un sens au clic : `Ἀγαπήσεις` dans Luc 10:27 est un **futur de
+    #: l'indicatif**, donc « tu aimeras » — et non l'impératif qu'on prêche d'ordinaire. Aucun
+    #: modèle n'intervient : les 137 554 mots viennent de MorphGNT, et le décodage du code est
+    #: une table.
+    #:
+    #: **Vide sur l'Ancien Testament**, tant que l'hébreu n'est pas semé. Un état normal, et
+    #: qui se voit.
+    original: tuple[tuple[str, int, str, str, str, str], ...] = ()
+
 
 class StudyRepository(Protocol):
     async def add(self, record: PreparationRecord) -> None: ...
