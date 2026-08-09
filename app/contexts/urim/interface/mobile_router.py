@@ -17,7 +17,7 @@ irait contre la règle qui veut qu'une citation projetée soit vérifiée.
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
@@ -26,6 +26,7 @@ from app.contexts.urim.interface.schemas import (
     DecisionBody,
     ElementsBody,
     OpenStudyBody,
+    PassageDetailView,
     StudyView,
 )
 
@@ -105,3 +106,25 @@ async def set_elements(
         ],
     )
     return StudyView.from_dto(dto)
+
+
+@router.get(
+    "/tenants/{tenant_id}/passages",
+    response_model=PassageDetailView,
+    summary="En savoir plus sur un passage — sans ouvrir de préparation",
+)
+async def explorer_passage(
+    tenant_id: UUID,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    ref: str = Query(min_length=2, max_length=80, examples=["Luc 10:25-37"]),
+) -> PassageDetailView:
+    """Le pasteur à qui l'on propose six passages veut les ouvrir **avant** de choisir.
+
+    Jusqu'ici il fallait en ouvrir une préparation pour lire les pesées et les mises en garde :
+    donc réserver, écrire, et s'engager sur un texte qu'on voulait seulement regarder. Cette
+    route est en lecture pure — on peut l'appeler six fois de suite sans conséquence."""
+    dto = await service.explorer(
+        actor_account_id=actor.account_id, church_id=tenant_id, reference=ref
+    )
+    return PassageDetailView.from_dto(dto)

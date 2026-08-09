@@ -170,4 +170,7 @@ def _motif(
 
 
 def _option(pesee: AxisBearing) -> Option:
-    return Option(code=pesee.axis_code, label=pesee.label, rationale=pesee.rationale)
+    return Option(
+        code=pesee.axis_code, label=pesee.label, rationale=pesee.rationale,
+        origin="curation",
+    )

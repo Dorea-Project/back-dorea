@@ -56,6 +56,17 @@ ECART_NET = 0.25
 
 _MODES_RESOLUS = (EntryMode.REFERENCE, EntryMode.CITATION)
 
+#: ⚠️ **Deux provenances qui ne valent pas la même chose, et qui se ressemblaient à l'écran.**
+#:
+#: `lettre` — trouvé parce que vos mots figurent dans le verset. Excellent sur une vraie
+#: citation (« aucune condamnation » → Romains 8:1), trompeur sur un sujet : « l'amour du
+#: prochain » rendait Jean 5:42 pour un mot partagé.
+#:
+#: `sens` — proposé parce que le passage **traite** le sujet. Le client peut ainsi les grouper
+#: au lieu de deviner la provenance depuis la forme du motif.
+ORIGINE_LETTRE = "lettre"
+ORIGINE_SENS = "sens"
+
 
 class ResolvePassage:
     """Le deuxième étage. Il écarte des faits, il ne tranche que devant un vrai choix."""
@@ -258,7 +269,10 @@ def _refus_de_reference(ecartes: Sequence[str]) -> str:
 
 def _option_de(reference: Reference, motif: str = "") -> Option:
     dit = _dire(reference)
-    return Option(code=dit, label=dit, rationale=motif or f"Résoudre sur {dit}.")
+    return Option(
+        code=dit, label=dit, rationale=motif or f"Résoudre sur {dit}.",
+        origin=ORIGINE_LETTRE,
+    )
 
 
 #: Le code qui **rouvre les dix loci** depuis le chemin citation.
@@ -275,7 +289,10 @@ def _option_proposee(propose) -> Option:
     Sans le motif, le pasteur choisirait sur la seule réputation d'une référence, ce qui est
     exactement la façon dont on cite mal."""
     dit = _dire(propose.reference)
-    return Option(code=dit, label=dit, rationale=propose.rationale or "Traite ce sujet.")
+    return Option(
+        code=dit, label=dit, rationale=propose.rationale or "Traite ce sujet.",
+        origin=ORIGINE_SENS,
+    )
 
 
 def _pas_une_citation() -> Option:
@@ -283,6 +300,7 @@ def _pas_une_citation() -> Option:
         code=PAS_UNE_CITATION,
         label="Ce n'est pas une citation, c'est mon sujet",
         rationale="Rouvre les dix loci — vous désignez l'angle, le moteur cherche les textes.",
+        origin="entree",
     )
 
 

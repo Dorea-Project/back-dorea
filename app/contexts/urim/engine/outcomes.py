@@ -32,6 +32,18 @@ class Option:
     label: str
     rationale: str  # pourquoi cette option est proposée
 
+    #: ⚠️ **D'où vient cette proposition** — parce que deux options côte à côte ne valent pas
+    #: la même chose.
+    #:
+    #: « Jean 5:42 partage 1 des mots rares de la saisie » et « Parabole du bon Samaritain,
+    #: illustrant qui est notre prochain » arrivaient dans la même liste, avec la même
+    #: apparence. La première est trouvée sur des mots, la seconde sur le sens ; les présenter
+    #: identiques laisse le pasteur croire qu'elles ont été trouvées de la même façon.
+    #:
+    #: Le client peut ainsi les grouper — *trouvés dans vos mots* / *traitent votre sujet* —
+    #: sans avoir à deviner la provenance depuis la forme du motif.
+    origin: str = "moteur"
+
 
 @dataclass(frozen=True, slots=True)
 class StageResult:

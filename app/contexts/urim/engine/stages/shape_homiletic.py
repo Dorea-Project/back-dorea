@@ -165,4 +165,5 @@ def _option(couple: Feasibility) -> Option:
         code=f"{couple.plan_source}:{couple.subject_matter}",
         label=f"{couple.plan_source} x {couple.subject_matter}",
         rationale=f"Risque de proof-texting : {couple.proof_text_risk}.",
+        origin="curation",
     )

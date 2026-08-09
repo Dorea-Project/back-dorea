@@ -137,7 +137,10 @@ class BoundPericope:
             state=state,
             options=(
                 _option_unite(unite),
-                Option(code=TEL_QUEL, label="Mes bornes", rationale=_COUT_DU_TEL_QUEL),
+                Option(
+                    code=TEL_QUEL, label="Mes bornes",
+                    rationale=_COUT_DU_TEL_QUEL, origin="bornage",
+                ),
             ),
         )
 
@@ -163,6 +166,7 @@ class BoundPericope:
                         "Un sermon expositif sur l'ensemble — les unités restent distinctes "
                         "dans le texte, c'est le plan qui les tient."
                     ),
+                    origin="bornage",
                 ),
             ),
         )
@@ -229,4 +233,7 @@ def _bornes_de(reference: Reference) -> Bounds:
 
 
 def _option_unite(unite: PericopeView) -> Option:
-    return Option(code=str(unite.id), label=unite.label, rationale=unite.rationale)
+    return Option(
+        code=str(unite.id), label=unite.label, rationale=unite.rationale,
+        origin="curation",
+    )

@@ -24,6 +24,7 @@ from app.contexts.urim.application.ports import (
     AssistedResolver,
     ElementRecord,
     NullVerseResolver,
+    PassageDetailDTO,
     PreacherAuthorization,
     PreparationRecord,
     ReservationPort,
@@ -419,6 +420,87 @@ class UrimStudyService:
         await self.studies.set_elements(study_id, list(elements))
         return await self._rejouer(record, persist=False)
 
+    # -- exploration ------------------------------------------------------------
+
+    async def explorer(
+        self, *, actor_account_id: UUID, church_id: UUID, reference: str
+    ) -> PassageDetailDTO:
+        """**En savoir plus sur un passage, sans s'engager dessus.**
+
+        Le pasteur à qui l'on propose six passages veut les ouvrir avant de choisir : ce qu'ils
+        portent, ce sur quoi les traditions divergent, ce que les manuscrits disent. Jusqu'ici
+        il fallait *ouvrir une préparation* pour lire tout cela — donc réserver, écrire, et
+        s'engager sur un texte qu'on voulait seulement regarder.
+
+        ⚠️ **Lecture pure.** Aucune écriture, aucune réservation, aucun appel de modèle : tout
+        est déjà dans l'index. C'est ce qui permet de l'appeler six fois de suite sans
+        conséquence, et c'est la raison pour laquelle cette route ne passe pas par le moteur.
+
+        ⚠️ **Les DIX pesées, `absent` compris.** L'écran de préparation n'affiche que ce qui
+        porte ; ici on montre tout, parce qu'un locus marqué `absent` est une information — un
+        relecteur a regardé et le texte n'en dit rien — et qu'un locus manquant en est une
+        autre : personne n'a regardé. Les confondre est précisément ce que `reviewed_by`
+        existe pour empêcher."""
+        await self._ensure_preacher(actor_account_id, church_id)
+
+        ref = self._reference_depuis_libelle(reference.strip())
+        if ref is None:
+            raise OptionInconnueError(f"« {reference} » ne désigne aucun passage connu.")
+        if not IndexedCorpusReader(self.index).check_reference(ref).exists:
+            raise OptionInconnueError(f"« {reference} » n'existe pas dans ce corpus.")
+
+        # ⚠️ **Une seule unité, ou aucune curation attachée.**
+        #
+        # `pericopes_for` rend toutes les unités qui *chevauchent* la demande. Je prenais la
+        # première : « Luc 10:25-37 » rendait alors les quatre versets du dialogue avec le
+        # docteur de la loi, et les pesées de cette unité-là — sans le bon Samaritain, et sans
+        # que rien ne le signale. Un écran d'étude qui montre silencieusement autre chose que
+        # ce qu'on a demandé est pire qu'un écran vide.
+        #
+        # Quand plusieurs unités couvrent la demande, la curation ne s'attache donc à aucune :
+        # elles sont **nommées**, et le pasteur ouvre celle qu'il veut lire.
+        unites = list(IndexedCorpusReader(self.index).pericopes_for(ref))
+        seule = unites[0] if len(unites) == 1 else None
+        unite = next(
+            (p for p in self.index.pericopes if seule and p.id == seule.id), None
+        )
+        pid = unite.id if unite else None
+
+        etat = StudyState(
+            session_id=uuid4(), church_id=church_id, author_id=actor_account_id,
+            corpus_snapshot=self.index.snapshot, raw_input=reference,
+            # `entry_mode` est requis par l'état mais n'a **aucun sens ici** : personne n'entre,
+            # on regarde. `REFERENCE` est le plus proche du geste — un passage désigné — et
+            # aucun étage ne le lira, puisque le moteur n'est pas appelé.
+            entry_mode=EntryMode.REFERENCE,
+            resolved=ref,
+            # **Le texte demandé, pas celui de l'unité.** On regarde ce qu'on a désigné.
+            bounds=Bounds(start=ref, end=ref),
+            pericope_id=pid,
+        )
+        servis, variantes = self._texte_servi(etat)
+
+        return PassageDetailDTO(
+            reference=_afficher(ref) or reference,
+            units=tuple(
+                (str(u.id), u.label, _afficher(u.bounds.start) or "", u.rationale)
+                for u in unites
+            ),
+            pericope_id=pid,
+            pericope_label=(unite.label or None) if unite else None,
+            pericope_rationale=unite.rationale if unite else None,
+            reviewed_by=(unite.reviewed_by or None) if unite else None,
+            verses=servis,
+            variants=variantes,
+            bearings=self.index.bearings.get(pid, ()),
+            caveats=self.index.caveats.get(pid, ()),
+            context=self.index.notes.get(pid, ()),
+            couples=self.index.couples.get(pid, ()),
+            resisting_elsewhere=_resistent_ailleurs(
+                self.index, self.index.dominant.get(pid) if pid else None, pid
+            ),
+        )
+
     async def _passages_verifies(self, saisie: str) -> tuple[PassageSuggestion, ...]:
         """Les passages proposés par le sens, **vérifiés un par un contre les 31 170 versets**.
 
@@ -638,7 +720,8 @@ class UrimStudyService:
             rationale=dernier.rationale if dernier else "",
             trace=tuple((e.stage_code, e.rationale) for e in final.trace),
             options=tuple(
-                (o.code, o.label, o.rationale) for o in (dernier.options if dernier else ())
+                (o.code, o.label, o.rationale, o.origin)
+                for o in (dernier.options if dernier else ())
             ),
             elements=tuple(await self.studies.list_elements(record.id)),
             # Le mode **retenu par le moteur**, pas la colonne : elle reste vide tant que le

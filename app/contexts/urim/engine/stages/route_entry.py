@@ -276,6 +276,7 @@ def _reformuler() -> Option:
         code=REFORMULER,
         label="Ce n'est pas ça",
         rationale="Rouvre la saisie sans rien conserver de ce qui a été entendu.",
+        origin="entree",
     )
 
 
@@ -286,7 +287,10 @@ def _la_lecture(detecte: EntryMode, motif: str) -> tuple[Option, ...]:
     disait « ce que vous aviez indiqué ». Le pasteur n'indique plus rien : proposer un choix
     entre le détecté et un défaut fantôme fabriquerait une alternative qui n'existe pas."""
     return (
-        Option(code=detecte.value, label=_LIBELLES[detecte].capitalize(), rationale=motif),
+        Option(
+            code=detecte.value, label=_LIBELLES[detecte].capitalize(),
+            rationale=motif, origin="entree",
+        ),
     )
 
 

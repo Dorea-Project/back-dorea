@@ -59,9 +59,24 @@ class TraceEntryView(BaseModel):
 
 
 class OptionView(BaseModel):
+    """⚠️ `origin` dit **d'où vient la proposition** — deux options côte à côte ne valent pas
+    la même chose.
+
+    « Jean 5:42 partage 1 des mots rares » et « Parabole du bon Samaritain, illustrant qui est
+    notre prochain » arrivaient dans la même liste avec la même apparence. Groupez-les :
+
+        lettre    trouvé parce que vos mots figurent dans le verset
+        sens      proposé parce que le passage traite votre sujet
+        curation  lu dans le corpus relu — unité, pesée, couple plan x matière
+        locus     l'un des dix loci de la dogmatique
+        bornage   un choix de bornes (« mes bornes », « le tout en un seul »)
+        entree    une correction de lecture (« ce n'est pas ça », « c'est mon sujet »)
+        moteur    défaut"""
+
     code: str
     label: str
     rationale: str
+    origin: str
 
 
 class ElementView(BaseModel):
@@ -206,7 +221,8 @@ class StudyView(BaseModel):
             rationale=dto.rationale,
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
             options=[
-                OptionView(code=c, label=lib, rationale=m) for c, lib, m in dto.options
+                OptionView(code=c, label=lib, rationale=m, origin=o)
+                for c, lib, m, o in dto.options
             ],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,
@@ -261,4 +277,109 @@ class StudyView(BaseModel):
             ],
             corpus_snapshot=r.corpus_snapshot,
             corpus_drifted=dto.corpus_drifted,
+        )
+
+
+class UnitRefView(BaseModel):
+    """Une unité littéraire qui couvre le passage demandé — son nom et pourquoi ces bornes."""
+
+    id: str
+    label: str
+    reference: str
+    rationale: str
+
+
+class PassageDetailView(BaseModel):
+    """**En savoir plus sur un passage**, sans ouvrir de préparation.
+
+    Le pasteur à qui l'on propose six passages veut les ouvrir avant de choisir : ce qu'ils
+    portent, ce sur quoi les traditions divergent, ce que disent les manuscrits. Lecture pure —
+    aucune écriture, aucune réservation, aucun appel de modèle.
+
+    ⚠️ **Les DIX pesées ici, `absent` compris**, alors que `StudyView` n'affiche que ce qui
+    porte. Un locus `absent` dit *quelqu'un a regardé et le texte n'en dit rien* ; un locus
+    manquant dit *personne n'a regardé*. Ce sont des choses opposées, et c'est l'écran d'étude
+    qui doit les distinguer.
+
+    ⚠️ **Il n'y a pas de langue originale, et ce n'est pas un oubli.** `urim_corpus_lemma` et
+    `urim_corpus_token` existent au schéma et sont vides : ni hébreu, ni grec, ni morphologie
+    dans ce corpus. Le plus proche est `variants`, qui porte les familles de manuscrits — ce que
+    le Texte Reçu ajoute là où les éditions critiques se taisent. Servir une glose inventée à la
+    place serait pire que le silence."""
+
+    reference: str
+
+    #: Toutes les unités qui couvrent la demande. **Plus d'une** signifie que le passage
+    #: chevauche plusieurs unités littéraires : la curation ci-dessous reste alors vide, et
+    #: c'est au pasteur d'ouvrir celle qu'il veut lire.
+    units: list[UnitRefView]
+
+    #: L'unité littéraire qui couvre ce passage, si elle existe — avec **qui l'a signée**.
+    pericope_id: UUID | None
+    pericope_label: str | None
+    #: Pourquoi ces bornes-là. C'est la phrase que le pasteur lit pour vous contredire.
+    pericope_rationale: str | None
+    reviewed_by: str | None
+
+    verses: list[VerseView]
+    #: Le plus proche de « la traduction originale » que ce corpus sache dire.
+    variants: list[VariantView]
+    #: Les dix, `absent` compris — voir l'avertissement ci-dessus.
+    bearings: list[BearingView]
+    #: Ce que le texte NE dit PAS. Le confessionnel nomme les traditions qui divergent, et la
+    #: formulation reste « ici les traditions divergent », jamais « votre tradition dit X ».
+    caveats: list[str]
+    context: list[ContextView]
+    couples: list[CoupleView]
+    resisting_elsewhere: list[ResistingElsewhereView]
+
+    @classmethod
+    def from_dto(cls, dto) -> PassageDetailView:
+        return cls(
+            reference=dto.reference,
+            units=[
+                UnitRefView(id=i, label=lab, reference=r, rationale=m)
+                for i, lab, r, m in dto.units
+            ],
+            pericope_id=dto.pericope_id,
+            pericope_label=dto.pericope_label,
+            pericope_rationale=dto.pericope_rationale,
+            reviewed_by=dto.reviewed_by,
+            verses=[VerseView(reference=v.reference, text=v.text) for v in dto.verses],
+            variants=[
+                VariantView(
+                    reference=v.reference, body=v.body,
+                    doctrinal_weight=v.doctrinal_weight, note=v.note,
+                    families_with=list(v.families_with),
+                    families_without=list(v.families_without),
+                    source_ref=v.source_ref,
+                )
+                for v in dto.variants
+            ],
+            bearings=[
+                BearingView(
+                    axis_code=b.axis_code, label=b.label,
+                    strength=b.strength, rationale=b.rationale,
+                )
+                for b in dto.bearings
+            ],
+            caveats=list(dto.caveats),
+            context=[
+                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref)
+                for c in dto.context
+            ],
+            couples=[
+                CoupleView(
+                    plan_source=c.plan_source, subject_matter=c.subject_matter,
+                    feasible=c.feasible, refusal_reason=c.refusal_reason,
+                    proof_text_risk=c.proof_text_risk,
+                )
+                for c in dto.couples
+            ],
+            resisting_elsewhere=[
+                ResistingElsewhereView(
+                    reference=_borne(s.bounds), label=s.label, rationale=s.rationale
+                )
+                for s in dto.resisting_elsewhere
+            ],
         )

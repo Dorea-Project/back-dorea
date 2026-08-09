@@ -113,7 +113,9 @@ class StudyDTO:
     outcome: str
     rationale: str
     trace: tuple[tuple[str, str], ...] = ()
-    options: tuple[tuple[str, str, str], ...] = ()
+    #: `(code, label, rationale, origin)` — la provenance voyage avec l'option, sinon le
+    #: client la devine depuis la forme du motif, ce qui marche jusqu'au jour où non.
+    options: tuple[tuple[str, str, str, str], ...] = ()
     elements: tuple[ElementRecord, ...] = ()
     resolved_label: str | None = None
 
@@ -156,6 +158,48 @@ class StudyDTO:
     #: Vrai quand le corpus a bougé depuis l'ouverture — la trace affichée n'est plus
     #: celle qui a été produite ce jour-là, et le pasteur doit le savoir.
     corpus_drifted: bool = False
+
+
+@dataclass(slots=True)
+class PassageDetailDTO:
+    """**Tout ce que le corpus sait d'un passage**, lu sans ouvrir de préparation.
+
+    Le pasteur à qui l'on propose six passages veut les ouvrir avant de choisir. Jusqu'ici il
+    fallait en ouvrir une pour lire les pesées et les mises en garde — donc réserver, écrire, et
+    s'engager sur un texte qu'on voulait seulement regarder.
+
+    ⚠️ **Les DIX pesées, `absent` compris.** L'écran de préparation n'affiche que ce qui porte ;
+    ici on montre tout. Un locus marqué `absent` dit *quelqu'un a regardé, le texte n'en dit
+    rien* ; un locus manquant dit *personne n'a regardé*. Ce sont des choses opposées.
+
+    ⚠️ **La langue originale n'y est pas, et ce n'est pas un oubli.** `urim_corpus_lemma` et
+    `urim_corpus_token` existent au schéma et sont **vides** : il n'y a ni hébreu, ni grec, ni
+    morphologie dans ce corpus. Ce qui s'en rapproche le plus est `variants`, qui porte les
+    familles de manuscrits. Servir une glose inventée à la place serait pire que le silence."""
+
+    reference: str
+
+    #: ⚠️ **Toutes les unités qui couvrent la demande**, et pas seulement celle qu'on a retenue.
+    #:
+    #: « Luc 10:25-37 » en chevauche deux : le dialogue avec le docteur de la loi, et le bon
+    #: Samaritain. Je prenais la première en silence — le pasteur recevait quatre versets et les
+    #: pesées d'un texte qu'il n'avait pas demandé. Quand il y en a plusieurs, la curation ne
+    #: s'attache à aucune ; elles sont nommées, et il ouvre celle qu'il veut lire.
+    #:
+    #: `(id, libellé, référence, motif)`.
+    units: tuple[tuple[str, str, str, str], ...] = ()
+
+    pericope_id: UUID | None = None
+    pericope_label: str | None = None
+    pericope_rationale: str | None = None
+    reviewed_by: str | None = None
+    verses: tuple[VerseServed, ...] = ()
+    variants: tuple[VariantSeen, ...] = ()
+    bearings: tuple[AxisBearing, ...] = ()
+    caveats: tuple[str, ...] = ()
+    context: tuple[ContextNote, ...] = ()
+    couples: tuple[Feasibility, ...] = ()
+    resisting_elsewhere: tuple[BearingSite, ...] = ()
 
 
 class StudyRepository(Protocol):

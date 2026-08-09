@@ -119,6 +119,7 @@ class WeighConviction:
                         else "Disponible — c'est vous qui savez ce que vous prêchez."
                     )
                 ),
+                origin="locus",
             )
             for axe in axes
         )
@@ -154,6 +155,7 @@ class WeighConviction:
                             code=_dire_reference(p.reference),
                             label=_dire_reference(p.reference),
                             rationale=p.rationale or "Traite cet axe.",
+                            origin="sens",
                         )
                         for p in state.suggested_passages
                     ),
