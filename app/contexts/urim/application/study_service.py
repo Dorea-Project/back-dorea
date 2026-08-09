@@ -44,6 +44,7 @@ from app.contexts.urim.engine.deps import (
 )
 from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.pipeline import UrimEngine
+from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import REFORMULER
 from app.contexts.urim.engine.state import (
     Bounds,
@@ -259,6 +260,16 @@ class UrimStudyService:
             return
 
         if stage == "resolve_passage":
+            if option == PAS_UNE_CITATION:
+                # ⚠️ **La sortie du chemin citation.** « L'amour du prochain » est un thème
+                # écrit en mots bibliques : l'étage 0 y voit un recouvrement fort, l'étage 1
+                # aligne cinq versets, et le pasteur n'avait aucun moyen de dire qu'il
+                # n'avait jamais cité. Le mode est corrigé et le pipeline rejoué depuis le
+                # début — c'est une correction d'entrée, pas une résolution de passage, d'où
+                # l'écriture sur `entry_mode` et non sur `resolved_ref`.
+                record.entry_mode = EntryMode.CONVICTION.value
+                record.resolved_ref = None
+                return
             ref = self._reference_depuis_libelle(option)
             if ref is None:
                 raise OptionInconnueError(f"« {option} » ne désigne aucun passage connu.")

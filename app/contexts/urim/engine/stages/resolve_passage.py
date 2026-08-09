@@ -157,18 +157,33 @@ class ResolvePassage:
                 state=state.with_(resolved=gagnant.reference),
             )
 
-        # **La conflation de mémoire.** Aucun ne ressort : ce n'est pas un échec de recherche,
-        # c'est ce que le pasteur a fait sans le savoir — et le lui dire vaut mieux que
-        # « introuvable ».
+        # ⚠️ **Le motif dit ce que le MOTEUR a trouvé, jamais ce que la mémoire du pasteur
+        # aurait fait.**
+        #
+        # Il disait : *« votre mémoire a probablement fusionné plusieurs passages »*. Sur une
+        # vraie conflation, c'est juste et utile. Mais « l'amour du prochain » est un thème
+        # écrit en trois mots bibliques, et le pasteur s'entendait reprocher un défaut de
+        # mémoire qu'il n'avait pas commis — pendant que le moteur, lui, avait mal lu la
+        # saisie. Le moteur ne peut pas distinguer les deux cas ; il ne doit donc affirmer
+        # que ce qu'il voit : plusieurs textes à égalité.
+        #
+        # Et il faut une **sortie**. Cinq candidats sans porte de secours enferment dans le
+        # chemin citation quelqu'un qui n'a jamais cité : `entry:conviction` rouvre les dix
+        # loci, et c'est la seule option de cette liste qui ne prétend pas connaître son
+        # intention.
         return StageResult(
             outcome=Outcome.AWAIT,
             rationale=(
-                "Aucun texte ne ressort nettement — votre mémoire a probablement fusionné "
-                "plusieurs passages. Les voici."
+                "Plusieurs textes portent cette formulation à égalité — aucun ne se détache. "
+                "Lequel visiez-vous ? Si c'est votre sujet et non une citation, dites-le."
             ),
             state=state,
-            options=tuple(
-                _option_de(candidat.reference, candidat.rationale) for candidat in candidats
+            options=(
+                *(
+                    _option_de(candidat.reference, candidat.rationale)
+                    for candidat in candidats
+                ),
+                _pas_une_citation(),
             ),
         )
 
@@ -213,6 +228,22 @@ def _refus_de_reference(ecartes: Sequence[str]) -> str:
 def _option_de(reference: Reference, motif: str = "") -> Option:
     dit = _dire(reference)
     return Option(code=dit, label=dit, rationale=motif or f"Résoudre sur {dit}.")
+
+
+#: Le code qui **rouvre les dix loci** depuis le chemin citation.
+#:
+#: Il porte le préfixe `entry:` parce qu'il ne désigne pas un passage : c'est une correction du
+#: mode d'entrée, appliquée à l'étage 0. Sans lui, une saisie thématique faite de mots bibliques
+#: — « l'amour du prochain », « la crainte de Dieu » — partait en citation et n'en revenait pas.
+PAS_UNE_CITATION = "entry:conviction"
+
+
+def _pas_une_citation() -> Option:
+    return Option(
+        code=PAS_UNE_CITATION,
+        label="Ce n'est pas une citation, c'est mon sujet",
+        rationale="Rouvre les dix loci — vous désignez l'angle, le moteur cherche les textes.",
+    )
 
 
 # --- Les deux comparaisons --------------------------------------------------------------------

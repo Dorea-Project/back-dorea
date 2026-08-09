@@ -26,7 +26,7 @@ from app.contexts.urim.engine import (
     StudyState,
 )
 from app.contexts.urim.engine.errors import StagePrerequisiteError
-from app.contexts.urim.engine.stages.resolve_passage import ECART_NET
+from app.contexts.urim.engine.stages.resolve_passage import ECART_NET, PAS_UNE_CITATION
 
 ROM_8_1 = Reference(book="Romains", chapter=8, verse_start=1)
 ROM_8_34 = Reference(book="Romains", chapter=8, verse_start=34)
@@ -190,11 +190,14 @@ def test_une_citation_reconnue_nettement_passe_sans_rien_demander():
     assert resultat.state.resolved == ROM_8_1
 
 
-def test_deux_textes_qui_se_valent_disent_au_pasteur_que_sa_memoire_a_fusionne():
-    """**Le mode de défaillance EST le diagnostic.**
+def test_deux_textes_qui_se_valent_disent_ce_que_le_moteur_voit_pas_ce_que_le_pasteur_a_fait():
+    """⚠️ **Le motif dit ce que le moteur a trouvé, jamais ce que la mémoire du pasteur a fait.**
 
-    Aucun ne ressort : ce n'est pas un échec de recherche, c'est ce que le pasteur a fait sans le
-    savoir. Répondre « introuvable » perdrait l'information la plus utile de tout l'étage."""
+    Il disait *« votre mémoire a probablement fusionné plusieurs passages »*. Sur une vraie
+    conflation c'est juste et utile — mais rien ici ne distingue une conflation d'un **thème
+    écrit en mots bibliques**. « L'amour du prochain » alignait cinq versets, et le pasteur
+    s'entendait reprocher un défaut de mémoire qu'il n'avait pas commis pendant que le moteur,
+    lui, avait mal lu la saisie."""
     corpus = _Corpus(
         citations=(
             CitationCandidate(reference=ROM_8_1, score=0.52, rationale="première moitié"),
@@ -205,8 +208,30 @@ def test_deux_textes_qui_se_valent_disent_au_pasteur_que_sa_memoire_a_fusionne()
     resultat = _executer(_state(EntryMode.CITATION, "aucune condamnation qui intercede"), corpus)
 
     assert resultat.outcome is Outcome.AWAIT
-    assert "fusionn" in resultat.rationale
-    assert _codes(resultat) == ["Romains 8:1", "Romains 8:34"]
+    assert "à égalité" in resultat.rationale
+    assert "mémoire" not in resultat.rationale
+    assert _codes(resultat)[:2] == ["Romains 8:1", "Romains 8:34"]
+
+
+def test_une_sortie_du_chemin_citation_est_toujours_offerte():
+    """**Cinq candidats sans porte de secours enferment celui qui n'a jamais cité.**
+
+    Le pasteur qui tape son sujet en mots bibliques n'avait aucun moyen de le dire : l'étage 0
+    voyait un recouvrement fort, l'étage 1 alignait des versets, et le chemin de l'intention
+    restait inatteignable. L'option rouvre les dix loci — c'est la seule de la liste qui ne
+    prétend pas connaître ce qu'il visait."""
+    corpus = _Corpus(
+        citations=(
+            CitationCandidate(reference=ROM_8_1, score=0.52, rationale="première moitié"),
+            CitationCandidate(reference=ROM_8_34, score=0.48, rationale="seconde moitié"),
+        )
+    )
+
+    resultat = _executer(_state(EntryMode.CITATION, "l amour du prochain"), corpus)
+
+    assert PAS_UNE_CITATION in _codes(resultat)
+    # **En dernier, jamais en premier** : elle est la sortie, pas la réponse attendue.
+    assert _codes(resultat)[-1] == PAS_UNE_CITATION
 
 
 def test_seul_l_ensemble_vide_est_un_refus():
