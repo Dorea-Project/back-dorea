@@ -134,6 +134,31 @@ class WeighConviction:
     def _proposer_les_textes(self, state: StudyState, deps: EngineDeps) -> StageResult:
         sites = deps.doctrine.sites_for_axis(state.axis or "")
         if not sites:
+            # ⚠️ **Le plafond de la curation ne doit pas ressembler au silence de l'Écriture.**
+            #
+            # Le motif le disait déjà — *ce n'est pas que l'Écriture n'en dise rien* — mais il
+            # renvoyait quand même le pasteur les mains vides, en lui demandant d'entrer une
+            # référence qu'il serait venu chercher ici s'il l'avait eue. Quand le sens a
+            # proposé des passages, ils prennent la place du refus : rien n'est relu sur eux,
+            # et c'est dit.
+            if state.suggested_passages:
+                return StageResult(
+                    outcome=Outcome.AWAIT,
+                    rationale=(
+                        "Aucune unité relue ne porte cet axe dans ce corpus — ces passages le "
+                        "traitent, mais rien n'y a encore été pesé. Lequel travaillez-vous ?"
+                    ),
+                    state=state,
+                    options=tuple(
+                        Option(
+                            code=_dire_reference(p.reference),
+                            label=_dire_reference(p.reference),
+                            rationale=p.rationale or "Traite cet axe.",
+                        )
+                        for p in state.suggested_passages
+                    ),
+                )
+
             # Le plafond dur du corpus curé, **dit franchement** (S2, S3). Ce n'est pas une
             # panne : c'est une limite, et la taire laisserait croire que le texte n'existe
             # pas alors que c'est la relecture qui manque.
@@ -197,3 +222,15 @@ def _clause_de_risque(state: StudyState) -> str:
         " Formulation à forte charge : davantage de textes qui résistent sont affichés, "
         "et le risque de proof-texting sera relevé sur la mise en forme."
     )
+
+
+def _dire_reference(reference) -> str:
+    """La référence en clair — même forme que l'étage 1, pour que le code d'option soit
+    relisible par `_reference_depuis_libelle` quel que soit l'étage qui l'a émis."""
+    if reference.is_whole_book:
+        return reference.book
+    if reference.is_whole_chapter:
+        return f"{reference.book} {reference.chapter}"
+    if reference.verse_end and reference.verse_end != reference.verse_start:
+        return f"{reference.book} {reference.chapter}:{reference.verse_start}-{reference.verse_end}"
+    return f"{reference.book} {reference.chapter}:{reference.verse_start}"

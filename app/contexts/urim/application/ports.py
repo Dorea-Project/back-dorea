@@ -21,7 +21,7 @@ from app.contexts.urim.engine.deps import (
     ContextNote,
     Feasibility,
 )
-from app.contexts.urim.engine.state import AxisGloss, Reference
+from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 
 
 @dataclass(slots=True)
@@ -211,6 +211,14 @@ class AssistedResolver(Protocol):
         redescend par `StudyState.suggested_axes`."""
         ...
 
+    async def passages(self, text: str) -> tuple[PassageSuggestion, ...]:
+        """Les passages qui **traitent** le sujet — plusieurs, jamais un.
+
+        Ce que `resolve` a l'interdiction de faire, mais rendu inoffensif par la pluralité :
+        plusieurs références deviennent des options, et le pasteur tranche. Une seule serait
+        une résolution déguisée, qui refermerait la question avant qu'elle ne s'ouvre."""
+        ...
+
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque d'une intention — **l'effet, jamais l'état de l'auteur**."""
         ...
@@ -228,6 +236,9 @@ class NullVerseResolver:
         return None
 
     async def axes(self, text: str) -> tuple[AxisGloss, ...]:
+        return ()
+
+    async def passages(self, text: str) -> tuple[PassageSuggestion, ...]:
         return ()
 
     async def lever(self, text: str) -> tuple[str, ...]:

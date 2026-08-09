@@ -26,7 +26,7 @@ import json
 import re
 
 from app.contexts.urim.application.ports import NullVerseResolver
-from app.contexts.urim.engine.state import AxisGloss, Reference
+from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.core.config import Settings
 from app.core.logging import get_logger
 
@@ -93,6 +93,29 @@ _SYSTEME_AXES = (
     "sans réponse » se prêche, « Votre découragement » est un diagnostic et c'est interdit. "
     'Réponds par un objet JSON : {"loci": [{"code": "...", "titre": "...", "glose": "..."}]} '
     "avec zéro, un ou plusieurs de ces codes exactement. Aucun autre code."
+)
+
+#: ⚠️ **Plusieurs passages, jamais un seul** — c'est la différence avec `_SYSTEME_REFERENCE`.
+#:
+#: Là-bas, le modèle a interdiction de proposer un texte pour un sujet : il rendrait UNE
+#: référence que le moteur poserait comme résolue, et la question serait close avant d'être
+#: ouverte. Ici il en rend quatre à six, elles deviennent des options, et le pasteur tranche.
+#: Le pipeline reprend ensuite entier — pesées, mises en garde, textes qui résistent.
+#:
+#: La diversité demandée n'est pas cosmétique : quatre passages du même auteur sur le même
+#: ton confirmeraient une seule lecture, ce qui reviendrait à n'en proposer qu'une.
+_SYSTEME_PASSAGES = (
+    "Tu es bibliste. On te donne le sujet ou la formulation d'un pasteur qui prépare une "
+    "prédication. Propose 4 à 6 passages de la Bible Louis Segond qui TRAITENT ce sujet — pas "
+    "des versets isolés qui contiennent le mot, mais des unités qui en parlent vraiment. "
+    "EXIGENCE DE DIVERSITÉ : varie les livres, et l'Ancien et le Nouveau Testament quand le "
+    "sujet s'y prête. Si un passage COMPLIQUE le sujet au lieu de le confirmer, propose-le "
+    "aussi — c'est précieux. "
+    "Donne le nom du livre en français (Jean, Psaumes, Ésaïe, 1 Corinthiens) et des bornes "
+    "réelles. Ne fournis JAMAIS le texte : seulement la référence et une phrase disant ce que "
+    "ce passage apporte au sujet. "
+    'Réponds par un objet JSON : {"passages": [{"livre": "...", "chapitre": 13, "debut": 1, '
+    '"fin": 13, "motif": "..."}]}'
 )
 
 _LOCI_CONNUS = frozenset({
@@ -211,6 +234,47 @@ class MistralAssistant:
             vus.add(code)
             gloses.append(AxisGloss(code, titre[:80], glose[:200]))
         return tuple(gloses)
+
+    async def passages(self, text: str) -> tuple[PassageSuggestion, ...]:
+        """Les passages qui **traitent** le sujet — plusieurs, jamais un.
+
+        Un seul serait une résolution déguisée. La pluralité n'est donc pas une commodité
+        d'affichage : c'est ce qui maintient la décision du côté du pasteur."""
+        contenu = await self.demander(_SYSTEME_PASSAGES, text)
+        if not contenu:
+            return ()
+        bloc = re.search(r"\{.*\}", contenu, re.S)
+        if bloc is None:
+            return ()
+        try:
+            rendus = json.loads(bloc.group(0)).get("passages", [])
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(rendus, list):
+            return ()
+
+        proposes: list[PassageSuggestion] = []
+        for rendu in rendus:
+            if not isinstance(rendu, dict):
+                continue
+            livre, chapitre = rendu.get("livre"), rendu.get("chapitre")
+            if not isinstance(livre, str) or not isinstance(chapitre, int):
+                continue
+            debut, fin = rendu.get("debut"), rendu.get("fin")
+            motif = (rendu.get("motif") or "").strip()
+            proposes.append(PassageSuggestion(
+                Reference(
+                    livre.strip(),
+                    chapitre,
+                    debut if isinstance(debut, int) else None,
+                    fin if isinstance(fin, int) and isinstance(debut, int) else None,
+                ),
+                motif[:300],
+            ))
+
+        # **Un seul passage rendu n'en est pas un** : il aurait l'autorité d'une résolution
+        # sans en avoir passé les vérifications. On préfère ne rien proposer.
+        return tuple(proposes) if len(proposes) > 1 else ()
 
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque — **des marques de forme, jamais un sentiment**."""

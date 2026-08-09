@@ -91,6 +91,27 @@ class AxisGloss:
 
 
 @dataclass(frozen=True, slots=True)
+class PassageSuggestion:
+    """Un passage proposé **par le sens**, quand la lettre n'a rien trouvé.
+
+    ⚠️ **Ce n'est pas ce que `resolve()` a l'interdiction de faire, et la différence est
+    entière.** Un modèle qui rend UN verset pour un sujet, que le moteur pose ensuite comme
+    résolu, ferme la question avant qu'elle ne s'ouvre — c'est le proof-texting même, et
+    `_SYSTEME_REFERENCE` le refuse explicitement.
+
+    Ici il en rend **plusieurs**, ils arrivent comme des *options*, et le pasteur tranche. Une
+    fois son choix fait, le pipeline entier reprend : bornage, pesées, mises en garde, et les
+    textes qui **résistent**. La proposition n'abrège rien, elle donne un point de départ là où
+    il n'y avait qu'un refus.
+
+    `rationale` dit pourquoi ce passage traite le sujet — sans quoi le pasteur choisirait une
+    référence sur son seul nom, ce qui est précisément la façon dont on cite mal."""
+
+    reference: Reference
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
 class TraceEntry:
     """Le motif d'un étage — jamais vide (cf. `StageResult`)."""
 
@@ -161,6 +182,11 @@ class StudyState:
     #: discipline qui parle ; l'écran de l'intention parle, lui, la langue de celui qui écrit.
     #: Le `code` reste le locus, donc rien en aval ne s'aperçoit du changement.
     suggested_axes: tuple[AxisGloss, ...] = ()
+
+    #: Passages proposés **par le sens**, quand la lettre n'a rien trouvé — voir
+    #: `PassageSuggestion`. Ils ne résolvent rien : ils remplissent une liste d'options là où
+    #: le moteur rendait un refus.
+    suggested_passages: tuple[PassageSuggestion, ...] = ()
 
     #: Axes que le pasteur **refuse** explicitement (« mais je ne veux pas de X »), S18.
     #: Une contrainte négative ne refuse pas le texte : elle **ordonne les options de

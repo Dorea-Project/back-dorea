@@ -139,6 +139,31 @@ class ResolvePassage:
         candidats = list(deps.corpus.resolve_citation(mots))
 
         if not candidats:
+            # ⚠️ **Le refus devient une proposition dès que le sens a trouvé quelque chose.**
+            #
+            # La recherche par la lettre échoue sur tout ce qui n'est pas cité mot pour mot,
+            # c'est-à-dire sur la plupart des saisies réelles. Répondre « vérifiez la
+            # citation » à quelqu'un qui n'a jamais cité, c'est lui demander de corriger une
+            # faute qu'il n'a pas commise, et le laisser les mains vides.
+            #
+            # Ces passages ne **résolvent** rien : ils ouvrent une liste, et le pipeline entier
+            # reprend derrière le choix — bornage, pesées, mises en garde, textes qui
+            # résistent. C'est ce qui les distingue d'une résolution par le modèle, laquelle
+            # refermerait la question avant qu'elle ne s'ouvre.
+            if state.suggested_passages:
+                return StageResult(
+                    outcome=Outcome.AWAIT,
+                    rationale=(
+                        "Aucun texte ne reprend vos mots — mais ces passages traitent le "
+                        "sujet. Lequel voulez-vous travailler ?"
+                    ),
+                    state=state,
+                    options=(
+                        *(_option_proposee(p) for p in state.suggested_passages),
+                        _pas_une_citation(),
+                    ),
+                )
+
             # S2 — le seul cas de refus, et le motif fait tout le travail.
             return StageResult(
                 outcome=Outcome.REFUSE,
@@ -178,11 +203,17 @@ class ResolvePassage:
                 "Lequel visiez-vous ? Si c'est votre sujet et non une citation, dites-le."
             ),
             state=state,
+            # **Les propositions par le sens s'ajoutent, elles ne remplacent pas.** Les
+            # candidats lexicaux sont parfois les bons — « aucune condamnation » trouve
+            # vraiment Romains 8:1. Mais quand la saisie est un sujet, ils sont trouvés sur des
+            # mots partagés et non sur le sens : « l'amour du prochain » rendait Jean 5:42. Les
+            # deux listes cohabitent, et le pasteur voit d'où vient chaque proposition.
             options=(
                 *(
                     _option_de(candidat.reference, candidat.rationale)
                     for candidat in candidats
                 ),
+                *(_option_proposee(p) for p in state.suggested_passages),
                 _pas_une_citation(),
             ),
         )
@@ -236,6 +267,15 @@ def _option_de(reference: Reference, motif: str = "") -> Option:
 #: mode d'entrée, appliquée à l'étage 0. Sans lui, une saisie thématique faite de mots bibliques
 #: — « l'amour du prochain », « la crainte de Dieu » — partait en citation et n'en revenait pas.
 PAS_UNE_CITATION = "entry:conviction"
+
+
+def _option_proposee(propose) -> Option:
+    """Un passage proposé par le sens — **avec ce qu'il apporte, pas seulement son nom**.
+
+    Sans le motif, le pasteur choisirait sur la seule réputation d'une référence, ce qui est
+    exactement la façon dont on cite mal."""
+    dit = _dire(propose.reference)
+    return Option(code=dit, label=dit, rationale=propose.rationale or "Traite ce sujet.")
 
 
 def _pas_une_citation() -> Option:

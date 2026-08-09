@@ -43,6 +43,7 @@ from app.contexts.urim.engine.deps import (
     NullConvictionReader,
 )
 from app.contexts.urim.engine.normalizer import normalize
+from app.contexts.urim.engine.outcomes import Outcome
 from app.contexts.urim.engine.pipeline import UrimEngine
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import REFORMULER
@@ -50,6 +51,7 @@ from app.contexts.urim.engine.state import (
     Bounds,
     EntryMode,
     EntryOrigin,
+    PassageSuggestion,
     Reference,
     StudyState,
 )
@@ -139,6 +141,46 @@ def _resistent_ailleurs(index: CorpusIndex, axe: str | None, unite: UUID | None)
 def _livre_de(index: CorpusIndex, pericope_id: UUID) -> int:
     return next(
         (p.book_id for p in index.pericopes if p.id == pericope_id), -1
+    )
+
+
+#: Les deux étages dont le refus signifie « je n'ai pas trouvé », et non « voici un fait ».
+#:
+#: `resolve_passage` sur une citation : la recherche par la lettre n'a rien rendu. Et
+#: `weigh_conviction` : aucune unité relue ne porte l'axe. Les deux disent le même vide — celui
+#: du corpus, pas celui de la saisie —, et c'est ce vide-là qu'une proposition comble.
+_IMPASSES_DE_RECHERCHE = frozenset({"resolve_passage", "weigh_conviction"})
+
+
+def _est_une_impasse_de_recherche(run) -> bool:
+    """La recherche a-t-elle **échoué à trouver le sens**, ou rendu un fait sur la saisie ?
+
+    ⚠️ **Ce n'est pas seulement le refus.** J'avais d'abord gardé les deux `REFUSE` — « aucun
+    texte ne porte cette formulation » et « aucune unité relue ne porte cet axe ». Le second a
+    disparu tout seul le jour où les dix loci ont été pesés sur toute l'Écriture, et le premier
+    est presque inatteignable : une affinité assez forte pour router en citation implique
+    qu'un verset a été trouvé. Je visais deux portes dont l'une est murée et l'autre rare.
+
+    La vraie impasse est celle que le pasteur voit : **plusieurs candidats faibles**.
+    « L'amour du prochain » rendait cinq versets — dont Jean 5:42 — trouvés sur des mots
+    partagés et non sur le sens. Le moteur n'échouait pas bruyamment, il répondait à côté, ce
+    qui est pire parce que ça ressemble à une réponse.
+
+    Reste exclu : le chemin référence. « Je ne connais pas de livre nommé Zorobabel » est un
+    fait sur l'orthographe, et y répondre par des passages thématiques noierait la seule
+    information utile."""
+    if not run.results:
+        return False
+    verdict = run.results[-1].outcome
+    dernier = run.state.trace[-1].stage_code if run.state.trace else ""
+    if dernier not in _IMPASSES_DE_RECHERCHE:
+        return False
+    if dernier == "weigh_conviction":
+        return verdict is Outcome.REFUSE
+    # `resolve_passage` : la branche citation seulement, et **l'hésitation autant que le
+    # refus**. Rien n'est retiré — les candidats lexicaux restent, les passages s'ajoutent.
+    return run.state.entry_mode is EntryMode.CITATION and verdict in (
+        Outcome.REFUSE, Outcome.AWAIT,
     )
 
 
@@ -377,6 +419,25 @@ class UrimStudyService:
         await self.studies.set_elements(study_id, list(elements))
         return await self._rejouer(record, persist=False)
 
+    async def _passages_verifies(self, saisie: str) -> tuple[PassageSuggestion, ...]:
+        """Les passages proposés par le sens, **vérifiés un par un contre les 31 170 versets**.
+
+        ⚠️ M9-1, appliqué ici sans exception : *l'IA nomme la référence, la Segond donne le
+        texte*. Un modèle qui se trompe de bornes — Job 41 fait 34 versets chez lui, 25 en
+        Segond — proposerait un passage dont le texte n'existe pas, et le pasteur ne le
+        découvrirait qu'en l'ouvrant.
+
+        Une proposition qui tombe à un seul passage est **abandonnée** : elle aurait l'autorité
+        d'une résolution sans en avoir passé les vérifications, et c'est précisément le
+        proof-texting qu'on refuse."""
+        proposes = await self.resolver.passages(saisie)
+        lecteur = IndexedCorpusReader(self.index)
+        retenus = tuple(
+            propose for propose in proposes
+            if lecteur.check_reference(propose.reference).exists
+        )
+        return retenus if len(retenus) > 1 else ()
+
     # -- rejeu ------------------------------------------------------------------
 
     async def _rejouer(
@@ -475,9 +536,31 @@ class UrimStudyService:
                 self.resolver.lever(record.raw_input),
             )
             if loci or drapeaux:
-                run = moteur.run(
-                    etat.with_(suggested_axes=tuple(loci), risk_flags=tuple(drapeaux))
+                etat = etat.with_(
+                    suggested_axes=tuple(loci), risk_flags=tuple(drapeaux)
                 )
+                run = moteur.run(etat)
+
+        # ⚠️ **Le refus devient une proposition — mais seulement quand il y a refus.**
+        #
+        # Le moteur s'arrêtait sec dans deux cas : « aucun texte du corpus ne porte cette
+        # formulation », et « aucune unité relue ne porte cet axe ». Le premier arrive dès
+        # qu'on ne cite pas mot pour mot, le second sur presque tout l'Écriture. Dans les deux
+        # cas le pasteur repartait les mains vides.
+        #
+        # Le garde est le **verdict**, pas la saisie : on ne dépense un appel que sur un
+        # cul-de-sac avéré, et une préparation qui avance n'en déclenche jamais.
+        #
+        # ⚠️ **Deux étages seulement, et pas « tout refus ».** Ma première version prenait
+        # n'importe quel `REFUSE`, donc aussi « je ne connais pas de livre nommé Zorobabel » —
+        # à quoi elle aurait répondu par des passages thématiques. Or là, la bonne réponse est
+        # bien celle qu'on donne : le moteur ne connaît pas ce livre, et proposer autre chose
+        # noierait l'information au lieu de la servir. Un cul-de-sac de *recherche* appelle une
+        # proposition ; un fait sur l'orthographe, non.
+        if _est_une_impasse_de_recherche(run):
+            proposes = await self._passages_verifies(record.raw_input)
+            if proposes:
+                run = moteur.run(etat.with_(suggested_passages=proposes))
 
         final = run.state
         dernier = run.results[-1] if run.results else None
