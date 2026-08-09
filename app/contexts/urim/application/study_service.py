@@ -88,6 +88,59 @@ def _deserialiser(brut: str | None) -> Reference | None:
     )
 
 
+#: Combien de textes résistants on rapporte d'ailleurs. Trois : au-delà, la page devient une
+#: bibliographie et le pasteur n'en lit aucun — ce qui revient exactement à n'en montrer aucun.
+_RESISTANTS_MAX = 3
+
+
+def _resistent_ailleurs(index: CorpusIndex, axe: str | None, unite: UUID | None):
+    """Les **autres** unités qui compliquent l'axe retenu.
+
+    ⚠️ Ce n'est pas un « voir aussi ». C'est la seule chose qui empêche Urim d'être un moteur
+    de proof-texting sur le chemin référence : un pasteur qui tape « Romains 8 » a déjà son
+    idée, et il doit rencontrer 2 Corinthiens 12:7-10 — une écharde non retirée, trois prières
+    sans réponse, présentée comme une grâce.
+
+    Le chemin intention l'affichait depuis toujours (`sites_by_axis`), le chemin référence non.
+    Or c'est celui qui en a le plus besoin : l'intention cherche encore, la référence sait déjà.
+
+    L'unité courante est exclue — ce qu'elle complique elle-même est déjà dans `bearings`, et
+    l'y voir deux fois ferait douter de la première.
+
+    ⚠️ **La sélection est étalée sur le canon, pas prise au début.** `sites_by_axis` est trié
+    dans l'ordre canonique : prendre les trois premiers rendait 1 Chroniques 5, 9 et 10 — trois
+    chapitres voisins portant la même objection, et une fois toute l'Écriture pesée ce sera
+    toujours la Genèse. Un texte par livre, puis trois positions régulièrement espacées : le
+    pasteur reçoit une objection de la Loi, une des Prophètes, une des Épîtres.
+
+    Reste déterministe, donc rejouable — c'est la condition, et elle exclut tout tirage."""
+    if not axe:
+        return ()
+    resistants: list = []
+    livres: set[int] = set()
+    for site in index.sites_by_axis.get(axe, ()):
+        if site.strength != "resiste" or site.pericope_id == unite:
+            continue
+        # Un livre ne parle qu'une fois : trois chapitres voisins disent la même chose, et la
+        # répétition prend la place d'un texte qui aurait dit autre chose.
+        livre = _livre_de(index, site.pericope_id)
+        if livre in livres:
+            continue
+        livres.add(livre)
+        resistants.append(site)
+
+    if len(resistants) <= _RESISTANTS_MAX:
+        return tuple(resistants)
+    pas = (len(resistants) - 1) / (_RESISTANTS_MAX - 1)
+    return tuple(resistants[round(rang * pas)] for rang in range(_RESISTANTS_MAX))
+
+
+def _livre_de(index: CorpusIndex, pericope_id: UUID) -> int:
+    return next(
+        (p.book_id for p in index.pericopes if p.id == pericope_id), -1
+    )
+
+
 def _cle_provisoire(raw_input: str) -> str:
     """La clé de réservation **avant** de savoir sur quel texte on travaille.
 
@@ -484,6 +537,9 @@ class UrimStudyService:
             couples=self.index.couples.get(final.pericope_id, ()),
             pericope_label=unite.label or None if unite else None,
             pericope_reviewed_by=unite.reviewed_by or None if unite else None,
+            resisting_elsewhere=_resistent_ailleurs(
+                self.index, final.axis, final.pericope_id
+            ),
             outcome=str(dernier.outcome) if dernier else "continue",
             rationale=dernier.rationale if dernier else "",
             trace=tuple((e.stage_code, e.rationale) for e in final.trace),

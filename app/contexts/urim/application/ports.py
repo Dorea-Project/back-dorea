@@ -15,8 +15,13 @@ from datetime import date, datetime
 from typing import Protocol
 from uuid import UUID
 
-from app.contexts.urim.engine.deps import AxisBearing, ContextNote, Feasibility
-from app.contexts.urim.engine.state import Reference
+from app.contexts.urim.engine.deps import (
+    AxisBearing,
+    BearingSite,
+    ContextNote,
+    Feasibility,
+)
+from app.contexts.urim.engine.state import AxisGloss, Reference
 
 
 @dataclass(slots=True)
@@ -133,6 +138,18 @@ class StudyDTO:
     #: qui est exactement la confusion que la colonne existe pour empêcher.
     pericope_label: str | None = None
     pericope_reviewed_by: str | None = None
+
+    #: ⚠️ **Les textes qui résistent, venus d'AILLEURS** — et c'est le cœur de l'anti-proof-texting.
+    #:
+    #: `bearings` dit ce que *cette* unité complique ; ceci dit quelles *autres* unités
+    #: compliquent l'axe retenu. Un pasteur qui prépare Romains 8 sur la guérison doit
+    #: rencontrer 2 Corinthiens 12:7-10 — une écharde non retirée, trois prières sans réponse,
+    #: présentée comme une grâce.
+    #:
+    #: La donnée existait depuis le premier jour (`sites_by_axis`) et ne sortait que du chemin
+    #: intention. Le pasteur qui tape sa référence est pourtant celui qui a déjà son idée : il
+    #: en a plus besoin, pas moins.
+    resisting_elsewhere: tuple[BearingSite, ...] = ()
     #: Le mode **retenu par l'étage 0** — distinct de la colonne, qui ne porte qu'une
     #: correction du pasteur.
     entry_mode: str | None = None
@@ -185,7 +202,7 @@ class AssistedResolver(Protocol):
         """Le passage reconnu derrière une saisie que le déterministe n'a pas su lire."""
         ...
 
-    async def axes(self, text: str) -> tuple[str, ...]:
+    async def axes(self, text: str) -> tuple[AxisGloss, ...]:
         """Les loci qu'une intention touche — **annotation, jamais filtre**.
 
         Le port jumeau `ConvictionReader` prévoyait déjà cette lecture, mais il est synchrone
@@ -210,7 +227,7 @@ class NullVerseResolver:
     async def resolve(self, text: str) -> Reference | None:
         return None
 
-    async def axes(self, text: str) -> tuple[str, ...]:
+    async def axes(self, text: str) -> tuple[AxisGloss, ...]:
         return ()
 
     async def lever(self, text: str) -> tuple[str, ...]:

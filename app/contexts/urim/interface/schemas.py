@@ -101,6 +101,32 @@ class BearingView(BaseModel):
     rationale: str
 
 
+def _borne(bounds) -> str:
+    """« Livre ch:v-v » depuis des bornes — la référence que le pasteur ira ouvrir."""
+    debut, fin = bounds.start, bounds.end
+    if debut.verse_start is None:
+        return f"{debut.book} {debut.chapter}"
+    dernier = fin.verse_end or fin.verse_start
+    if fin.chapter != debut.chapter:
+        return f"{debut.book} {debut.chapter}:{debut.verse_start}-{fin.chapter}:{dernier}"
+    if dernier and dernier != debut.verse_start:
+        return f"{debut.book} {debut.chapter}:{debut.verse_start}-{dernier}"
+    return f"{debut.book} {debut.chapter}:{debut.verse_start}"
+
+
+class ResistingElsewhereView(BaseModel):
+    """Un texte d'AILLEURS qui complique l'axe retenu — **au même rang que ce qui le porte**.
+
+    C'est ce que `BearingView` ne peut pas dire : elle parle de l'unité qu'on prépare, pas de
+    celles qui la contredisent. Un pasteur préparant Romains 8 sur la guérison doit rencontrer
+    2 Corinthiens 12:7-10, et il ne le rencontrera pas tout seul — c'est précisément le texte
+    qu'on ne cherche pas quand on a déjà son idée."""
+
+    reference: str
+    label: str
+    rationale: str
+
+
 class ContextView(BaseModel):
     kind: str
     body: str
@@ -155,6 +181,8 @@ class StudyView(BaseModel):
     #: L'intitulé de l'unité littéraire retenue — il n'apparaissait que noyé dans le motif de
     #: l'étage 2, donc illisible pour un front qui veut l'afficher en titre.
     pericope_label: str | None
+    #: Les textes qui resistent, venus d'ailleurs — le garde-fou du chemin reference.
+    resisting_elsewhere: list[ResistingElsewhereView]
     #: ⚠️ **Qui a signé cette unité** — `ia-mistral` ou le nom d'un relecteur.
     #:
     #: C'est la contrepartie du découpage produit par le modèle, et elle n'est pas cosmétique :
@@ -183,6 +211,12 @@ class StudyView(BaseModel):
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,
             pericope_label=dto.pericope_label,
+            resisting_elsewhere=[
+                ResistingElsewhereView(
+                    reference=_borne(s.bounds), label=s.label, rationale=s.rationale
+                )
+                for s in dto.resisting_elsewhere
+            ],
             curation_reviewed_by=dto.pericope_reviewed_by,
             bounds_overridden=r.bounds_overridden,
             version_id=r.version_id,

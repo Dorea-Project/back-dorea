@@ -94,17 +94,30 @@ class WeighConviction:
         # rejoué depuis la bordure (Mistral). Une union, jamais un choix — chacune ne peut
         # qu'ajouter une phrase à une option qui sortait de toute façon, et c'est ce qui rend
         # leur erreur inoffensive (S37).
-        suggeres = frozenset(deps.conviction.candidate_axes(state.raw_input)) | frozenset(
-            state.suggested_axes
-        )
+        gloses = {g.code: g for g in state.suggested_axes}
+        suggeres = frozenset(deps.conviction.candidate_axes(state.raw_input)) | set(gloses)
+
+        # ⚠️ **Le titre habille le locus touché ; il ne le remplace jamais.** `code` reste
+        # `axe:<locus>`, donc la décision, les pesées et le thème travaillent sur la même
+        # chose qu'avant. Un pasteur ne pense pas « théologie propre », il pense « la prière
+        # sans réponse » — et lui demander de traduire sa plainte en vocabulaire d'école avant
+        # qu'Urim ne l'aide, c'est lui faire payer l'entrée.
+        #
+        # Les sept autres gardent leur libellé et leur place. Rien n'est retiré : c'est la
+        # condition pour qu'une glose fausse reste sans conséquence.
         options = tuple(
             Option(
                 code=f"axe:{axe.code}",
-                label=axe.label,
+                label=(
+                    gloses[axe.code].title if axe.code in gloses else ""
+                ) or axe.label,
                 rationale=(
-                    "Votre formulation touche cet axe."
-                    if axe.code in suggeres
-                    else "Disponible — c'est vous qui savez ce que vous prêchez."
+                    (gloses[axe.code].gloss if axe.code in gloses else "")
+                    or (
+                        "Votre formulation touche cet axe."
+                        if axe.code in suggeres
+                        else "Disponible — c'est vous qui savez ce que vous prêchez."
+                    )
                 ),
             )
             for axe in axes

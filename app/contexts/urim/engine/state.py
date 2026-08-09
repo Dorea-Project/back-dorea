@@ -72,6 +72,25 @@ class Bounds:
 
 
 @dataclass(frozen=True, slots=True)
+class AxisGloss:
+    """Un locus **dit dans la langue de celui qui écrit**.
+
+    Le pasteur qui tape « Dieu veut délivrer les malades de mon église, on prie et rien ne
+    change » ne pense pas *théologie propre* — il pense *la prière sans réponse*. Lui rendre le
+    nom grec, c'est lui demander de traduire sa propre plainte en vocabulaire d'école avant
+    qu'Urim ne l'aide.
+
+    ⚠️ **Le titre habille, il ne remplace pas.** `code` reste le locus : la décision qu'il
+    prend, les pesées qui suivront et le thème proposé travaillent tous sur lui. Si la glose
+    est mauvaise, le pasteur choisit quand même le bon axe — c'est la même propriété de sûreté
+    que partout ailleurs, *un modèle qui ne peut qu'ajouter une phrase ne peut pas nuire*."""
+
+    code: str
+    title: str
+    gloss: str
+
+
+@dataclass(frozen=True, slots=True)
 class TraceEntry:
     """Le motif d'un étage — jamais vide (cf. `StageResult`)."""
 
@@ -135,7 +154,13 @@ class StudyState:
     #:
     #: La propriété de sûreté de S37 tient parce que l'étage **réunit** les deux sources et
     #: n'en retire jamais : dix loci entrent, dix loci sortent, certains mieux motivés.
-    suggested_axes: tuple[str, ...] = ()
+    #:
+    #: Chaque entrée porte en plus un **titre et une glose dans la langue du pasteur** :
+    #: « théologie propre » devient « La prière sans réponse — ce que devient la foi quand rien
+    #: ne vient ». Le nom grec ne disparaît pas, il passe à l'écran du texte, où c'est la
+    #: discipline qui parle ; l'écran de l'intention parle, lui, la langue de celui qui écrit.
+    #: Le `code` reste le locus, donc rien en aval ne s'aperçoit du changement.
+    suggested_axes: tuple[AxisGloss, ...] = ()
 
     #: Axes que le pasteur **refuse** explicitement (« mais je ne veux pas de X »), S18.
     #: Une contrainte négative ne refuse pas le texte : elle **ordonne les options de

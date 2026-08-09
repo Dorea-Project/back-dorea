@@ -26,7 +26,7 @@ import json
 import re
 
 from app.contexts.urim.application.ports import NullVerseResolver
-from app.contexts.urim.engine.state import Reference
+from app.contexts.urim.engine.state import AxisGloss, Reference
 from app.core.config import Settings
 from app.core.logging import get_logger
 
@@ -84,9 +84,15 @@ _SYSTEME_AXES = (
     "Une intention en touche souvent plusieurs — « trop de malades malgré les prières » touche "
     "la théologie propre et l'anthropologie. N'en invente pas : si la formulation est trop "
     "courte ou trop vague pour rattacher quoi que ce soit, renvoie une liste vide. "
-    "Tu ne diagnostiques JAMAIS l'état intérieur du pasteur et tu ne nommes aucun sentiment. "
-    'Réponds par un objet JSON : {"loci": [...]} avec zéro, un ou plusieurs de ces codes '
-    "exactement. Aucun autre code, aucun commentaire."
+    "Pour CHAQUE locus retenu, donne aussi : un TITRE de 2 à 5 mots, dans la langue du "
+    "pasteur et non celle de l'école — pour 'on prie pour les malades et rien ne change', "
+    "theologie_propre se dit « La prière sans réponse » et anthropologie « La souffrance du "
+    "croyant » ; et une GLOSE d'une demi-phrase qui dit ce que cet angle ouvrirait, par "
+    "exemple « Ce que devient la foi quand rien ne vient ». "
+    "Le titre nomme un ANGLE DE PRÉDICATION, jamais l'état de celui qui écrit : « La prière "
+    "sans réponse » se prêche, « Votre découragement » est un diagnostic et c'est interdit. "
+    'Réponds par un objet JSON : {"loci": [{"code": "...", "titre": "...", "glose": "..."}]} '
+    "avec zéro, un ou plusieurs de ces codes exactement. Aucun autre code."
 )
 
 _LOCI_CONNUS = frozenset({
@@ -167,13 +173,44 @@ class MistralAssistant:
         contenu = await self.demander(_SYSTEME_REFERENCE, text)
         return _reference_depuis(contenu) if contenu else None
 
-    async def axes(self, text: str) -> tuple[str, ...]:
-        """Les loci que l'intention touche — **annotation, jamais filtre**.
+    async def axes(self, text: str) -> tuple[AxisGloss, ...]:
+        """Les loci que l'intention touche, **dits dans la langue du pasteur**.
 
         L'étage réunit ce retour avec les dix loci qu'il affiche de toute façon. Un oubli du
-        modèle laisse une option moins bien motivée ; un ajout erroné laisse une phrase de
-        trop. Ni l'un ni l'autre ne retire au pasteur ce qu'il pouvait choisir."""
-        return await self._codes(_SYSTEME_AXES, text, "loci", _LOCI_CONNUS)
+        modèle laisse une option moins bien motivée ; un titre mal trouvé laisse une phrase
+        contestable au-dessus du bon locus. Ni l'un ni l'autre ne retire au pasteur ce qu'il
+        pouvait choisir — et c'est la seule raison pour laquelle on laisse un modèle nommer
+        quoi que ce soit sur cet écran."""
+        contenu = await self.demander(_SYSTEME_AXES, text)
+        if not contenu:
+            return ()
+        bloc = re.search(r"\{.*\}", contenu, re.S)
+        if bloc is None:
+            return ()
+        try:
+            rendus = json.loads(bloc.group(0)).get("loci", [])
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(rendus, list):
+            return ()
+
+        gloses: list[AxisGloss] = []
+        vus: set[str] = set()
+        for rendu in rendus:
+            if not isinstance(rendu, dict):
+                continue
+            code = rendu.get("code")
+            if code not in _LOCI_CONNUS or code in vus:
+                continue
+            titre = (rendu.get("titre") or "").strip()
+            glose = (rendu.get("glose") or "").strip()
+            # ⚠️ **Un titre manquant ne fait pas perdre le locus.** Je jetais l'entrée entière,
+            # et « l'amour fraternel n'existe plus dans l'église » perdait son ecclésiologie —
+            # une annotation juste, effacée par une habillage absent. L'étage retombe sur le
+            # libellé du locus : moins joli, aussi vrai.
+            vus.add(code)
+            gloses.append(AxisGloss(code, titre[:80], glose[:200]))
+        return tuple(gloses)
 
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque — **des marques de forme, jamais un sentiment**."""
