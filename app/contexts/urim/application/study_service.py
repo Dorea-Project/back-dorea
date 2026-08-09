@@ -177,7 +177,17 @@ def _est_une_impasse_de_recherche(run) -> bool:
     if dernier not in _IMPASSES_DE_RECHERCHE:
         return False
     if dernier == "weigh_conviction":
-        return verdict is Outcome.REFUSE
+        # ⚠️ **L'écran des axes est une impasse de plus, et je ne la voyais pas.**
+        #
+        # « Je veux faire un culte sur l'adultère » rendait les dix loci et **rien d'autre** :
+        # pas un verset, pas un texte. Formellement c'est un `AWAIT` — le moteur pose une
+        # question, il n'échoue pas. Du côté du pasteur c'est un mur : il a nommé son sujet et
+        # reçoit dix mots grecs.
+        #
+        # Les passages proposés s'ajoutent donc ici aussi, à côté des dix. Choisir un angle
+        # reste le chemin qui donne les textes **pesés** ; aller droit à un texte reste
+        # possible, et le pipeline entier tourne derrière ce choix-là comme derrière l'autre.
+        return verdict in (Outcome.REFUSE, Outcome.AWAIT)
     # `resolve_passage` : la branche citation seulement, et **l'hésitation autant que le
     # refus**. Rien n'est retiré — les candidats lexicaux restent, les passages s'ajoutent.
     return run.state.entry_mode is EntryMode.CITATION and verdict in (
@@ -630,13 +640,21 @@ class UrimStudyService:
         # portent sur la même saisie et aboutissent au même étage. Deux rejeus successifs
         # auraient fait perdre au second les annotations du premier.
         if run.state.entry_mode is EntryMode.CONVICTION:
-            loci, drapeaux = await asyncio.gather(
+            # **Les trois lectures partent ensemble.** Enchaînées, elles coûtaient 44 s pour
+            # une seule ouverture : les axes et le risque en parallèle, puis les passages une
+            # fois le verdict connu. Or sur ce chemin le verdict est connu d'avance — une
+            # intention aboutit toujours à l'écran des axes, et cet écran veut les passages.
+            # Attendre de le constater ne rachetait rien qu'un aller-retour.
+            loci, drapeaux, proposes = await asyncio.gather(
                 self.resolver.axes(record.raw_input),
                 self.resolver.lever(record.raw_input),
+                self._passages_verifies(record.raw_input),
             )
-            if loci or drapeaux:
+            if loci or drapeaux or proposes:
                 etat = etat.with_(
-                    suggested_axes=tuple(loci), risk_flags=tuple(drapeaux)
+                    suggested_axes=tuple(loci),
+                    risk_flags=tuple(drapeaux),
+                    suggested_passages=proposes,
                 )
                 run = moteur.run(etat)
 
@@ -656,7 +674,8 @@ class UrimStudyService:
         # bien celle qu'on donne : le moteur ne connaît pas ce livre, et proposer autre chose
         # noierait l'information au lieu de la servir. Un cul-de-sac de *recherche* appelle une
         # proposition ; un fait sur l'orthographe, non.
-        if _est_une_impasse_de_recherche(run):
+        # La conviction a déjà tout demandé plus haut ; il ne reste que le chemin citation.
+        if not etat.suggested_passages and _est_une_impasse_de_recherche(run):
             proposes = await self._passages_verifies(record.raw_input)
             if proposes:
                 run = moteur.run(etat.with_(suggested_passages=proposes))

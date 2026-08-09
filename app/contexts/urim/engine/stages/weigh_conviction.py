@@ -123,11 +123,26 @@ class WeighConviction:
             )
             for axe in axes
         )
+
+        # **Les textes, à côté des angles.** Un pasteur qui a nommé son sujet et ne reçoit que
+        # dix mots grecs n'a rien reçu. `origin` distingue les deux familles pour que le client
+        # les présente séparément — *quel angle ?* d'un côté, *ou allez droit à un texte* de
+        # l'autre. Aucun n'est retiré, et l'un ne remplace pas l'autre : passer par l'axe reste
+        # le seul chemin qui donne des textes **pesés**.
+        droit_au_texte = tuple(
+            Option(
+                code=_dire_reference(p.reference),
+                label=_dire_reference(p.reference),
+                rationale=p.rationale or "Traite ce sujet.",
+                origin="sens",
+            )
+            for p in state.suggested_passages
+        )
         return StageResult(
             outcome=Outcome.AWAIT,
-            rationale=_motif_des_axes(state, suggeres),
+            rationale=_motif_des_axes(state, suggeres, bool(droit_au_texte)),
             state=state,
-            options=options,
+            options=(*options, *droit_au_texte),
         )
 
     # -- 2. le texte ------------------------------------------------------------
@@ -190,7 +205,9 @@ class WeighConviction:
         )
 
 
-def _motif_des_axes(state: StudyState, suggeres: frozenset[str]) -> str:
+def _motif_des_axes(
+    state: StudyState, suggeres: frozenset[str], des_textes: bool = False
+) -> str:
     debut = (
         "Une intention peut porter plusieurs doctrines, et c'est souvent le cas. "
         "Laquelle prêchez-vous ?"
@@ -199,6 +216,14 @@ def _motif_des_axes(state: StudyState, suggeres: frozenset[str]) -> str:
         debut += (
             " Les axes que votre formulation touche sont signalés — les autres restent "
             "ouverts."
+        )
+    if des_textes:
+        # Dire que le raccourci existe, et **ce qu'il coûte** — c'est la règle du `tel_quel`
+        # au bornage : accorder une liberté sans nommer ce qu'elle ferme, c'est la faire
+        # découvrir trop tard.
+        debut += (
+            " Des passages qui traitent ce sujet sont proposés plus bas ; y aller directement "
+            "vous fait sauter la pesée doctrinale de l'axe."
         )
     return debut + _clause_de_risque(state)
 
