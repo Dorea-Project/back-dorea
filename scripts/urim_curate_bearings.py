@@ -78,12 +78,20 @@ _SYSTEME = (
     "pneumatologie, anthropologie, hamartiologie, soteriologie, ecclesiologie, angelologie, "
     "demonologie, eschatologie. "
     "Pour CHAQUE locus, donne une force parmi : "
-    "'dominant' (le locus central du passage — EXACTEMENT UN locus le porte), "
+    "'dominant' (le locus dont le passage TRAITE — AU PLUS UN, et parfois AUCUN), "
     "'porte' (le passage dit quelque chose de substantiel sur ce locus), "
     "'resiste' (le passage COMPLIQUE ce locus : il le nuance, le tend, ou contredit une lecture "
     "trop simple qu'on en ferait), "
     "'absent' (le passage n'en dit rien). "
-    "DEUX RÈGLES QUE TU DOIS SUIVRE CONTRE TON INSTINCT : "
+    "TROIS RÈGLES QUE TU DOIS SUIVRE CONTRE TON INSTINCT : "
+    "(0) Le dominant est ce que le texte ARGUMENTE, jamais ce qu'il MENTIONNE. Test du "
+    "retrait : si on ôtait ce locus, le passage perdrait-il son propos ? Une illustration, un "
+    "exemple, une incise ne sont JAMAIS dominants — une liste d'exhortations morales qui cite "
+    "les anges en exemple d'hospitalité n'a pas l'angélologie pour dominant. Si AUCUN locus "
+    "n'est le sujet du passage — une liste, une généalogie, un récit à plusieurs objets — ne "
+    "mets AUCUN dominant : c'est une réponse juste et attendue. Et 'theologie_propre' n'est "
+    "PAS un défaut : presque tout texte biblique mentionne Dieu, cela n'en fait pas son sujet. "
+    "Ne le retiens que si l'action ou la nature de Dieu est ce que le passage soutient. "
     "(1) 'absent' est le cas ORDINAIRE. La plupart des passages ne disent rien des anges, des "
     "démons, de l'Église ou de l'Esprit. Ne cherche pas à trouver quelque chose partout : "
     "marquer 'absent' est une réponse juste et attendue, souvent pour six ou sept locus sur dix. "
@@ -100,10 +108,10 @@ _SYSTEME = (
 def _pesees_depuis(contenu: str, loci: set[str]) -> list[dict] | None:
     """Le JSON du modèle → dix pesées vérifiées, ou rien.
 
-    ⚠️ Les mêmes règles que le service HTTP, appliquées ici : les dix loci exactement, une seule
-    force dominante, aucun motif vide. Le script écrit en base directement — s'il était plus
-    permissif que la surface, il produirait des unités que la surface elle-même refuserait de
-    corriger."""
+    ⚠️ Les mêmes règles que le service HTTP, appliquées ici : les dix loci exactement, aucun
+    motif vide. Le script écrit en base directement — s'il était plus permissif que la surface,
+    il produirait des unités que la surface elle-même refuserait de corriger. Et il ne doit pas
+    être plus **strict** non plus : voir le commentaire sur le dominant, plus bas."""
     bloc = re.search(r"\{.*\}", contenu, re.S)
     if bloc is None:
         return None
@@ -116,7 +124,6 @@ def _pesees_depuis(contenu: str, loci: set[str]) -> list[dict] | None:
 
     propres: list[dict] = []
     vus: set[str] = set()
-    dominants = 0
     for pesee in pesees:
         if not isinstance(pesee, dict):
             return None
@@ -126,12 +133,24 @@ def _pesees_depuis(contenu: str, loci: set[str]) -> list[dict] | None:
         if not isinstance(motif, str) or not motif.strip():
             return None
         vus.add(locus)
-        dominants += force == "dominant"
         propres.append({"locus": locus, "force": force, "motif": motif.strip()[:2000]})
 
-    # Exactement un dominant : `bear_axes` en tire l'axe retenu, et deux le rendraient
-    # dépendant de l'ordre des lignes — un moteur déterministe ne peut pas se le permettre.
-    return propres if vus == loci and dominants == 1 else None
+    # ⚠️ **On n'exige PAS un dominant, et c'était le défaut le plus coûteux de ce script.**
+    #
+    # J'imposais « exactement un ». Le modèle rendait dix pesées valides et aucun dominant sur
+    # Hébreux 13:1-6 — une liste d'exhortations n'a pas UN sujet —, la validation rejetait, et
+    # l'unité était sautée. Ce sont les 803 unités jamais pesées.
+    #
+    # Pire : là où il s'exécutait, il désignait le détail le plus frappant. L'angélologie
+    # dominait Hébreux 13 à cause de « quelques-uns ont logé des anges », et un pasteur qui
+    # préparait l'adultère recevait un thème sur les anges.
+    #
+    # Or `bear_axes` gérait les trois cas depuis le premier jour : un dominant → il continue ;
+    # plusieurs → il les rend au même rang ; aucun mais des portants → *« aucun axe ne domine
+    # ce texte ; voici ceux qu'il porte »*. **Ma validation était plus stricte que le
+    # produit** — j'avais inventé une contrainte que la conception n'avait pas, et elle
+    # forçait le moteur à deviner là où il savait demander.
+    return propres if vus == loci else None
 
 
 async def _une_unite(
