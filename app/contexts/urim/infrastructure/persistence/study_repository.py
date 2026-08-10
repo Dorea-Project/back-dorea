@@ -11,18 +11,20 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.urim.application.ports import (
     ElementRecord,
     PreparationRecord,
+    SupportRecord,
     UsageSnapshot,
 )
 from app.contexts.urim.infrastructure.persistence.models import (
     UrimPreachedModel,
     UrimPreparationElementModel,
     UrimPreparationModel,
+    UrimPreparationSupportModel,
     UrimResolutionAttemptModel,
     UrimStudyReservationModel,
     UrimUsageWindowModel,
@@ -181,6 +183,37 @@ class SqlStudyRepository:
         )).scalars()
         return [ElementRecord(r.element_code, r.ordinal, r.body) for r in rows]
 
+    async def set_supports(self, study_id: UUID, supports: list[SupportRecord]) -> None:
+        """Remplacement **entier** de la chaîne — pas une fusion.
+
+        Les éléments du squelette se fusionnent par leur code : chacun a une identité (l'
+        introduction reste l'introduction). Une chaîne de textes n'en a pas — elle a un
+        **ordre**, et c'est l'ordre qui porte le sens du sermon. Fusionner par rang ferait
+        d'une insertion au milieu un décalage silencieux de tout ce qui suit."""
+        await self._s.execute(
+            delete(UrimPreparationSupportModel).where(
+                UrimPreparationSupportModel.preparation_id == study_id
+            )
+        )
+        for rang, support in enumerate(supports, start=1):
+            self._s.add(UrimPreparationSupportModel(
+                preparation_id=study_id, ordinal=rang, raw=support.raw[:200],
+                book_id=support.book_id, chapter=support.chapter,
+                verse_start=support.verse_start, verse_end=support.verse_end,
+            ))
+        await self._s.flush()
+
+    async def list_supports(self, study_id: UUID) -> list[SupportRecord]:
+        rows = (await self._s.execute(
+            select(UrimPreparationSupportModel)
+            .where(UrimPreparationSupportModel.preparation_id == study_id)
+            .order_by(UrimPreparationSupportModel.ordinal)
+        )).scalars()
+        return [
+            SupportRecord(r.raw, r.book_id, r.chapter, r.verse_start, r.verse_end)
+            for r in rows
+        ]
+
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]:
         # **Son** archive, clée sur l'auteur. Aucune lecture d'un autre contexte : cette
         # donnée est celle d'Urim, et c'est ce qui permet à l'étage du thème d'éviter la
@@ -312,3 +345,4 @@ class SqlReservationRepository:
             ceiling=row.ceiling,
             ceiling_reached=row.ceiling > 0 and row.metered_units >= row.ceiling,
         )
+

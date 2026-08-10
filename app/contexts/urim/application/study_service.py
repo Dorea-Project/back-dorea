@@ -32,9 +32,11 @@ from app.contexts.urim.application.ports import (
     ReservationPort,
     StudyDTO,
     StudyRepository,
+    SupportRecord,
     VariantSeen,
     VerseServed,
 )
+from app.contexts.urim.application.reference_libre import lire
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
 from app.contexts.urim.domain.errors import (
     OptionInconnueError,
@@ -490,6 +492,88 @@ class UrimStudyService:
         await self.studies.set_elements(study_id, list(elements))
         return await self._rejouer(record, persist=False)
 
+    # -- la chaîne de textes ----------------------------------------------------
+
+    async def set_supports(
+        self, *, actor_account_id: UUID, study_id: UUID, saisies: Sequence[str]
+    ) -> StudyDTO:
+        """Les textes d'appui du sermon — **et le contrôle de référence enfin utile**.
+
+        Un sermon convoque une chaîne : le Pasteur X en a aligné huit, puis douze. Le modèle
+        n'en tenait qu'un, celui qu'on prêche, et le reste vivait dans ses notes — dont deux
+        références inexistantes (`Hb 2v29`, `Ph 28v9`) qu'Urim savait détecter depuis toujours
+        et n'avait jamais vues, faute d'une surface où il les soumette.
+
+        ⚠️ **Une saisie illisible n'interrompt rien** (S19). Elle est conservée telle quelle,
+        avec son motif à l'affichage ; refuser la liste entière ferait perdre onze textes
+        justes pour une faute de frappe, et c'est le contraire du service rendu."""
+        record = await self._charger(study_id)
+        await self._ensure_preacher(actor_account_id, record.church_id)
+
+        lecteur = IndexedCorpusReader(self.index)
+        retenues: list[SupportRecord] = []
+        for brut in saisies:
+            lu = lire(brut, self.index)
+            # Le **premier candidat qui existe** — `Jn 14:28` désigne quatre livres, et un
+            # seul de ces quatre a un chapitre 14. Le corpus tranche là où il peut ; là où
+            # plusieurs tiennent, l'ordre du canon décide, et le pasteur corrigera.
+            valide = next(
+                (r for r in lu.references if lecteur.check_reference(r).exists), None
+            )
+            livre = self.index.book_by_label.get(valide.book) if valide else None
+            retenues.append(SupportRecord(
+                raw=brut.strip(),
+                book_id=livre,
+                chapter=valide.chapter if valide else None,
+                verse_start=valide.verse_start if valide else None,
+                verse_end=valide.verse_end if valide else None,
+            ))
+
+        await self.studies.set_supports(study_id, retenues)
+        return await self._rejouer(record, persist=False)
+
+    def _appuis(self, supports: Sequence[SupportRecord]) -> tuple[tuple[str, ...], ...]:
+        """Chaque appui → `(saisie, référence, texte, motif)`.
+
+        Le motif se **recalcule** ici plutôt que de dormir en base : `hb` est entré au corpus
+        cette semaine, et une référence refusée hier peut être lue aujourd'hui. Figer le refus
+        aurait gelé une ignorance."""
+        lecteur = IndexedCorpusReader(self.index)
+        rendus: list[tuple[str, ...]] = []
+        for support in supports:
+            if support.book_id is not None:
+                libelle = self.index.label_by_book.get(support.book_id, "")
+                ref = Reference(
+                    libelle, support.chapter, support.verse_start, support.verse_end
+                )
+                servis, _ = self._texte_servi(
+                    StudyState(
+                        session_id=uuid4(), church_id=uuid4(), author_id=uuid4(),
+                        corpus_snapshot=self.index.snapshot,
+                        entry_mode=EntryMode.REFERENCE, raw_input=support.raw,
+                        resolved=ref, bounds=Bounds(start=ref, end=ref),
+                    )
+                )
+                texte = " ".join(v.text for v in servis)
+                rendus.append((support.raw, _afficher(ref) or "", texte, ""))
+                continue
+
+            # Non résolu : on redit **pourquoi**, avec les mots du corpus.
+            lu = lire(support.raw, self.index)
+            motif = lu.motif
+            if not motif and lu.references:
+                motif = next(
+                    (
+                        verdict.rationale
+                        for r in lu.references
+                        if not (verdict := lecteur.check_reference(r)).exists
+                        and verdict.rationale
+                    ),
+                    "Référence introuvable dans ce corpus.",
+                )
+            rendus.append((support.raw, "", "", motif or "Référence illisible."))
+        return tuple(rendus)
+
     # -- exploration ------------------------------------------------------------
 
     async def explorer(
@@ -899,6 +983,7 @@ class UrimStudyService:
                 for o in (dernier.options if dernier else ())
             ),
             elements=tuple(await self.studies.list_elements(record.id)),
+            supports=self._appuis(await self.studies.list_supports(record.id)),
             # Le mode **retenu par le moteur**, pas la colonne : elle reste vide tant que le
             # pasteur n'a rien corrigé, et le pasteur veut voir comment il a été lu.
             entry_mode=final.entry_mode.value if final.entry_mode else None,
@@ -1021,3 +1106,4 @@ class UrimStudyService:
         await self.access.ensure_may_prepare(
             account_id=actor_account_id, church_id=church_id
         )
+

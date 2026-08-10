@@ -82,7 +82,9 @@ BOOKS: tuple[tuple[int, str, str, str, tuple[str, ...]], ...] = (
     (55, "2Tim", "NT", "2 Timothée", ('2 tim', '2 timothee', '2 tm', '2ti', '2tim', '2tm')),
     (56, "Titus", "NT", "Tite", ('tit', 'tite', 'tt')),
     (57, "Phlm", "NT", "Philémon", ('phile', 'philem', 'philemon', 'phlm', 'phm')),
-    (58, "Heb", "NT", "Hébreux", ('he', 'heb', 'hebr', 'hebreu', 'hebreux')),
+    # `hb` vient des notes du Pasteur X (« Hb 9v7 », « Hb 2v29 ») — le corpus ne connaissait
+    # que `he`, et son contrôle de référence restait donc muet sur sa propre notation.
+    (58, "Heb", "NT", "Hébreux", ('hb', 'he', 'heb', 'hebr', 'hebreu', 'hebreux')),
     (59, "Jas", "NT", "Jacques", ('jac', 'jacq', 'jacque', 'jacques', 'jc', 'jq')),
     (60, "1Pet", "NT", "1 Pierre", ('1 pi', '1 pierre', '1p', '1pe', '1pi', '1pie', '1pierre')),
     (61, "2Pet", "NT", "2 Pierre", ('2 pi', '2 pierre', '2p', '2pe', '2pi', '2pie', '2pierre')),

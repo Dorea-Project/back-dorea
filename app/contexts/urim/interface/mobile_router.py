@@ -29,6 +29,7 @@ from app.contexts.urim.interface.schemas import (
     OpenStudyBody,
     PassageDetailView,
     StudyView,
+    SupportsBody,
 )
 
 router = APIRouter()
@@ -109,6 +110,35 @@ async def set_elements(
     return StudyView.from_dto(dto)
 
 
+@router.put(
+    "/studies/{study_id}/supports",
+    response_model=StudyView,
+    summary="La chaîne de textes — et le contrôle de référence qui va avec",
+)
+async def set_supports(
+    study_id: UUID,
+    payload: SupportsBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """**Un sermon convoque une chaîne ; le modèle n'en tenait qu'un maillon.**
+
+    Deux prédications du Pasteur X : huit textes, puis douze. Et dans la seconde, deux
+    références inexistantes — `Hb 2v29` dans un chapitre qui compte 18 versets, `Ph 28v9` dans
+    une épître qui en a quatre. Urim savait le dire depuis le premier jour et ne l'avait jamais
+    dit : le pasteur ne soumettait que son passage principal.
+
+    Les saisies sont lues **dans sa notation** (`Hb 2v29`, `Jn14v28`, `Eph 1v20-22`), et une
+    saisie illisible n'interrompt rien : elle reste dans la liste avec son motif. Refuser les
+    douze pour une faute de frappe serait le contraire du service rendu."""
+    dto = await service.set_supports(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        saisies=payload.supports,
+    )
+    return StudyView.from_dto(dto)
+
+
 @router.get(
     "/tenants/{tenant_id}/lemmes",
     response_model=ConcordanceView,
@@ -156,3 +186,4 @@ async def explorer_passage(
         actor_account_id=actor.account_id, church_id=tenant_id, reference=ref
     )
     return PassageDetailView.from_dto(dto)
+

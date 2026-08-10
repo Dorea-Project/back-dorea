@@ -65,6 +65,25 @@ class ElementRecord:
 
 
 @dataclass(slots=True)
+class SupportRecord:
+    """Un texte d'appui, tel que la base le garde — **la saisie d'abord, la résolution ensuite**.
+
+    ⚠️ `raw` survit même quand rien ne résout. Les notes du Pasteur X portaient `Hb 2v29` et
+    `Ph 28v9` : deux références inexistantes qu'Urim savait détecter et n'avait jamais vues,
+    faute d'une surface où le pasteur soumette ses appuis. Ne garder que ce qui résout
+    effacerait exactement ce qu'il faut lui montrer.
+
+    Le motif du refus n'est **pas** stocké : il se recalcule à l'affichage, parce que le corpus
+    peut apprendre demain un sigle qu'il ignore aujourd'hui — `hb` y est entré cette semaine."""
+
+    raw: str
+    book_id: int | None = None
+    chapter: int | None = None
+    verse_start: int | None = None
+    verse_end: int | None = None
+
+
+@dataclass(slots=True)
 class UsageSnapshot:
     """L'état du plafond d'une église à l'instant de la demande.
 
@@ -152,6 +171,12 @@ class StudyDTO:
     #: intention. Le pasteur qui tape sa référence est pourtant celui qui a déjà son idée : il
     #: en a plus besoin, pas moins.
     resisting_elsewhere: tuple[BearingSite, ...] = ()
+    #: **La chaîne de textes** — `(saisie, référence, texte, motif)` par appui.
+    #:
+    #: `motif` est rempli quand la saisie n'a pas résolu, et il porte les mots du corpus :
+    #: *« Hébreux 2 compte 18 versets »*. C'est la seule façon dont le contrôle de référence
+    #: atteint le pasteur — il ne soumettait jusqu'ici que son passage principal.
+    supports: tuple[tuple[str, ...], ...] = ()
     #: Le mode **retenu par l'étage 0** — distinct de la colonne, qui ne porte qu'une
     #: correction du pasteur.
     entry_mode: str | None = None
@@ -265,6 +290,12 @@ class StudyRepository(Protocol):
     async def set_elements(self, study_id: UUID, elements: list[ElementRecord]) -> None: ...
 
     async def list_elements(self, study_id: UUID) -> list[ElementRecord]: ...
+
+    async def set_supports(self, study_id: UUID, supports: list[SupportRecord]) -> None:
+        """Remplace la chaîne **entière** — elle n'a pas d'identité, elle a un ordre."""
+        ...
+
+    async def list_supports(self, study_id: UUID) -> list[SupportRecord]: ...
 
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]: ...
 

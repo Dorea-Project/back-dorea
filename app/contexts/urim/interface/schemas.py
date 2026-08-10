@@ -209,6 +209,9 @@ class StudyView(BaseModel):
     context: list[ContextView]
     couples: list[CoupleView]
 
+    #: **La chaîne de textes** — ce que le sermon convoque autour de son passage.
+    supports: list[SupportView]
+
     #: L'intitulé de l'unité littéraire retenue — il n'apparaissait que noyé dans le motif de
     #: l'étage 2, donc illisible pour un front qui veut l'afficher en titre.
     pericope_label: str | None
@@ -248,6 +251,10 @@ class StudyView(BaseModel):
                     reference=_borne(s.bounds), label=s.label, rationale=s.rationale
                 )
                 for s in dto.resisting_elsewhere
+            ],
+            supports=[
+                SupportView(raw=r_, reference=ref, text=t, verdict=m)
+                for r_, ref, t, m in dto.supports
             ],
             curation_reviewed_by=dto.pericope_reviewed_by,
             bounds_overridden=r.bounds_overridden,
@@ -324,6 +331,33 @@ class OriginalWordView(BaseModel):
     #: de droite à gauche, et un mot rendu à l'envers est illisible pour qui le lit vraiment.
     language: str
 
+
+class SupportsBody(BaseModel):
+    """Les textes d'appui, **dans l'ordre du pasteur** — pas celui du canon.
+
+    Il écrit sa progression : l'annonce avant l'accomplissement, l'antécédent avant la
+    reprise. Retrier serait défaire son plan."""
+
+    supports: list[str] = Field(default_factory=list, max_length=40)
+
+
+class SupportView(BaseModel):
+    """Un texte d'appui — **avec ce que la saisie a donné, ou pourquoi elle n'a rien donné**.
+
+    C'est ici que le contrôle de référence atteint enfin le pasteur. Ses notes portaient
+    `Hb 2v29` et `Ph 28v9` ; Urim savait dire « Hébreux 2 compte 18 versets » depuis le premier
+    jour et ne l'avait jamais dit, faute d'une surface où ces textes soient soumis.
+
+    ⚠️ **`raw` survit toujours.** Une saisie illisible reste dans la liste avec son motif : la
+    perdre obligerait le pasteur à se souvenir de ce qu'il voulait citer."""
+
+    raw: str
+    #: La référence résolue — vide si la saisie n'a rien donné.
+    reference: str
+    #: Le texte servi, vide de même.
+    text: str
+    #: Ce qui manque **au corpus**, jamais au pasteur : « Hébreux 2 compte 18 versets ».
+    verdict: str
 
 class OccurrenceView(BaseModel):
     """Un endroit où le mot paraît — la référence, le verset français, la forme, sa grammaire."""
@@ -484,3 +518,4 @@ class PassageDetailView(BaseModel):
                 for r, p, s, lem, nat, par, langue in dto.original
             ],
         )
+

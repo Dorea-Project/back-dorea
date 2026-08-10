@@ -64,10 +64,17 @@ def _index(*, bearings=(), couples=()) -> CorpusIndex:
     )
     return CorpusIndex(
         snapshot="essai", fallback_version_id=uuid4(), metered_versions=frozenset(),
-        books_by_form={("hebreux",): (58,)}, forms_by_length=(("hebreux",),),
+        # ⚠️ `hb` **doit** y être : le vrai corpus l'a appris cette semaine, et une doublure
+        # moins capable que lui ferait passer un test pour une preuve. C'est le sigle des
+        # notes du Pasteur X.
+        books_by_form={("hebreux",): (58,), ("hb",): (58,)},
+        forms_by_length=(("hebreux",), ("hb",)),
         label_by_book={58: "Hébreux"}, book_by_label={"Hébreux": 58},
         osis_by_book={58: "Heb"},
-        chapters_held={58: frozenset({13})}, max_verse_held={(58, 13): 2},
+        # Le chapitre 2 est tenu **sans ses versets au-delà de 18** : c'est ce qui permet au
+        # motif de dire « Hébreux 2 compte 18 versets », comme le vrai corpus le dit.
+        chapters_held={58: frozenset({2, 13})},
+        max_verse_held={(58, 13): 2, (58, 2): 18},
         # ⚠️ Le lexique **doit** être garni, sinon `route_entry` lit du charabia : il exige au
         # moins un mot reconnu (S34) avant d'accepter une intention. Un index de test à `idf`
         # vide fait donc refuser toute conviction — le banc mentirait sur le moteur.
@@ -97,6 +104,7 @@ class _Studies:
     def __init__(self) -> None:
         self.records: dict[UUID, PreparationRecord] = {}
         self.attempts: list[dict] = []
+        self.supports: dict[UUID, list] = {}
 
     async def add(self, record): self.records[record.id] = record
 
@@ -112,6 +120,12 @@ class _Studies:
     async def set_elements(self, study_id, elements): ...
 
     async def list_elements(self, study_id): return []
+
+    async def set_supports(self, study_id, supports):
+        self.supports[study_id] = list(supports)
+
+    async def list_supports(self, study_id):
+        return self.supports.get(study_id, [])
 
     async def recently_preached_axes(self, author_id, since): return []
 
@@ -280,6 +294,55 @@ async def test_une_faisabilite_relue_et_toute_refusee_refuse_bel_et_bien():
 
     assert dto.outcome == "refuse"
     assert "aucun personnage" in dto.rationale
+
+
+# ================================================================ la chaîne de textes d'appui
+
+
+@pytest.mark.asyncio
+async def test_une_reference_illisible_n_interrompt_pas_la_chaine():
+    """🔴 **La vraie faute du Pasteur X, et pourquoi elle n'avait jamais été vue.**
+
+    Ses notes portaient `Hb 2v29` — Hébreux 2 compte 18 versets. Urim savait le dire depuis le
+    premier jour et ne l'avait jamais dit : il ne soumettait que son passage principal, pas ses
+    douze appuis.
+
+    Et le refus **n'interrompt rien** (S19) : la saisie fautive reste dans la liste avec son
+    motif, à côté des justes. Refuser les douze pour une faute de frappe ferait perdre onze
+    textes bons — c'est le contraire du service rendu."""
+    service = _service()
+    dto = await _ouvrir(service, "Hébreux 13:1")
+
+    apres = await service.set_supports(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        saisies=["Hébreux 13:2", "Hb 2v29", "Zorobabel 3:5"],
+    )
+
+    assert len(apres.supports) == 3, "une saisie fautive ne doit pas disparaître"
+    (_, ref_bonne, texte, motif_bon) = apres.supports[0]
+    assert ref_bonne == "Hébreux 13:2" and "hospitalité" in texte and motif_bon == ""
+
+    (brut, ref, _, motif) = apres.supports[1]
+    assert brut == "Hb 2v29" and ref == ""
+    assert "18 versets" in motif, "le motif nomme ce qui manque AU CORPUS"
+
+    (_, _, _, inconnu) = apres.supports[2]
+    assert "Zorobabel" in inconnu
+
+
+@pytest.mark.asyncio
+async def test_la_chaine_garde_l_ordre_du_pasteur():
+    """L'ordre porte la progression du sermon — l'annonce avant l'accomplissement. Retrier
+    dans l'ordre du canon déferait son plan."""
+    service = _service()
+    dto = await _ouvrir(service, "Hébreux 13:1")
+
+    apres = await service.set_supports(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        saisies=["Hébreux 13:2", "Hébreux 13:1"],
+    )
+
+    assert [ref for _, ref, _, _ in apres.supports] == ["Hébreux 13:2", "Hébreux 13:1"]
 
 
 # ============================================================ la concordance — le module recherche

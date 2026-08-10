@@ -134,6 +134,40 @@ class UrimPreparationElementModel(Base):
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class UrimPreparationSupportModel(Base):
+    """Les **textes d'appui** — la chaîne qu'un sermon convoque autour de son passage.
+
+    Deux prédications du Pasteur X : huit textes, puis douze. Le modèle n'en tenait **un
+    seul**, celui qu'on prêche. Tout le reste — l'antécédent, l'annonce, l'attestation, le
+    parallèle — vivait dans ses notes et nulle part ici.
+
+    ⚠️ **`raw` est conservé même quand la référence ne résout pas**, et c'est tout l'objet de
+    cette table. Ses notes portaient `Hb 2v29` (Hébreux 2 compte 18 versets) et `Ph 28v9`
+    (Philippiens en compte 4). Urim sait détecter exactement cela depuis le premier jour, et
+    ne l'avait jamais vu : le pasteur saisissait son thème, pas ses appuis. Ne stocker que ce
+    qui résout effacerait précisément ce qu'il faut lui montrer.
+
+    Les colonnes résolues sont donc **nullables** : une ligne sans `book_id` est une référence
+    que le moteur n'a pas su lire ou qui n'existe pas, et le motif se recalcule à l'affichage
+    plutôt que de se figer en base — le corpus, lui, peut apprendre un sigle qu'il ignorait.
+    """
+
+    __tablename__ = "urim_preparation_support"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: L'ordre du pasteur, pas celui du canon : c'est lui qui a construit sa progression.
+    ordinal: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    #: Ce qu'il a tapé, mot pour mot — `Hb 2v29`, `Jn14v28`, `Eph 1v20-22`.
+    raw: Mapped[str] = mapped_column(String, nullable=False)
+
+    book_id: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    chapter: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    verse_start: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    verse_end: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+
+
 class UrimResolutionAttemptModel(Base):
     """**Jamais de résolution silencieuse** : les candidats écartés sont conservés.
 
