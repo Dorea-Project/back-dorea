@@ -158,6 +158,47 @@ lui prendrait la seule part du travail qui est la sienne.
 
 ---
 
+## 2 ter. La seconde prédication — ce que la chaîne coûte quand elle manque
+
+> **Thème :** *L'ascension* — **saisi :** « L'ascension, passage: 1 verset 1-14 »
+> **Notes :** [`temoins/Predication_Ascension.txt`](temoins/Predication_Ascension.txt)
+
+### Le moteur a retrouvé le livre qu'il n'avait pas nommé
+
+Le pasteur écrit *« passage: 1 verset 1-14 »* — aucun livre, ni dans la saisie ni dans ses
+notes. Le moteur rend **Actes 1:1-14 en première position**. C'est la promesse « l'IA retrouve
+la référence » vérifiée sur une saisie que personne n'avait fabriquée pour l'occasion.
+
+### Ses quatre axes sont ceux de son plan, écrits avant
+
+    Le Christ élevé          →  1- La fin de l'œuvre de Christ sur terre
+    L'envoi de l'Esprit      →  4- Don du Saint-Esprit
+    L'Église en mission      →  l'ère nouvelle
+    L'espérance du retour    →  conclusion : « son retour glorieux »
+
+### ⚠️ Deux de ses douze références sont fausses, et Urim savait les détecter
+
+Vérifié contre le corpus, pas supposé :
+
+    Hb 2v29   →  « Hébreux 2 compte 18 versets — il n'y a pas de verset 29. »
+    Ph 28v9   →  « Philippiens compte 4 chapitres — il n'y a pas de chapitre 28. »
+
+Il visait Hébreux 2:9 (*couronné de gloire et d'honneur*) et Philippiens 2:9 (*le nom au-dessus
+de tout nom*) — les deux existent et portent bien son propos. Ce sont des fautes de frappe dans
+des notes de préparation, du genre qui se répète en chaire.
+
+Le moteur les aurait attrapées, et il le dit déjà comme il faut : le motif nomme ce qui manque
+**au corpus**, jamais ce qui manque au pasteur (S19). C'est le premier cas réel de cette règle.
+
+**Mais il ne les a jamais soumises.** Il a saisi son thème, pas ses textes d'appui. Douze
+textes dans cette prédication, un seul passage dans le modèle — et le contrôle de référence n'a
+aucune surface où s'exercer.
+
+C'est ce qui fait monter la chaîne de textes en priorité : ce n'est plus une commodité
+d'affichage, c'est le seul endroit où une garantie déjà construite peut servir à quelque chose.
+
+---
+
 ## 3. Ce qui n'existe pas encore — le domaine utilisateur
 
 C'est l'objet de [`Urim_Domaine_Utilisateur.md`](Urim_Domaine_Utilisateur.md), et c'est le
@@ -241,25 +282,47 @@ n'est pas de la génération, c'est le même geste que le grec. 23 243 versets d
 3. **Tests sur `UrimStudyService` et les routes mobile.** Les cinq défauts trouvés en
    démonstration en sont le cahier des charges : chacun mérite son test de non-régression.
 
-### Lot C — le domaine utilisateur *(la distribution)*
+### Lot C — la chaîne de textes *(remonté ici le 10/08/2026)*
 
-4. `GET /iam/me`, puis `urim_user_settings`, puis `urim_workspace` — dans cet ordre, chacun
+4. **Un sermon convoque une chaîne ; le modèle tient une unité.** Deux prédications du
+   Pasteur X, huit textes puis douze, et un seul passage dans `PreparationRecord`. Voir §2 bis
+   et §2 ter.
+
+   Ce chantier était en « profondeur » tant qu'il ressemblait à une commodité d'affichage. La
+   seconde prédication l'a déplacé : **deux de ses douze références sont fausses** — `Hb 2v29`
+   dans un livre dont le chapitre 2 compte 18 versets, `Ph 28v9` dans une épître qui en a
+   quatre. Urim sait détecter exactement cela, et il ne l'a jamais vu : le pasteur avait saisi
+   son thème, pas ses textes d'appui.
+
+   Le contrôle de référence n'a donc **aucune surface où s'exercer** tant que la chaîne
+   n'existe pas. Ce n'est plus du confort, c'est le seul endroit où une garantie déjà
+   construite peut servir.
+
+   À concevoir avant de coder. La question n'est pas *comment stocker douze références* mais
+   **ce qu'un texte d'appui est** : ni la péricope qu'on prêche, ni une objection qui résiste —
+   un texte que le pasteur convoque à l'appui de son propos, et qu'il ordonne lui-même. Le
+   confondre avec l'un ou l'autre raterait le geste. Touche `PreparationRecord`, le bornage et
+   la vue.
+
+### Lot D — le domaine utilisateur *(la distribution)*
+
+5. `GET /iam/me`, puis `urim_user_settings`, puis `urim_workspace` — dans cet ordre, chacun
    débloquant le suivant.
-5. Les trois lacunes du noyau : `reset-secret-code`, `delete-account`, `devices`.
+6. Les trois lacunes du noyau : `reset-secret-code`, `delete-account`, `devices`.
 
-### Lot D — la profondeur *(quand le reste tient)*
+### Lot E — la profondeur *(quand le reste tient)*
 
-6. **La chaîne de textes** — voir §2 bis. Le Pasteur X en a convoqué huit ; le modèle en tient
-   un. C'est le chantier que sa prédication a fait remonter, et il est plus lourd que les
-   autres : il touche `PreparationRecord`, le bornage, et la vue. À concevoir avant de coder —
-   la question n'est pas *comment stocker huit références* mais *ce qu'un texte d'appui est* :
-   un appui n'est ni la péricope, ni une objection, et le confondre avec l'un ou l'autre
-   raterait le geste.
-7. **L'hébreu** (`morphhb`) — l'AT sans original est aujourd'hui les trois quarts de l'Écriture.
+7. **L'hébreu** (`morphhb`) — l'AT sans original est aujourd'hui les trois quarts de
+   l'Écriture, et la concordance n'y répond donc pas. Le décodeur OSHM et le script de semis
+   sont écrits ; **le semis n'a jamais été exécuté**.
 8. **Le prompt dynamique** : `raw_input` n'existe qu'à l'ouverture. Le pasteur ne peut pas
    demander « et ce mot ? » en cours de préparation, alors que c'est le geste le plus naturel
    une fois le texte sous les yeux.
-9. **Ostervald et Darby** — pour que le catalogue de versions ait un contenu.
+9. **Les realia sourcées** — la suite du module recherche. Règle posée et non négociable :
+   *une note historique sans source ne s'affiche jamais.* Le texte d'abord (la concordance le
+   fait déjà), la curation signée avec sa source ensuite, et si un modèle intervient un jour,
+   qu'il rende **une question à vérifier, jamais un fait**.
+10. **Ostervald et Darby** — pour que le catalogue de versions ait un contenu.
 
 ### Deux réglages fins, à faire quand l'occasion se présente
 
