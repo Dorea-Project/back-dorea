@@ -12,13 +12,14 @@ passe par la saisie assistée de l'onboarding, avec son accord, comme le reste d
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.iam.interface.dependencies import (
     BirthdaysTodayDep,
     GetMembershipStatusDep,
     GetMyMembershipsDep,
+    GetMyProfileDep,
     JoinChurchByCodeDep,
     SetMyBirthdayDep,
 )
@@ -28,6 +29,7 @@ from app.contexts.iam.interface.schemas import (
     JoinChurchRequest,
     JoinChurchResponse,
     MembershipStatusResponse,
+    MyProfileResponse,
     SetMyBirthdayRequest,
 )
 
@@ -47,6 +49,23 @@ async def join_church(
 ) -> JoinChurchResponse:
     result = await command.execute(actor_account_id=actor.account_id, code=payload.code)
     return JoinChurchResponse.from_result(result)
+
+
+@router.get(
+    "/me",
+    response_model=MyProfileResponse,
+    summary="Qui suis-je — mon profil et mes appartenances, en un appel",
+)
+async def read_my_profile(
+    actor: CurrentActor,
+    query: GetMyProfileDep,
+) -> MyProfileResponse:
+    """404 seulement si le compte n'existe plus : le jeton est valide, la personne ne l'est
+    plus. Un compte sans église, lui, répond 200 avec `memberships: []`."""
+    dto = await query.execute(account_id=actor.account_id)
+    if dto is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ACCOUNT_NOT_FOUND")
+    return MyProfileResponse.from_dto(dto)
 
 
 @router.get(

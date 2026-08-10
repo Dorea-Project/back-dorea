@@ -8,6 +8,7 @@ genèse (un rôle exige `confirmed_member`, M0 §3.2).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -25,6 +26,31 @@ class OwnershipChecker(ABC):
 
     @abstractmethod
     async def is_active_owner(self, account_id: UUID, tenant_id: UUID) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileRow:
+    """La personne, telle que le compte la garde — **et rien de plus**.
+
+    ⚠️ Pas de `birth_year`. Elle existe en base, optionnelle, et n'est affichée nulle part :
+    l'âge de quelqu'un n'est pas une donnée d'église. La faire remonter jusqu'à un port la
+    rendrait affichable par accident, ce qui est la façon dont les données sensibles fuient."""
+
+    account_id: UUID
+    phone_number: str
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    birth_day: int | None = None
+    birth_month: int | None = None
+    birthday_scope: str = "groups"
+
+
+class ProfileReader(ABC):
+    """Lire **son propre** profil. Aucune méthode ne prend d'autre identité que la sienne."""
+
+    @abstractmethod
+    async def read(self, account_id: UUID) -> ProfileRow | None: ...
 
 
 class InvitationCodeGenerator(ABC):

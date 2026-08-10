@@ -20,6 +20,7 @@ from app.contexts.iam.application.dtos import (
     TransferListDTO,
     TransitionResult,
 )
+from app.contexts.iam.application.queries.get_my_profile import MyProfileDTO
 from app.contexts.iam.domain.birthday import DEFAULT_SCOPE, BirthdayScope
 from app.contexts.iam.domain.enums import (
     MembershipClosureReason,
@@ -284,6 +285,37 @@ class MembershipStatusResponse(BaseModel):
             active_roles=[RoleResponse(role=r.role, group_id=r.group_id) for r in dto.active_roles],
             is_owner=dto.is_owner,
             permissions=dto.permissions,
+        )
+
+
+class MyProfileResponse(BaseModel):
+    """« Continuer en tant que Kouassi » — en un appel au lieu de deux et d'une devinette.
+
+    `memberships` peut être vide : un compte sans église est un état normal, pas une erreur.
+    Urim s'installe seul, et le pasteur qui ne rejoint aucune église prépare quand même."""
+
+    account_id: UUID
+    first_name: str | None
+    last_name: str | None
+    phone_number: str
+    email: str | None
+    birth_day: int | None
+    birth_month: int | None
+    birthday_scope: str = Field(description="groups | referent_only | hidden")
+    memberships: list[MembershipStatusResponse]
+
+    @classmethod
+    def from_dto(cls, dto: MyProfileDTO) -> MyProfileResponse:
+        return cls(
+            account_id=dto.account_id,
+            first_name=dto.first_name,
+            last_name=dto.last_name,
+            phone_number=dto.phone_number,
+            email=dto.email,
+            birth_day=dto.birth_day,
+            birth_month=dto.birth_month,
+            birthday_scope=dto.birthday_scope,
+            memberships=[MembershipStatusResponse.from_dto(m) for m in dto.memberships],
         )
 
 

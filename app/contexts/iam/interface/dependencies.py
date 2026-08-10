@@ -36,6 +36,7 @@ from app.contexts.iam.application.commands.transition_status import TransitionSt
 from app.contexts.iam.application.queries.check_permission import CheckPermission
 from app.contexts.iam.application.queries.get_membership_status import GetMembershipStatus
 from app.contexts.iam.application.queries.get_my_memberships import GetMyMemberships
+from app.contexts.iam.application.queries.get_my_profile import GetMyProfile
 from app.contexts.iam.application.queries.is_confirmed_member import IsConfirmedMember
 from app.contexts.iam.application.queries.list_transfers import ListTransfers
 from app.contexts.iam.domain.repositories import AccountRepository, MembershipRepository
@@ -49,6 +50,7 @@ from app.contexts.iam.infrastructure.persistence.church_invitation_repository im
 )
 from app.contexts.iam.infrastructure.persistence.enrollment import SqlMemberEnrollmentStore
 from app.contexts.iam.infrastructure.persistence.lifecycle import SqlMembershipLifecycleStore
+from app.contexts.iam.infrastructure.persistence.profile_reader import SqlProfileReader
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyAccountRepository,
     SqlAlchemyMembershipRepository,
@@ -283,6 +285,14 @@ def get_my_memberships_query(
     return GetMyMemberships(repo, SqlOwnershipRepository(session))
 
 
+def get_my_profile_query(repo: MembershipRepositoryDep, session: DbSession) -> GetMyProfile:
+    """Réutilise `GetMyMemberships` au lieu de relire les appartenances : une seconde
+    définition de « mes églises » aurait divergé de la première."""
+    return GetMyProfile(
+        SqlProfileReader(session), GetMyMemberships(repo, SqlOwnershipRepository(session))
+    )
+
+
 def get_is_confirmed_member_query(repo: MembershipRepositoryDep) -> IsConfirmedMember:
     return IsConfirmedMember(repo)
 
@@ -307,5 +317,6 @@ BirthdaysTodayDep = Annotated[BirthdaysToday, Depends(get_birthdays_today_query)
 
 GetMembershipStatusDep = Annotated[GetMembershipStatus, Depends(get_membership_status_query)]
 GetMyMembershipsDep = Annotated[GetMyMemberships, Depends(get_my_memberships_query)]
+GetMyProfileDep = Annotated[GetMyProfile, Depends(get_my_profile_query)]
 IsConfirmedMemberDep = Annotated[IsConfirmedMember, Depends(get_is_confirmed_member_query)]
 CheckPermissionDep = Annotated[CheckPermission, Depends(get_check_permission_query)]

@@ -230,6 +230,43 @@ async def test_me_endpoint_exposes_resolved_permissions_after_claim(ctx):
     }
 
 
+async def test_me_answers_the_account_that_joined_no_church(ctx):
+    """`GET /iam/me` sans appartenance → 200, profil complet, `memberships: []`.
+
+    C'est le cas d'usage qui a motivé la route : Urim s'installe seul, et le pasteur qui ne
+    rejoint aucune église prépare quand même. Faire de l'absence d'appartenance une erreur
+    aurait fermé la porte à son premier utilisateur — celui qui vient d'installer l'app."""
+    client, _ = ctx
+    _, conf = await _register(client)
+    auth = {"Authorization": f"Bearer {conf.json()['access_token']}"}
+
+    resp = await client.get("/api/mobile/iam/me", headers=auth)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["phone_number"] == _PHONE
+    assert body["memberships"] == []
+    # L'auto-inscription ne demande pas le prénom : le champ existe, vide, et l'app saura
+    # qu'il reste à poser. Un profil incomplet est un état, pas une panne.
+    assert body["first_name"] is None
+    assert "birth_year" not in body  # l'âge n'est pas une donnée d'église
+
+
+async def test_me_carries_the_memberships_it_already_serves_elsewhere(ctx):
+    """Un seul appel remplace les deux : la personne ET ses églises, sans devinette."""
+    client, factory = ctx
+    account_id = await _seed_account(factory, phone=_PHONE, pin_hash=None)
+    tenant_id = await _seed_pastor_membership(factory, account_id)
+
+    _, conf = await _register(client)
+    auth = {"Authorization": f"Bearer {conf.json()['access_token']}"}
+
+    body = (await client.get("/api/mobile/iam/me", headers=auth)).json()
+
+    assert [m["tenant_id"] for m in body["memberships"]] == [str(tenant_id)]
+    assert [r["role"] for r in body["memberships"][0]["active_roles"]] == ["pastor"]
+
+
 async def test_login_from_new_device_needs_otp_then_verifies(ctx):
     """M-4 : l'appareil d'inscription est de confiance ; un AUTRE appareil repasse par un OTP."""
     client, _ = ctx

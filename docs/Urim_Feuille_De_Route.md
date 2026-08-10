@@ -308,6 +308,27 @@ n'est pas de la génération, c'est le même geste que le grec. 23 243 versets d
 
 5. `GET /iam/me`, puis `urim_user_settings`, puis `urim_workspace` — dans cet ordre, chacun
    débloquant le suivant.
+
+   **`GET /iam/me` — livré le 10/08/2026.** L'app disait *« Continuer en tant que… »* au prix
+   de deux appels et d'une devinette : `me/memberships` donne les églises et rien de la
+   personne, et le prénom ne se lisait nulle part. Un seul appel rend maintenant les deux.
+
+   Trois décisions y sont figées, et elles valent pour ce qui suit :
+
+   - **Une liste d'appartenances vide est une réponse, pas une erreur.** Urim s'installe seul,
+     et le pasteur qui ne rejoint aucune église prépare quand même. En faire un 404 aurait
+     fermé la porte au premier utilisateur de l'app.
+   - **`birth_year` n'est pas dans le `SELECT`**, pas seulement absente du DTO. L'âge de
+     quelqu'un n'est pas une donnée d'église, et ce qui n'est pas lu ne peut pas fuir dans un
+     log ou un DTO écrit trop vite. Un test tient l'absence sur les deux structures.
+   - **La règle de placement est tenue par un test, pas par une intention.** Prénom, téléphone,
+     naissance vivent dans `accounts` ; aucune table `urim_*` ne porte ces colonnes. Urim les
+     **lit** sans jamais les recopier — une seconde source de vérité sur quelqu'un divergerait
+     au premier changement de nom.
+
+   La requête réutilise `GetMyMemberships` au lieu de relire les appartenances : une seconde
+   définition de « mes églises » aurait divergé de la première.
+
 6. Les trois lacunes du noyau : `reset-secret-code`, `delete-account`, `devices`.
 
 ### Lot E — la profondeur *(quand le reste tient)*
