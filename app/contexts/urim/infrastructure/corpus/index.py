@@ -149,6 +149,12 @@ class OriginalWord:
     pos: str
     parsing: str
 
+    #: ⚠️ **La langue décide du décodeur**, et les deux formats n'ont rien en commun : le grec
+    #: range huit dimensions à position fixe, l'hébreu empile des morphèmes séparés par `/`.
+    #: Lire l'un avec la grille de l'autre ne lève aucune erreur — ça produit une glose
+    #: grammaticale fausse, c'est-à-dire exactement ce qu'un pasteur répète sans le vérifier.
+    language: str = "grc"
+
 
 @dataclass(frozen=True, slots=True)
 class CorpusIndex:
@@ -212,6 +218,19 @@ class CorpusIndex:
     #: Les mots de l'original, par `(book_id, chapitre, verset)` — le grec du NT aujourd'hui,
     #: l'hébreu quand il sera semé. Vide sur l'AT, et c'est un état normal qui se voit.
     originals: Mapping[tuple[int, int, int], tuple[OriginalWord, ...]] = field(
+        default_factory=dict
+    )
+
+    #: **L'index inverse du lemme** — `ἀγαπάω` → où il paraît, dans l'ordre du canon.
+    #:
+    #: C'est la concordance, et c'est la seule réponse à *« qu'est-ce que ce mot veut dire ? »*
+    #: qui ne puisse rien inventer. `ὑπόδημα` compte dix occurrences : Jean-Baptiste indigne
+    #: de délier la sandale — la tâche de l'esclave —, les disciples envoyés sans sandales, et
+    #: le père qui fait **chausser** son fils revenu se proposer comme mercenaire. La culture
+    #: matérielle du texte s'enseigne par sa récurrence, sans qu'aucune note ait à l'affirmer.
+    #:
+    #: `(book_id, chapitre, verset, rang du mot dans le verset)`.
+    occurrences_by_lemma: Mapping[str, tuple[tuple[int, int, int, int], ...]] = field(
         default_factory=dict
     )
 
@@ -330,24 +349,31 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
     # lu par requête : les ports du moteur sont synchrones, et l'exploration d'un passage doit
     # répondre sans toucher la base — c'est toute la raison d'être de cet index.
     originaux: dict[tuple[int, int, int], list[OriginalWord]] = defaultdict(list)
+    par_lemme: dict[str, list[tuple[int, int, int, int]]] = defaultdict(list)
     lignes_mots = await session.execute(
         select(
             CorpusVerseModel.book_id, CorpusVerseModel.chapter, CorpusVerseModel.verse,
             CorpusTokenModel.position, CorpusTokenModel.surface,
             CorpusLemmaModel.lemma, CorpusTokenModel.morph_code,
+            CorpusLemmaModel.language,
         )
         .join(CorpusTokenModel, CorpusTokenModel.verse_id == CorpusVerseModel.id)
         .join(CorpusLemmaModel, CorpusLemmaModel.id == CorpusTokenModel.lemma_id)
-        .order_by(CorpusTokenModel.verse_id, CorpusTokenModel.position)
+        .order_by(CorpusVerseModel.book_id, CorpusVerseModel.chapter,
+                  CorpusVerseModel.verse, CorpusTokenModel.position)
     )
-    for rang, chapitre, verset, position, surface, lemme, code in lignes_mots:
-        # `nature|parsing` : les deux voyagent ensemble, parce que `V-` sans `2FAI-S--` ne dit
-        # pas le mode, et `2FAI-S--` sans `V-` ne dit pas que c'est un verbe.
+    for rang, chapitre, verset, position, surface, lemme, code, langue in lignes_mots:
+        # ⚠️ `nature|parsing` est la convention du **grec** — l'hébreu porte son code OSHM
+        # entier, sans barre verticale. `partition` rend alors le tout en `nature` et rien en
+        # `parsing` ; c'est `language` qui tranche à la présentation, pas la forme du code.
         nature, _, parsing = (code or "|").partition("|")
-        originaux[(rang, chapitre, verset)].append(
-            OriginalWord(position, surface, lemme, nature, parsing)
+        cle = (rang, chapitre, verset)
+        par_lemme[lemme].append((rang, chapitre, verset, len(originaux[cle])))
+        originaux[cle].append(
+            OriginalWord(position, surface, lemme, nature, parsing, langue or "grc")
         )
     originals = {cle: tuple(mots) for cle, mots in originaux.items()}
+    occurrences_by_lemma = {lemme: tuple(lieux) for lemme, lieux in par_lemme.items()}
 
     # --- la curation --------------------------------------------------------------
     peri = (await session.execute(select(CorpusPericopeModel))).scalars().all()
@@ -470,6 +496,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         axes=axes,
         sites_by_axis=sites_by_axis,
         originals=originals,
+        occurrences_by_lemma=occurrences_by_lemma,
     )
 
 

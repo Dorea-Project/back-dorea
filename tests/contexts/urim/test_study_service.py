@@ -20,6 +20,7 @@ Aucun ne demande de base ni de réseau. C'est le point : ils auraient tous pu ex
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -30,10 +31,12 @@ from app.contexts.urim.application.ports import (
     UsageSnapshot,
 )
 from app.contexts.urim.application.study_service import UrimStudyService, _lisible
+from app.contexts.urim.domain.errors import OptionInconnueError
 from app.contexts.urim.engine.deps import AxisBearing, DoctrinalAxis, Feasibility
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.contexts.urim.infrastructure.corpus.index import (
     CorpusIndex,
+    OriginalWord,
     PericopeRow,
     VerseRow,
 )
@@ -277,6 +280,56 @@ async def test_une_faisabilite_relue_et_toute_refusee_refuse_bel_et_bien():
 
     assert dto.outcome == "refuse"
     assert "aucun personnage" in dto.rationale
+
+
+# ============================================================ la concordance — le module recherche
+
+
+def _index_avec_original() -> CorpusIndex:
+    """Deux occurrences d'un même lemme, et un `total` supérieur à ce qu'on rendra."""
+    index = _index()
+    mots = {
+        (58, 13, 1): (OriginalWord(1, "ἀγάπη", "ἀγάπη", "N-", "----NSF-", "grc"),),
+        (58, 13, 2): (OriginalWord(1, "ἀγάπης", "ἀγάπη", "N-", "----GSF-", "grc"),),
+    }
+    return replace(
+        index,
+        originals=mots,
+        occurrences_by_lemma={"ἀγάπη": ((58, 13, 1, 0), (58, 13, 2, 0))},
+    )
+
+
+@pytest.mark.asyncio
+async def test_la_concordance_rend_le_texte_francais_avec_la_forme_originale():
+    """**La seule réponse du module de recherche qui ne puisse rien inventer.**
+
+    Le pasteur qui voit `ὑπόδημα` dans Luc 15:22 veut savoir ce que le mot porte. Une note
+    historique le lui dirait et pourrait se tromper sans que personne ne le vérifie ; la
+    concordance ne fait que montrer le texte."""
+    service = _service(index=_index_avec_original())
+
+    dto = await service.concordance(
+        actor_account_id=AUTEUR, church_id=EGLISE, lemme="ἀγάπη"
+    )
+
+    assert dto.total == 2
+    assert dto.language == "grc"
+    references = [reference for reference, *_ in dto.occurrences]
+    assert references == ["Hébreux 13:1", "Hébreux 13:2"]
+    (_, texte, surface, _) = dto.occurrences[0]
+    assert "amour fraternel" in texte and surface == "ἀγάπη"
+
+
+@pytest.mark.asyncio
+async def test_un_lemme_absent_dit_qu_il_ne_parait_nulle_part():
+    """Le refus nomme ce qui manque **au corpus**, pas au pasteur — et l'AT n'a pas encore
+    d'original, donc l'absence sera fréquente."""
+    service = _service(index=_index_avec_original())
+
+    with pytest.raises(OptionInconnueError, match="ne paraît dans aucun"):
+        await service.concordance(
+            actor_account_id=AUTEUR, church_id=EGLISE, lemme="ὑπόδημα"
+        )
 
 
 # ================================================================= 5. la saisie stylisée

@@ -23,6 +23,7 @@ from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
 from app.contexts.urim.interface.dependencies import StudyServiceDep
 from app.contexts.urim.interface.schemas import (
+    ConcordanceView,
     DecisionBody,
     ElementsBody,
     OpenStudyBody,
@@ -106,6 +107,33 @@ async def set_elements(
         ],
     )
     return StudyView.from_dto(dto)
+
+
+@router.get(
+    "/tenants/{tenant_id}/lemmes",
+    response_model=ConcordanceView,
+    summary="Où ce mot de l'original paraît-il ailleurs — la concordance",
+)
+async def concordance(
+    tenant_id: UUID,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    lemme: str = Query(min_length=1, max_length=60, examples=["ὑπόδημα"]),
+) -> ConcordanceView:
+    """**Le pasteur ne s'arrête pas au mot ; il veut savoir ce qu'il porte.**
+
+    C'est la première pierre du module de recherche, et la seule qui ne puisse rien inventer.
+    Une note historique — *« chez les Hébreux les esclaves allaient pieds nus »* — dirait plus,
+    et pourrait se tromper sans que personne dans l'assemblée ne le vérifie. La concordance,
+    elle, montre le texte : sur `ὑπόδημα`, Jean-Baptiste indigne de délier la sandale — la
+    tâche de l'esclave —, les disciples envoyés sans sandales, et le père qui fait **chausser**
+    son fils venu se proposer comme mercenaire.
+
+    Lecture pure : aucun appel de modèle, aucune écriture."""
+    dto = await service.concordance(
+        actor_account_id=actor.account_id, church_id=tenant_id, lemme=lemme
+    )
+    return ConcordanceView.from_dto(dto)
 
 
 @router.get(

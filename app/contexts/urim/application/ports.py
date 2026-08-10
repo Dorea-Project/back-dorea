@@ -211,7 +211,31 @@ class PassageDetailDTO:
     #:
     #: **Vide sur l'Ancien Testament**, tant que l'hébreu n'est pas semé. Un état normal, et
     #: qui se voit.
-    original: tuple[tuple[str, int, str, str, str, str], ...] = ()
+    original: tuple[tuple[str, int, str, str, str, str, str], ...] = ()
+
+
+@dataclass(slots=True)
+class ConcordanceDTO:
+    """Toutes les fois où un mot de l'original paraît — **la seule réponse qui n'invente rien**.
+
+    Le pasteur qui voit `ὑπόδημα` dans Luc 15:22 veut savoir ce que ce mot porte. Une note
+    historique le lui dirait, et pourrait se tromper sans que personne dans l'assemblée ne
+    puisse le vérifier. La concordance, elle, ne fait que **montrer le texte** : Jean-Baptiste
+    indigne de délier la sandale — la tâche de l'esclave —, les disciples envoyés sans
+    sandales, et le père qui fait chausser son fils venu se proposer comme mercenaire.
+
+    La culture matérielle du texte s'enseigne par sa récurrence. Rien à sourcer, rien à
+    signer, rien à croire sur parole.
+
+    ⚠️ **`total` et `shown` sont distincts, toujours.** `δοῦλος` paraît 126 fois ; en afficher
+    cinquante sans le dire ferait passer un extrait pour l'ensemble, et un pasteur conclurait
+    d'un échantillon qu'il croit exhaustif."""
+
+    lemma: str
+    language: str
+    total: int
+    #: `(référence, texte français, forme dans l'original, code morphologique)`.
+    occurrences: tuple[tuple[str, str, str, str], ...] = ()
 
 
 class StudyRepository(Protocol):

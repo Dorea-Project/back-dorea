@@ -15,7 +15,22 @@ from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
 from app.contexts.urim.engine.state import EntryOrigin
-from app.contexts.urim.infrastructure.corpus.morphology import decrire, nature
+from app.contexts.urim.infrastructure.corpus import morphology, morphology_hebrew
+
+
+def _decrire(code: str | None, langue: str) -> str:
+    """⚠️ **La langue choisit la grille, jamais la forme du code.**
+
+    Le grec range huit dimensions à position fixe ; l'hébreu empile des morphèmes séparés par
+    `/`. Lire l'un avec la grille de l'autre ne lève aucune erreur — ça produit une glose
+    grammaticale fausse, c'est-à-dire exactement ce qu'un pasteur redit sans le vérifier."""
+    table = morphology_hebrew if langue == "hbo" else morphology
+    return table.decrire(code)
+
+
+def _nature(code: str | None, langue: str) -> str:
+    table = morphology_hebrew if langue == "hbo" else morphology
+    return table.nature(code)
 
 
 class OpenStudyBody(BaseModel):
@@ -303,8 +318,55 @@ class OriginalWordView(BaseModel):
     pos: str
     #: « 2ᵉ personne · futur · actif · indicatif · singulier ».
     morphology: str
-    #: Le code MorphGNT tel quel, ex. `2FAI-S--`.
+    #: Le code brut tel quel — `2FAI-S--` en grec, `HR/Ncfsa` en hébreu.
     parsing: str
+    #: `grc` ou `hbo`. Le client en a besoin pour la **direction du texte** : l'hébreu s'écrit
+    #: de droite à gauche, et un mot rendu à l'envers est illisible pour qui le lit vraiment.
+    language: str
+
+
+class OccurrenceView(BaseModel):
+    """Un endroit où le mot paraît — la référence, le verset français, la forme, sa grammaire."""
+
+    reference: str
+    text: str
+    surface: str
+    morphology: str
+
+
+class ConcordanceView(BaseModel):
+    """**La première pierre du module de recherche, et celle qui ne peut rien inventer.**
+
+    Le pasteur qui voit `ὑπόδημα` dans Luc 15:22 veut savoir ce que ce mot porte. Une note
+    historique le lui dirait — « chez les Hébreux les esclaves allaient pieds nus » — et
+    pourrait se tromper sans que personne dans l'assemblée ne puisse le vérifier. La
+    concordance ne fait que **montrer le texte** : Jean-Baptiste indigne de délier la sandale,
+    les disciples envoyés sans sandales, et le père qui fait chausser son fils venu se proposer
+    comme mercenaire. La culture matérielle s'y enseigne par la récurrence.
+
+    ⚠️ **`total` et le nombre rendu sont distincts.** `δοῦλος` paraît 126 fois ; en montrer
+    cinquante sans le dire ferait passer un extrait pour l'ensemble, et un pasteur conclurait
+    d'un échantillon qu'il croit complet."""
+
+    lemma: str
+    #: `grc` ou `hbo` — le client en a besoin pour la direction du texte.
+    language: str
+    #: Le compte **réel**, indépendant de ce qui est rendu.
+    total: int
+    occurrences: list[OccurrenceView]
+
+    @classmethod
+    def from_dto(cls, dto) -> ConcordanceView:
+        return cls(
+            lemma=dto.lemma, language=dto.language, total=dto.total,
+            occurrences=[
+                OccurrenceView(
+                    reference=r, text=t, surface=s,
+                    morphology=_decrire(m, dto.language),
+                )
+                for r, t, s, m in dto.occurrences
+            ],
+        )
 
 
 class UnitRefView(BaseModel):
@@ -416,8 +478,9 @@ class PassageDetailView(BaseModel):
             original=[
                 OriginalWordView(
                     reference=r, position=p, surface=s, lemma=lem,
-                    pos=nature(nat), morphology=decrire(par), parsing=par,
+                    pos=_nature(nat, langue), morphology=_decrire(par, langue),
+                    parsing=par, language=langue,
                 )
-                for r, p, s, lem, nat, par in dto.original
+                for r, p, s, lem, nat, par, langue in dto.original
             ],
         )

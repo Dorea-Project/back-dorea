@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 
 from app.contexts.urim.application.ports import (
     AssistedResolver,
+    ConcordanceDTO,
     ElementRecord,
     NullVerseResolver,
     PassageDetailDTO,
@@ -93,6 +94,11 @@ def _deserialiser(brut: str | None) -> Reference | None:
         int(ve) if ve else None,
     )
 
+
+#: Combien d'occurrences on rend au plus. `δοῦλος` en compte 126 — au-delà d'une cinquantaine,
+#: la liste cesse d'être lue. Le compte réel voyage toujours à côté (`total`) : on écourte, on
+#: ne dissimule pas.
+_OCCURRENCES_MAX = 50
 
 #: Combien de textes résistants on rapporte d'ailleurs. Trois : au-delà, la page devient une
 #: bibliographie et le pasteur n'en lit aucun — ce qui revient exactement à n'en montrer aucun.
@@ -566,13 +572,60 @@ class UrimStudyService:
             ),
             # L'original **du texte servi**, pas de l'unité : on annote ce qu'on affiche.
             original=tuple(
-                (v.reference, mot.position, mot.surface, mot.lemma, mot.pos, mot.parsing)
+                (v.reference, mot.position, mot.surface, mot.lemma, mot.pos, mot.parsing,
+                 mot.language)
                 for v in servis
                 for mot in self.index.originals.get(
                     (livre, *_chapitre_verset(v.reference)), ()
                 )
             ) if livre is not None else (),
         )
+
+    async def concordance(
+        self, *, actor_account_id: UUID, church_id: UUID, lemme: str
+    ) -> ConcordanceDTO:
+        """Toutes les occurrences d'un mot de l'original — **lecture pure, sans modèle**.
+
+        C'est la première pierre du module de recherche, et la seule qui ne puisse rien
+        inventer : elle montre le texte, elle ne dit rien sur le monde. `ὑπόδημα` répond à la
+        question du fils prodigue sans qu'aucune note ait à affirmer que les esclaves allaient
+        pieds nus — Jean-Baptiste dit lui-même que délier la sandale est au-dessous de lui.
+
+        ⚠️ **Rien n'est tronqué en silence.** `δοῦλος` paraît 126 fois ; `total` porte le
+        compte réel et `occurrences` ce qu'on en montre. Un extrait présenté comme un tout
+        ferait conclure d'un échantillon."""
+        await self._ensure_preacher(actor_account_id, church_id)
+
+        lieux = self.index.occurrences_by_lemma.get(lemme.strip(), ())
+        if not lieux:
+            raise OptionInconnueError(
+                f"« {lemme} » ne paraît dans aucun texte original de ce corpus."
+            )
+
+        langue = "grc"
+        rendues: list[tuple[str, str, str, str]] = []
+        for livre, chapitre, verset, rang in lieux[:_OCCURRENCES_MAX]:
+            mots = self.index.originals.get((livre, chapitre, verset), ())
+            if rang >= len(mots):
+                continue
+            mot = mots[rang]
+            langue = mot.language
+            libelle = self.index.label_by_book.get(livre, "")
+            rendues.append((
+                f"{libelle} {chapitre}:{verset}",
+                self._texte_du_verset(livre, chapitre, verset),
+                mot.surface,
+                mot.parsing or mot.pos,
+            ))
+
+        return ConcordanceDTO(
+            lemma=lemme.strip(), language=langue, total=len(lieux),
+            occurrences=tuple(rendues),
+        )
+
+    def _texte_du_verset(self, livre: int, chapitre: int, verset: int) -> str:
+        servis = verses_between(self.index, livre, (chapitre, verset), (chapitre, verset))
+        return servis[0].body if servis else ""
 
     async def _passages_verifies(self, saisie: str) -> tuple[PassageSuggestion, ...]:
         """Les passages proposés par le sens, **vérifiés un par un contre les 31 170 versets**.
