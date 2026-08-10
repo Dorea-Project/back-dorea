@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -44,6 +45,7 @@ from app.contexts.urim.engine.deps import (
     NullConvictionReader,
 )
 from app.contexts.urim.engine.normalizer import normalize
+from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Outcome
 from app.contexts.urim.engine.pipeline import UrimEngine
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
@@ -201,6 +203,34 @@ def _chapitre_verset(reference: str) -> tuple[int, int]:
     _, _, fin = reference.rpartition(" ")
     chapitre, _, verset = fin.partition(":")
     return int(chapitre), int(verset)
+
+
+#: Les tournures dont le modèle préfixe un nom de livre. Le corpus, lui, dit « Jean »,
+#: « Romains », « Joël » — le vocabulaire des biblistes, pas celui d'une table des matières.
+_PREFIXES_DE_GENRE: tuple[tuple[str, ...], ...] = (
+    ("evangile", "selon"), ("evangile", "de"),
+    ("lettre", "aux"), ("lettre", "a"), ("lettre", "de"),
+    ("epitre", "aux"), ("epitre", "a"), ("epitre", "de"),
+    ("livre", "des"), ("livre", "de"), ("livre", "du"),
+    ("actes", "des"),
+    ("psaume",), ("apocalypse", "de"),
+)
+
+
+def _lisible(saisie: str) -> str:
+    """La saisie **dé-stylisée**, telle qu'un modèle sait la lire.
+
+    ⚠️ Un pasteur qui recopie son thème depuis WhatsApp l'envoie souvent en caractères
+    mathématiques (« MATHEMATICAL ITALIC »). Le moteur, lui, s'en accommode : son
+    normaliseur les replie déjà. Le **modèle** non : sur la version stylisée il a rendu Actes 2,
+    Éphésiens 2, 1 Pierre 2 ; sur la même phrase en caractères ordinaires, **Actes 1:8 en
+    premier** — le texte que le pasteur a effectivement prêché.
+
+    NFKC replie les variantes typographiques sur leurs lettres, NFC recompose les accents
+    décomposés (`e` + accent aigu → `é`). On ne passe **pas** par `normalize` du moteur : elle
+    dépouille les accents et la casse, ce qui aide à comparer des tokens et nuit à un modèle de
+    langue — il lit du français, pas des clés d'index."""
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFKC", saisie))
 
 
 def _cle_provisoire(raw_input: str) -> str:
@@ -558,10 +588,49 @@ class UrimStudyService:
         proposes = await self.resolver.passages(saisie)
         lecteur = IndexedCorpusReader(self.index)
         retenus = tuple(
-            propose for propose in proposes
-            if lecteur.check_reference(propose.reference).exists
+            recale for propose in proposes
+            if (recale := self._recaler(propose)) is not None
+            and lecteur.check_reference(recale.reference).exists
         )
         return retenus if len(retenus) > 1 else ()
+
+    def _recaler(self, propose: PassageSuggestion) -> PassageSuggestion | None:
+        """Le nom de livre du modèle, **ramené au vocabulaire du corpus**.
+
+        ⚠️ **Sans cela, les meilleurs passages étaient jetés en silence.** Le modèle nomme les
+        livres au long — « Actes des Apôtres », « Évangile selon Jean », « Lettre aux Romains »
+        — là où `check_reference` compare au libellé exact du corpus, qui dit « Actes »,
+        « Jean », « Romains ». La proposition était rejetée, et le pasteur recevait ce qui avait
+        survécu par hasard : sur *« Par le Saint-Esprit… étant des témoins »*, le modèle avait
+        bien proposé **Actes 1:8** — le texte que le pasteur a réellement prêché — et ma
+        vérification l'a écarté.
+
+        Le corpus savait pourtant : `books_by_form` porte 356 formes, dont « actes des
+        apotres ». Elle sert à la porte d'entrée depuis le début et personne ne l'avait
+        branchée ici. On l'interroge donc avec le même normaliseur que le moteur, et la
+        référence repart avec le libellé canonique."""
+        mots = decouper(propose.reference.book)
+        livres = self.index.books_by_form.get(mots)
+        if not livres:
+            # Le modèle annonce souvent le **genre** avant le nom : « Évangile selon Jean »,
+            # « Lettre aux Romains », « Livre de Joël ». On retire le préfixe plutôt que
+            # d'ajouter deux cents formes au corpus : le vocabulaire du dépôt reste celui des
+            # biblistes, et c'est l'adaptateur qui absorbe la verbosité du modèle.
+            for prefixe in _PREFIXES_DE_GENRE:
+                if mots[: len(prefixe)] == prefixe and len(mots) > len(prefixe):
+                    livres = self.index.books_by_form.get(mots[len(prefixe):])
+                    if livres:
+                        break
+        if not livres:
+            return propose  # inconnue : `check_reference` tranchera, avec son motif
+        libelle = self.index.label_by_book.get(livres[0])
+        if libelle is None or libelle == propose.reference.book:
+            return propose
+        ref = propose.reference
+        return PassageSuggestion(
+            Reference(libelle, ref.chapter, ref.verse_start, ref.verse_end),
+            propose.rationale,
+        )
 
     # -- rejeu ------------------------------------------------------------------
 
@@ -630,7 +699,7 @@ class UrimStudyService:
         # confondre les trois effacerait la seule chose que cette colonne existe pour porter.
         provenance = chosen_by
         if persist and record.resolved_ref is None and run.state.resolved is None:
-            trouve = await self.resolver.resolve(record.raw_input)
+            trouve = await self.resolver.resolve(_lisible(record.raw_input))
             if trouve is not None and IndexedCorpusReader(self.index).check_reference(
                 trouve
             ).exists:
@@ -661,10 +730,11 @@ class UrimStudyService:
             # fois le verdict connu. Or sur ce chemin le verdict est connu d'avance — une
             # intention aboutit toujours à l'écran des axes, et cet écran veut les passages.
             # Attendre de le constater ne rachetait rien qu'un aller-retour.
+            lisible = _lisible(record.raw_input)
             loci, drapeaux, proposes = await asyncio.gather(
-                self.resolver.axes(record.raw_input),
-                self.resolver.lever(record.raw_input),
-                self._passages_verifies(record.raw_input),
+                self.resolver.axes(lisible),
+                self.resolver.lever(lisible),
+                self._passages_verifies(lisible),
             )
             if loci or drapeaux or proposes:
                 etat = etat.with_(
@@ -692,7 +762,7 @@ class UrimStudyService:
         # proposition ; un fait sur l'orthographe, non.
         # La conviction a déjà tout demandé plus haut ; il ne reste que le chemin citation.
         if not etat.suggested_passages and _est_une_impasse_de_recherche(run):
-            proposes = await self._passages_verifies(record.raw_input)
+            proposes = await self._passages_verifies(_lisible(record.raw_input))
             if proposes:
                 run = moteur.run(etat.with_(suggested_passages=proposes))
 
