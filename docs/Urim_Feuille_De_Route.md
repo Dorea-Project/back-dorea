@@ -88,6 +88,76 @@ Un client mobile qui tape un serveur fraîchement démarré doit préchauffer ou
 
 ---
 
+## 2 bis. Ce que la prédication du Pasteur X a appris
+
+> Une prédication réelle, écrite avant qu'Urim n'existe. C'est le seul test qu'on ait eu qui ne
+> soit pas fabriqué par nous, et il vaut tous les autres.
+>
+> **Thème :** *Jésus-Christ, Celui qui maintient notre Foi sur l'autel Divin*
+> **Passage :** Psaumes 125:1-5
+
+### Le passage prêché n'était pas dans les six proposés
+
+Le moteur avait proposé Genèse 12, Lévitique 16, Psaume 22, Ésaïe 53, Jean 17, Hébreux 12. Il a
+prêché **Psaume 125**.
+
+Son titre a deux moitiés. Le moteur a lu *« sur l'autel Divin »* et est parti vers le sacrifice ;
+lui a prêché *« Celui qui maintient notre Foi »*, et l'a cherché du côté de la **stabilité** — la
+montagne qui ne chancelle point.
+
+Ce n'est pas un échec, c'est une leçon sur la mesure : la proposition par le sens suit le
+**vocabulaire** du titre, et le mot le plus concret n'était pas la moitié opératoire. Un titre de
+prédicateur est une **image**, et l'image a un centre de gravité que le mot le plus saillant
+trahit.
+
+### Il a fait de lui-même le travail que `resiste` existe pour faire
+
+C'est la meilleure validation qu'on ait de toute la mécanique anti-proof-texting, et elle n'est
+pas venue de nous.
+
+Le Psaume 125 promet que le juste ne sera pas ébranlé. Il aurait pu s'y tenir. Il a écrit :
+
+> *« Le sceptre de la méchanceté peut venir frapper le juste dans sa vie privée, sa famille, sa
+> liberté ; il ne pourra pas, toutefois, atteindre son âme. »*
+
+Et il a **conclu** sur Hébreux 11:39-40 — *« ils n'ont pas obtenu ce qui leur était promis »* —
+un texte qui résiste à sa propre thèse de sécurité.
+
+Or le moteur, mis à peser ce psaume sans rien savoir de ce sermon, marque seul :
+
+    resiste   eschatologie   « le texte affirme une protection à jamais… »
+
+**La même tension, trouvée des deux côtés.** Le pasteur l'a résolue d'instinct ; le moteur la
+nomme. C'est exactement le service que le produit prétend rendre, et c'est la première fois
+qu'on le vérifie contre un travail humain qui ne nous devait rien.
+
+### Le vrai écart : il prêche une CHAÎNE, Urim prépare une UNITÉ
+
+Son sermon convoque **huit textes** — Psaume 125 en base, puis Luc 18:8, Matthieu 7:26-27,
+Esther 4, Psaume 34:6, Philippiens 4:11-18, Matthieu 21:21-22, Hébreux 11:39-40.
+
+Urim est bâti autour d'**une** péricope. `resolved`, `bounds`, `pericope_id`, les pesées, la
+faisabilité : tout est au singulier. Rien dans le modèle ne tient « les textes d'appui ».
+
+C'est l'écart structurel le plus profond entre l'outil et le travail réel, et je l'avais
+sous-estimé. `resisting_elsewhere` en est le germe — il rapporte trois textes d'ailleurs — mais
+il les rapporte comme des **objections**, pas comme des appuis que le pasteur choisit et
+ordonne.
+
+### Deux choses que l'outil lui dirait, et qu'il faut manier
+
+**Son plan est thématique** : trois affirmations, chacune appuyée par un texte. Dans le
+vocabulaire d'Urim, `thematique` porte `proof_text_risk: eleve`. L'outil classerait donc sa
+méthode naturelle comme risquée. Ce n'est pas faux — mais tel quel, c'est un reproche. Le risque
+doit dire **quoi faire**, pas seulement qu'il existe.
+
+**Les illustrations — Yamoussoukro, le mont Nimba, le plus haut sommet de la Côte d'Ivoire — ne
+sont pas du ressort d'Urim et ne doivent jamais l'être.** C'est ce que le pasteur apporte, et
+c'est précisément ce qu'aucun corpus ne peut lui donner. Un outil qui prétendrait les fournir
+lui prendrait la seule part du travail qui est la sienne.
+
+---
+
 ## 3. Ce qui n'existe pas encore — le domaine utilisateur
 
 C'est l'objet de [`Urim_Domaine_Utilisateur.md`](Urim_Domaine_Utilisateur.md), et c'est le
@@ -179,11 +249,30 @@ n'est pas de la génération, c'est le même geste que le grec. 23 243 versets d
 
 ### Lot D — la profondeur *(quand le reste tient)*
 
-6. **L'hébreu** (`morphhb`) — l'AT sans original est aujourd'hui les trois quarts de l'Écriture.
-7. **Le prompt dynamique** : `raw_input` n'existe qu'à l'ouverture. Le pasteur ne peut pas
+6. **La chaîne de textes** — voir §2 bis. Le Pasteur X en a convoqué huit ; le modèle en tient
+   un. C'est le chantier que sa prédication a fait remonter, et il est plus lourd que les
+   autres : il touche `PreparationRecord`, le bornage, et la vue. À concevoir avant de coder —
+   la question n'est pas *comment stocker huit références* mais *ce qu'un texte d'appui est* :
+   un appui n'est ni la péricope, ni une objection, et le confondre avec l'un ou l'autre
+   raterait le geste.
+7. **L'hébreu** (`morphhb`) — l'AT sans original est aujourd'hui les trois quarts de l'Écriture.
+8. **Le prompt dynamique** : `raw_input` n'existe qu'à l'ouverture. Le pasteur ne peut pas
    demander « et ce mot ? » en cours de préparation, alors que c'est le geste le plus naturel
    une fois le texte sous les yeux.
-8. **Ostervald et Darby** — pour que le catalogue de versions ait un contenu.
+9. **Ostervald et Darby** — pour que le catalogue de versions ait un contenu.
+
+### Deux réglages fins, à faire quand l'occasion se présente
+
+**La proposition par le sens travaille sur les mots, pas sur l'image.** Le Pasteur X a écrit
+*« sur l'autel Divin »* et le moteur est parti vers le sacrifice, alors que sa prédication
+tenait à l'autre moitié — *« Celui qui maintient notre Foi »*, donc la stabilité. Un titre de
+prédicateur est une image ; l'invite devrait demander au modèle d'en chercher le **centre de
+gravité** plutôt que son mot le plus concret.
+
+**Le risque de proof-texting doit dire quoi faire.** `thematique` porte `eleve`, et c'est juste
+— mais un pasteur dont c'est la méthode reçoit un reproche sans issue. La mention devrait
+nommer la parade : *sur un plan thématique, le texte est convoqué pour confirmer ; regardez
+d'abord ce qui résiste.*
 
 ### Hors lot — la relecture humaine
 
