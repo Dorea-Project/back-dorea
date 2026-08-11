@@ -169,11 +169,15 @@ class MistralAssistant:
         self._client = Mistral(api_key=api_key)
         self._model = model
 
-    async def demander(self, systeme: str, texte: str) -> str | None:
+    async def demander(self, systeme: str, texte: str, *, etiquette: str = "?") -> str | None:
         """Un appel, une invite. Toute panne rend `None` — jamais une exception qui remonte.
 
         Publique parce que la curation s'en sert : découper un chapitre en unités littéraires
-        est un troisième usage, hors ligne celui-là, et il n'a pas à recopier ce transport."""
+        est un troisième usage, hors ligne celui-là, et il n'a pas à recopier ce transport.
+
+        `etiquette` ne sert qu'au journal. Elle existe parce qu'on a longtemps raisonné sur le
+        coût d'une ouverture sans jamais l'avoir mesuré : sans elle, la consommation est un
+        total mensuel sur une facture, et on ne sait pas **quelle** invite le fabrique."""
         try:
             reponse = await self._client.chat.complete_async(
                 model=self._model,
@@ -189,6 +193,15 @@ class MistralAssistant:
                 # reproductible, sinon la trace ment sur ce que le pasteur a vu.
                 temperature=0,
             )
+            usage = getattr(reponse, "usage", None)
+            if usage is not None:
+                _logger.info(
+                    "urim_mistral_usage",
+                    invite=etiquette,
+                    model=self._model,
+                    entree=getattr(usage, "prompt_tokens", None),
+                    sortie=getattr(usage, "completion_tokens", None),
+                )
             return reponse.choices[0].message.content or ""
         except Exception as erreur:  # pragma: no cover - réseau
             # ⚠️ **Une panne du modèle n'est jamais une panne d'Urim.** Le résolveur
@@ -197,7 +210,7 @@ class MistralAssistant:
             return None
 
     async def resolve(self, text: str) -> Reference | None:
-        contenu = await self.demander(_SYSTEME_REFERENCE, text)
+        contenu = await self.demander(_SYSTEME_REFERENCE, text, etiquette="reference")
         return _reference_depuis(contenu) if contenu else None
 
     async def axes(self, text: str) -> tuple[AxisGloss, ...]:
@@ -208,7 +221,7 @@ class MistralAssistant:
         contestable au-dessus du bon locus. Ni l'un ni l'autre ne retire au pasteur ce qu'il
         pouvait choisir — et c'est la seule raison pour laquelle on laisse un modèle nommer
         quoi que ce soit sur cet écran."""
-        contenu = await self.demander(_SYSTEME_AXES, text)
+        contenu = await self.demander(_SYSTEME_AXES, text, etiquette="axes")
         if not contenu:
             return ()
         bloc = re.search(r"\{.*\}", contenu, re.S)
@@ -244,7 +257,7 @@ class MistralAssistant:
 
         Un seul serait une résolution déguisée. La pluralité n'est donc pas une commodité
         d'affichage : c'est ce qui maintient la décision du côté du pasteur."""
-        contenu = await self.demander(_SYSTEME_PASSAGES, text)
+        contenu = await self.demander(_SYSTEME_PASSAGES, text, etiquette="passages")
         if not contenu:
             return ()
         bloc = re.search(r"\{.*\}", contenu, re.S)
@@ -285,17 +298,24 @@ class MistralAssistant:
         return await self._codes(
             _SYSTEME_RISQUE, text, "flags",
             frozenset({"charge_forte", "accusation", "intention_persuasive"}),
+            etiquette="risque",
         )
 
     async def _codes(
-        self, systeme: str, texte: str, cle: str, connus: frozenset[str]
+        self,
+        systeme: str,
+        texte: str,
+        cle: str,
+        connus: frozenset[str],
+        *,
+        etiquette: str = "?",
     ) -> tuple[str, ...]:
         """Une liste de codes d'un vocabulaire **fermé** — le tronc commun d'`axes` et `lever`.
 
         Le filtre sur `connus` n'est pas une politesse : sans lui, un code inventé par le
         modèle traverserait jusqu'à une clé étrangère ou à un `if` qui ne le reconnaît pas, et
         échouerait loin d'ici. On coupe au plus près de la source."""
-        contenu = await self.demander(systeme, texte)
+        contenu = await self.demander(systeme, texte, etiquette=etiquette)
         if not contenu:
             return ()
         bloc = re.search(r"\{.*\}", contenu, re.S)
