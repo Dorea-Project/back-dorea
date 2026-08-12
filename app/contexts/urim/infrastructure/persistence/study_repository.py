@@ -17,11 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.contexts.urim.application.ports import (
     ElementRecord,
     PreparationRecord,
+    SuggestionSnapshot,
     SupportRecord,
     UsageSnapshot,
 )
+from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.contexts.urim.infrastructure.persistence.models import (
+    UrimModelSuggestionModel,
     UrimPreachedModel,
+    UrimPreparationDismissalModel,
     UrimPreparationElementModel,
     UrimPreparationModel,
     UrimPreparationSupportModel,
@@ -226,6 +230,96 @@ class SqlStudyRepository:
             SupportRecord(r.raw, r.book_id, r.chapter, r.verse_start, r.verse_end)
             for r in rows
         ]
+
+    async def dismiss(
+        self, *, study_id: UUID, stage_code: str, option_code: str, at: datetime
+    ) -> None:
+        # Idempotent par la clé primaire : on relit avant d'insérer plutôt que d'attendre
+        # une violation. Écarter deux fois la même option est le même fait, pas une erreur.
+        deja = await self._s.get(
+            UrimPreparationDismissalModel, (study_id, stage_code, option_code)
+        )
+        if deja is not None:
+            return
+        self._s.add(UrimPreparationDismissalModel(
+            preparation_id=study_id, stage_code=stage_code,
+            option_code=option_code, dismissed_at=at,
+        ))
+        await self._s.flush()
+
+    async def restore(self, *, study_id: UUID, stage_code: str, option_code: str) -> None:
+        await self._s.execute(
+            delete(UrimPreparationDismissalModel)
+            .where(UrimPreparationDismissalModel.preparation_id == study_id)
+            .where(UrimPreparationDismissalModel.stage_code == stage_code)
+            .where(UrimPreparationDismissalModel.option_code == option_code)
+        )
+        await self._s.flush()
+
+    async def list_dismissals(self, study_id: UUID) -> list[tuple[str, str]]:
+        rows = (await self._s.execute(
+            select(
+                UrimPreparationDismissalModel.stage_code,
+                UrimPreparationDismissalModel.option_code,
+            ).where(UrimPreparationDismissalModel.preparation_id == study_id)
+        )).all()
+        return [(r.stage_code, r.option_code) for r in rows]
+
+    async def save_suggestions(
+        self, study_id: UUID, snapshot: SuggestionSnapshot, at: datetime
+    ) -> None:
+        row = await self._s.get(
+            UrimModelSuggestionModel, (study_id, snapshot.input_hash)
+        )
+        valeurs = dict(
+            model=snapshot.model,
+            axes=[{"code": a.code, "titre": a.title, "glose": a.gloss}
+                  for a in snapshot.axes],
+            flags=list(snapshot.flags),
+            passages=[
+                {
+                    "livre": p.reference.book,
+                    "chapitre": p.reference.chapter,
+                    "debut": p.reference.verse_start,
+                    "fin": p.reference.verse_end,
+                    "motif": p.rationale,
+                }
+                for p in snapshot.passages
+            ],
+            suggested_at=at,
+        )
+        if row is None:
+            self._s.add(UrimModelSuggestionModel(
+                preparation_id=study_id, input_hash=snapshot.input_hash, **valeurs
+            ))
+        else:
+            # Même question, réponse rafraîchie — le modèle a pu changer entre-temps.
+            for cle, valeur in valeurs.items():
+                setattr(row, cle, valeur)
+        await self._s.flush()
+
+    async def get_suggestions(
+        self, study_id: UUID, input_hash: str
+    ) -> SuggestionSnapshot | None:
+        row = await self._s.get(UrimModelSuggestionModel, (study_id, input_hash))
+        if row is None:
+            return None
+        return SuggestionSnapshot(
+            input_hash=row.input_hash,
+            model=row.model,
+            axes=tuple(
+                AxisGloss(a["code"], a.get("titre") or "", a.get("glose") or "")
+                for a in row.axes
+            ),
+            flags=tuple(row.flags),
+            passages=tuple(
+                PassageSuggestion(
+                    Reference(p["livre"], p["chapitre"], p.get("debut"), p.get("fin")),
+                    p.get("motif") or "",
+                )
+                for p in row.passages
+            ),
+        )
 
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]:
         # **Son** archive, clée sur l'auteur. Aucune lecture d'un autre contexte : cette

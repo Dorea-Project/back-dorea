@@ -86,8 +86,13 @@ _SYSTEME_AXES = (
     "Dès qu'un SUJET est identifiable, rattache-le, même si la phrase est inachevée ou "
     "maladroite : « je veux faire un culte sur l'adultère dans » touche l'hamartiologie et "
     "l'anthropologie, et une phrase coupée reste une intention claire. Ne renvoie une liste "
-    "vide QUE si aucun sujet n'est discernable — une salutation, un mot isolé ambigu, une "
-    "suite de touches. "
+    "vide QUE dans deux cas. Le premier : aucun sujet n'est discernable — une salutation, un "
+    "mot isolé ambigu, une suite de touches. Le second : la saisie n'a AUCUN rapport avec "
+    "l'Écriture, la prédication ou la vie d'une assemblée — un exercice scolaire, une recette, "
+    "du code, une question médicale ou technique. Ces deux cas se distinguent des saisies "
+    "maladroites : une phrase bancale, tronquée ou mal orthographiée qui parle de Dieu, de la "
+    "foi, de l'Église ou d'un texte biblique doit TOUJOURS être rattachée. Dans le doute, "
+    "rattache. "
     "Pour CHAQUE locus retenu, donne aussi : un TITRE de 2 à 5 mots, dans la langue du "
     "pasteur et non celle de l'école — pour 'on prie pour les malades et rien ne change', "
     "theologie_propre se dit « La prière sans réponse » et anthropologie « La souffrance du "
@@ -118,6 +123,12 @@ _SYSTEME_PASSAGES = (
     "Donne le nom du livre en français (Jean, Psaumes, Ésaïe, 1 Corinthiens) et des bornes "
     "réelles. Ne fournis JAMAIS le texte : seulement la référence et une phrase disant ce que "
     "ce passage apporte au sujet. "
+    "RENVOIE UNE LISTE VIDE si la saisie n'a AUCUN rapport avec l'Écriture, la prédication ou "
+    "la vie d'une assemblée — un exercice scolaire, une recette, du code, une question "
+    "médicale ou technique. Tu n'as pas à trouver un verset pour tout sujet. En revanche une "
+    "saisie bancale, tronquée ou mal orthographiée qui parle de Dieu, de la foi, de l'Église "
+    "ou d'un fait biblique — une coutume, un personnage, un objet du texte — appelle des "
+    "passages comme les autres. Dans le doute, propose. "
     'Réponds par un objet JSON : {"passages": [{"livre": "...", "chapitre": 13, "debut": 1, '
     '"fin": 13, "motif": "..."}]}'
 )
@@ -227,6 +238,16 @@ class MistralAssistant:
 
         self._client = Mistral(api_key=api_key)
         self._model = model
+        #: ⚠️ **Le compteur qui distingue « il n'a rien répondu » de « il n'a pas pu répondre ».**
+        #:
+        #: Toute panne rend `None`, et chaque lecture le transforme en liste vide : un 429 est
+        #: donc *identique* à un refus du modèle. Tant que rien ne persistait, c'était sans
+        #: conséquence — le rejeu redemandait. Depuis le mémo des suggestions, une coupure d'une
+        #: seconde figerait une préparation vide **pour toujours**.
+        #:
+        #: Monotone, donc juste sous `asyncio.gather` : l'appelant prend une photo avant, une
+        #: après, et n'écrit son mémo que si le nombre n'a pas bougé.
+        self.echecs = 0
 
     async def demander(self, systeme: str, texte: str, *, etiquette: str = "?") -> str | None:
         """Un appel, une invite. Toute panne rend `None` — jamais une exception qui remonte.
@@ -265,6 +286,7 @@ class MistralAssistant:
         except Exception as erreur:  # pragma: no cover - réseau
             # ⚠️ **Une panne du modèle n'est jamais une panne d'Urim.** Le résolveur
             # déterministe reprend, et le pasteur ne voit pas la différence.
+            self.echecs += 1
             _logger.warning("mistral_echec", error=str(erreur))
             return None
 

@@ -137,6 +137,34 @@ class UrimPreparationElementModel(Base):
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class UrimPreparationDismissalModel(Base):
+    """Ce que le pasteur a **écarté** — la moitié du dialogue qui ne se stockait nulle part.
+
+    Urim gardait ce qui avait été choisi et rien de ce qui avait été décliné. Sur un formulaire
+    ça ne se voit pas ; dans une conversation de onze tours, ça devient la chose la plus
+    irritante qu'un logiciel puisse faire — reproposer à chaque rejeu ce qu'on vient de repousser.
+    Le moteur rejoue à chaque lecture, donc sans cette table il *ne peut pas* s'en souvenir.
+
+    ⚠️ **Écarter n'efface pas.** L'option écartée revient dans la liste, marquée et reléguée,
+    jamais retirée — même règle que les couples refusés qui voyagent avec les faisables : *les
+    cacher laisserait croire qu'on n'y a pas pensé*. Et le pasteur qui change d'avis doit
+    retrouver ce qu'il a repoussé, sans quoi son geste devient irréversible par accident.
+
+    La clé est le triplet lui-même : écarter deux fois la même option est le même fait, et une
+    ligne en double n'aurait aucun sens à raconter."""
+
+    __tablename__ = "urim_preparation_dismissal"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: L'étage où le geste a eu lieu. Le même code d'option peut être offert par deux étages
+    #: différents ; écarter à l'un ne dit rien de l'autre.
+    stage_code: Mapped[str] = mapped_column(String, primary_key=True)
+    option_code: Mapped[str] = mapped_column(String, primary_key=True)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimPreparationSupportModel(Base):
     """Les **textes d'appui** — la chaîne qu'un sermon convoque autour de son passage.
 
@@ -198,6 +226,48 @@ class UrimResolutionAttemptModel(Base):
 
 
 # ============================================================================ 2. ARCHIVE
+
+
+class UrimModelSuggestionModel(Base):
+    """Ce que le modèle a **offert** sur cette saisie — gardé, pas redemandé.
+
+    ⚠️ **Sans cette table, le rejeu n'est pas un rejeu : c'est un recalcul qui se trouve
+    d'accord.** Le moteur est déterministe à corpus constant, et `corpus_snapshot` le garantit
+    pour le corpus. Rien ne le garantissait pour le modèle : `mistral-small-latest` est un
+    alias mouvant, et le jour où il bouge, une préparation d'hier rejoue autrement — en
+    silence, alors même que la trace affirme le contraire. `model` est à cette table ce que
+    `corpus_snapshot` est à la préparation.
+
+    Le coût vient en second, et il est réel : le bloc conviction part **à chaque rejeu**, donc
+    à chaque lecture d'écran et à chaque refus. Trois appels pour rendre mot pour mot ce qui
+    venait d'être rendu — la mesure du 11/08 disait « par ouverture » là où il fallait lire
+    « par lecture ».
+
+    **Est-ce du raisonnement ?** Non : c'est ce qui a été *offert au pasteur*. Le dépôt garde
+    déjà les candidats écartés d'une résolution (`urim_resolution_attempt.candidates`) pour la
+    même raison — *jamais de résolution silencieuse*. Ce qui est proposé fait partie de la
+    décision ; seul le chemin qui y mène ne se stocke pas.
+
+    `input_hash` couvre la saisie **et le mode d'entrée** : ce sont les deux choses qui
+    déterminent la question posée. Un pasteur qui corrige « citation » en « conviction » pose
+    une autre question, et doit obtenir une autre réponse."""
+
+    __tablename__ = "urim_model_suggestion"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: ⚠️ **Dans la clé**, parce qu'une préparation pose plusieurs questions. Le chemin
+    #: conviction demande les loci, les drapeaux et les passages ; le chemin impasse ne demande
+    #: que des passages, sur la même saisie. Une seule ligne par préparation les faisait
+    #: s'écraser l'une l'autre, et chaque rejeu redemandait celle que l'autre avait chassée.
+    input_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    #: Le modèle qui a produit ces suggestions — l'équivalent de `corpus_snapshot`.
+    model: Mapped[str] = mapped_column(String)
+    axes: Mapped[list] = mapped_column(JSON)  # [{code, titre, glose}]
+    flags: Mapped[list] = mapped_column(JSON)  # ["accusation", …]
+    passages: Mapped[list] = mapped_column(JSON)  # [{livre, ch, debut, fin, motif}]
+    suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class UrimPreachedModel(Base):

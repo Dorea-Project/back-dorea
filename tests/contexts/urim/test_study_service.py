@@ -105,6 +105,10 @@ class _Studies:
         self.records: dict[UUID, PreparationRecord] = {}
         self.attempts: list[dict] = []
         self.supports: dict[UUID, list] = {}
+        self.ecartees: set[tuple[str, str]] = set()
+        #: Le mémo des suggestions — une doublure sans lui ferait redemander le modèle à
+        #: chaque rejeu, donc mesurerait un service que la production n'a plus.
+        self.memos: dict[UUID, object] = {}
 
     async def add(self, record): self.records[record.id] = record
 
@@ -126,6 +130,20 @@ class _Studies:
 
     async def list_supports(self, study_id):
         return self.supports.get(study_id, [])
+
+    async def dismiss(self, *, study_id, stage_code, option_code, at):
+        self.ecartees.add((stage_code, option_code))
+
+    async def restore(self, *, study_id, stage_code, option_code):
+        self.ecartees.discard((stage_code, option_code))
+
+    async def list_dismissals(self, study_id): return sorted(self.ecartees)
+
+    async def save_suggestions(self, study_id, snapshot, at):
+        self.memos[(study_id, snapshot.input_hash)] = snapshot
+
+    async def get_suggestions(self, study_id, input_hash):
+        return self.memos.get((study_id, input_hash))
 
     async def recently_preached_axes(self, author_id, since): return []
 

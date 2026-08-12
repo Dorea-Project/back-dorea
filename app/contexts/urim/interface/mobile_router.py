@@ -89,6 +89,33 @@ async def decide(
     return StudyView.from_dto(dto)
 
 
+@router.post(
+    "/studies/{study_id}/dismissals",
+    response_model=StudyView,
+    summary="Écarter une option — elle reste dans la liste, marquée et reléguée",
+)
+async def dismiss(
+    study_id: UUID,
+    payload: DecisionBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """**Écarter n'est pas décider**, d'où une route distincte plutôt qu'un mode de `decisions`.
+
+    Décider fait avancer le pipeline ; écarter ne fait avancer aucun étage — il apprend
+    seulement au tour suivant de ne pas reproposer ce qu'on vient de repousser. Le moteur
+    rejouant à chaque lecture, sans ce geste il n'a aucun moyen de s'en souvenir.
+
+    Le corps est celui d'une décision : ce sont les mêmes coordonnées — un étage, une option."""
+    dto = await service.dismiss(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        stage_code=payload.stage_code,
+        option_code=payload.option_code,
+    )
+    return StudyView.from_dto(dto)
+
+
 @router.put(
     "/studies/{study_id}/elements",
     response_model=StudyView,

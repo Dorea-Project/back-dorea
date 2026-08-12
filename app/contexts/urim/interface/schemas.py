@@ -93,6 +93,9 @@ class OptionView(BaseModel):
     label: str
     rationale: str
     origin: str
+    #: Le pasteur l'a écartée. Elle **reste dans la liste**, reléguée en fin — la retirer lui
+    #: ferait perdre ce qu'on lui avait proposé, et rendrait son geste irréversible par accident.
+    dismissed: bool = False
 
 
 class ElementView(BaseModel):
@@ -240,8 +243,8 @@ class StudyView(BaseModel):
             rationale=dto.rationale,
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
             options=[
-                OptionView(code=c, label=lib, rationale=m, origin=o)
-                for c, lib, m, o in dto.options
+                OptionView(code=c, label=lib, rationale=m, origin=o, dismissed=e)
+                for c, lib, m, o, e in dto.options
             ],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,

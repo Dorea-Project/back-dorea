@@ -137,6 +137,21 @@ class VariantSeen:
     source_ref: str
 
 
+@dataclass(frozen=True, slots=True)
+class SuggestionSnapshot:
+    """Ce que le modèle a offert, tel qu'on le rejouera.
+
+    `model` est à cet instantané ce que `corpus_snapshot` est à la préparation : sans lui, une
+    réponse gardée ne dit pas *qui* l'a produite, et le jour où l'alias du modèle bouge on ne
+    saurait pas distinguer ce qui a été rendu hier de ce qu'on rendrait aujourd'hui."""
+
+    input_hash: str
+    model: str
+    axes: tuple[AxisGloss, ...] = ()
+    flags: tuple[str, ...] = ()
+    passages: tuple[PassageSuggestion, ...] = ()
+
+
 @dataclass(slots=True)
 class StudyDTO:
     """Ce que le pasteur voit — la trace **rejouée**, pas relue."""
@@ -145,9 +160,13 @@ class StudyDTO:
     outcome: str
     rationale: str
     trace: tuple[tuple[str, str], ...] = ()
-    #: `(code, label, rationale, origin)` — la provenance voyage avec l'option, sinon le
-    #: client la devine depuis la forme du motif, ce qui marche jusqu'au jour où non.
-    options: tuple[tuple[str, str, str, str], ...] = ()
+    #: `(code, label, rationale, origin, dismissed)` — la provenance voyage avec l'option,
+    #: sinon le client la devine depuis la forme du motif, ce qui marche jusqu'au jour où non.
+    #:
+    #: `dismissed` dit que le pasteur l'a **écartée**. Elle reste dans la liste, reléguée en
+    #: fin : la retirer lui ferait perdre ce qu'on lui avait proposé, et rendrait son geste
+    #: irréversible par accident.
+    options: tuple[tuple[str, str, str, str, bool], ...] = ()
     elements: tuple[ElementRecord, ...] = ()
     resolved_label: str | None = None
 
@@ -309,6 +328,40 @@ class StudyRepository(Protocol):
         ...
 
     async def list_supports(self, study_id: UUID) -> list[SupportRecord]: ...
+
+    async def dismiss(
+        self, *, study_id: UUID, stage_code: str, option_code: str, at: datetime
+    ) -> None:
+        """Écarter une option — **idempotent**, parce qu'écarter deux fois est un seul fait."""
+        ...
+
+    async def restore(self, *, study_id: UUID, stage_code: str, option_code: str) -> None:
+        """Reprendre ce qu'on avait écarté.
+
+        Appelé quand le pasteur **décide** sur une option écartée : choisir une chose qu'on
+        avait repoussée dit assez qu'on la reprend, et lui demander de la restaurer d'abord
+        serait exiger un geste pour une intention déjà claire."""
+        ...
+
+    async def list_dismissals(self, study_id: UUID) -> list[tuple[str, str]]:
+        """`(stage_code, option_code)` — ce qui a été écarté, pour le **marquer**, pas
+        pour le retirer."""
+        ...
+
+    async def save_suggestions(
+        self, study_id: UUID, snapshot: SuggestionSnapshot, at: datetime
+    ) -> None:
+        """Garder ce que le modèle vient d'offrir, **une ligne par question posée**.
+
+        Une préparation en pose plusieurs : le chemin conviction demande les loci, les drapeaux
+        et les passages ; le chemin impasse ne demande que des passages, sur la même saisie.
+        Les ranger sous une seule ligne les faisait s'écraser, et chaque rejeu redemandait au
+        modèle celle que l'autre venait de chasser."""
+        ...
+
+    async def get_suggestions(
+        self, study_id: UUID, input_hash: str
+    ) -> SuggestionSnapshot | None: ...
 
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]: ...
 

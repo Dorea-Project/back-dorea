@@ -18,7 +18,7 @@ import hashlib
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
 from app.contexts.urim.application.ports import (
@@ -33,6 +33,7 @@ from app.contexts.urim.application.ports import (
     ReservationPort,
     StudyDTO,
     StudyRepository,
+    SuggestionSnapshot,
     SupportRecord,
     UnlimitedTierPort,
     VariantSeen,
@@ -56,6 +57,7 @@ from app.contexts.urim.engine.pipeline import UrimEngine
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import REFORMULER
 from app.contexts.urim.engine.state import (
+    AxisGloss,
     Bounds,
     EntryMode,
     EntryOrigin,
@@ -107,6 +109,35 @@ _OCCURRENCES_MAX = 50
 #: Combien de textes résistants on rapporte d'ailleurs. Trois : au-delà, la page devient une
 #: bibliographie et le pasteur n'en lit aucun — ce qui revient exactement à n'en montrer aucun.
 _RESISTANTS_MAX = 3
+
+
+def _empreinte_de_la_demande(chemin: str, lisible: str) -> str:
+    """Ce sur quoi le modèle a été interrogé — **le chemin autant que la saisie**.
+
+    « citation » et « conviction » ne posent pas la même question au modèle. Ne condenser que
+    la saisie ferait servir à un pasteur qui corrige son mode d'entrée la réponse à la question
+    qu'il vient précisément d'abandonner."""
+    return hashlib.sha256(f"{chemin}::{normalize(lisible)}".encode()).hexdigest()[:32]
+
+
+def _marquer_les_ecartees(
+    options, stage_code: str, ecartees: list[tuple[str, str]]
+) -> tuple[tuple[str, str, str, str, bool], ...]:
+    """Les options écartées **restent**, marquées et reléguées en fin de liste.
+
+    Les retirer serait plus simple à écrire et faux à lire : le pasteur ne saurait plus ce
+    qu'Urim lui avait proposé, ni qu'il l'avait repoussé, et il ne pourrait pas revenir dessus.
+    C'est la règle des couples refusés — *les cacher laisserait croire qu'on n'y a pas pensé*.
+
+    Le filtre porte sur `(étage, code)` et non sur le code seul : la même option peut être
+    offerte par deux étages, et l'écarter à l'un ne dit rien de l'autre."""
+    repoussees = {code for etage, code in ecartees if etage == stage_code}
+    rendues = tuple(
+        (o.code, o.label, o.rationale, o.origin, o.code in repoussees) for o in options
+    )
+    # Tri **stable** : l'ordre du moteur est une décision d'étage, on ne fait que descendre
+    # ce qui a été repoussé sans toucher au reste.
+    return tuple(sorted(rendues, key=lambda o: o[4]))
 
 
 def _resistent_ailleurs(index: CorpusIndex, axe: str | None, unite: UUID | None):
@@ -358,8 +389,47 @@ class UrimStudyService:
             return await self._rejouer(record, persist=False)
 
         self._appliquer(record, stage_code, option_code)
+        # Choisir ce qu'on avait écarté dit assez qu'on le reprend. Exiger un geste de
+        # restauration d'abord serait demander une formalité pour une intention déjà claire.
+        await self.studies.restore(
+            study_id=study_id, stage_code=stage_code, option_code=option_code
+        )
         await self.studies.save(record)
         return await self._rejouer(record, chosen_by="pasteur")
+
+    # -- refus -----------------------------------------------------------------
+
+    async def dismiss(
+        self,
+        *,
+        actor_account_id: UUID,
+        study_id: UUID,
+        stage_code: str,
+        option_code: str,
+    ) -> StudyDTO:
+        """Écarter une option — **et la garder dans la liste, marquée**.
+
+        Le moteur rejoue à chaque lecture : sans mémoire du refus, il repropose au tour suivant
+        exactement ce que le pasteur vient de repousser. Dans un formulaire ça ne se voyait pas ;
+        dans une conversation de onze tours, c'est la chose la plus irritante qu'un logiciel
+        puisse faire.
+
+        ⚠️ **Écarter n'est pas décider, et surtout n'efface pas.** L'option revient reléguée en
+        fin de liste avec sa marque — même règle que les couples refusés qui voyagent avec les
+        faisables : *les cacher laisserait croire qu'on n'y a pas pensé*. Et le pasteur qui
+        change d'avis doit pouvoir la retrouver, sans quoi son geste serait irréversible par
+        accident."""
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+        await self.studies.dismiss(
+            study_id=study_id,
+            stage_code=stage_code,
+            option_code=option_code,
+            at=self.clock(),
+        )
+        # `persist=False` : écarter ne fait avancer aucun étage. Rejouer en écrivant
+        # enregistrerait une tentative de résolution que personne n'a faite.
+        return await self._rejouer(record, persist=False)
 
     def _appliquer(self, record: PreparationRecord, stage: str, option: str) -> None:
         if stage == "route_entry":
@@ -721,6 +791,79 @@ class UrimStudyService:
         servis = verses_between(self.index, livre, (chapitre, verset), (chapitre, verset))
         return servis[0].body if servis else ""
 
+    async def _suggestions(
+        self,
+        record: PreparationRecord,
+        chemin: str,
+        lisible: str,
+        assiste: AssistedResolver,
+        maintenant: datetime,
+    ) -> tuple[
+        tuple[AxisGloss, ...], tuple[str, ...], tuple[PassageSuggestion, ...], bool
+    ]:
+        """Ce que le modèle a offert — **relu s'il l'a déjà dit, redemandé sinon**.
+
+        ⚠️ **C'est d'abord une affaire de déterminisme, et le coût vient en second.** Le rejeu
+        prétend rendre ce que le pasteur a vu ; sans mémo il *recalcule*, et se trouve d'accord
+        tant que `mistral-small-latest` ne bouge pas. Le jour où l'alias bouge, hier rejoue
+        autrement pendant que la trace affirme le contraire.
+
+        Le coût suit : ce bloc partait à **chaque** rejeu — chaque ouverture d'écran, chaque
+        refus — pour rendre mot pour mot ce qui venait d'être rendu.
+
+        L'empreinte couvre le chemin **et** la saisie : « citation » et « conviction » ne posent
+        pas la même question, et un pasteur qui corrige son mode doit obtenir une autre réponse
+        plutôt que celle d'avant.
+
+        Le quatrième rendu dit si le modèle a **réellement** servi. C'est lui qui décide de la
+        facturation : un tour servi depuis le mémo n'a rien coûté, et le compter serait faire
+        payer une relecture."""
+        empreinte = _empreinte_de_la_demande(chemin, lisible)
+        memo = await self.studies.get_suggestions(record.id, empreinte)
+        if memo is not None:
+            return memo.axes, memo.flags, memo.passages, False
+
+        # ⚠️ **Une panne n'est pas une réponse.** Toute défaillance du transport rend une liste
+        # vide, exactement comme un modèle qui n'a rien à dire. Sans ce compteur, un 429 d'une
+        # seconde écrirait un mémo vide que le rejeu servirait **pour toujours** — la
+        # préparation resterait blanche longtemps après le rétablissement.
+        echecs_avant = getattr(assiste, "echecs", 0)
+
+        if chemin == "conviction":
+            loci, drapeaux, proposes = await asyncio.gather(
+                assiste.axes(lisible),
+                assiste.lever(lisible),
+                self._passages_verifies(lisible, assiste),
+            )
+        else:
+            loci, drapeaux = (), ()
+            proposes = await self._passages_verifies(lisible, assiste)
+
+        # ⚠️ **Ce qu'on refuse de garder, c'est l'absence de question — pas une réponse vide.**
+        #
+        # J'avais d'abord conditionné l'écriture au fait que le résultat ne soit pas vide, pour
+        # ne pas figer une ignorance. C'était le mauvais critère, et les tests l'ont montré : un
+        # modèle interrogé qui ne trouve rien **a répondu**, et ne pas le garder le fait
+        # redemander à chaque rejeu — le gaspillage même qu'on venait supprimer.
+        #
+        # Le bon critère est : le modèle a-t-il été consulté **et a-t-il pu répondre** ? Sans
+        # clé, ou quota épuisé, `NullVerseResolver` n'a rien été demander ; et un appel qui
+        # échoue n'a rien appris non plus.
+        a_repondu = getattr(assiste, "echecs", 0) == echecs_avant
+        if not isinstance(assiste, NullVerseResolver) and a_repondu:
+            await self.studies.save_suggestions(
+                record.id,
+                SuggestionSnapshot(
+                    input_hash=empreinte,
+                    model=getattr(assiste, "_model", "inconnu"),
+                    axes=tuple(loci),
+                    flags=tuple(drapeaux),
+                    passages=tuple(proposes),
+                ),
+                maintenant,
+            )
+        return tuple(loci), tuple(drapeaux), tuple(proposes), True
+
     async def _passages_verifies(
         self, saisie: str, resolveur: AssistedResolver
     ) -> tuple[PassageSuggestion, ...]:
@@ -900,12 +1043,10 @@ class UrimStudyService:
             # intention aboutit toujours à l'écran des axes, et cet écran veut les passages.
             # Attendre de le constater ne rachetait rien qu'un aller-retour.
             lisible = _lisible(record.raw_input)
-            sollicite = True
-            loci, drapeaux, proposes = await asyncio.gather(
-                assiste.axes(lisible),
-                assiste.lever(lisible),
-                self._passages_verifies(lisible, assiste),
+            loci, drapeaux, proposes, appele = await self._suggestions(
+                record, "conviction", lisible, assiste, maintenant
             )
+            sollicite = sollicite or appele
             if loci or drapeaux or proposes:
                 etat = etat.with_(
                     suggested_axes=tuple(loci),
@@ -932,8 +1073,10 @@ class UrimStudyService:
         # proposition ; un fait sur l'orthographe, non.
         # La conviction a déjà tout demandé plus haut ; il ne reste que le chemin citation.
         if not etat.suggested_passages and _est_une_impasse_de_recherche(run):
-            sollicite = True
-            proposes = await self._passages_verifies(_lisible(record.raw_input), assiste)
+            _, _, proposes, appele = await self._suggestions(
+                record, "impasse", _lisible(record.raw_input), assiste, maintenant
+            )
+            sollicite = sollicite or appele
             if proposes:
                 run = moteur.run(etat.with_(suggested_passages=proposes))
 
@@ -1030,9 +1173,13 @@ class UrimStudyService:
             outcome=str(dernier.outcome) if dernier else "continue",
             rationale=dernier.rationale if dernier else "",
             trace=tuple((e.stage_code, e.rationale) for e in final.trace),
-            options=tuple(
-                (o.code, o.label, o.rationale, o.origin)
-                for o in (dernier.options if dernier else ())
+            # ⚠️ L'étage vient de la **trace**, pas du résultat : `StageResult` ne porte pas son
+            # code. Le dernier passage de trace est celui de l'étage qui a rendu la main, donc
+            # celui dont les options sont offertes.
+            options=_marquer_les_ecartees(
+                dernier.options if dernier else (),
+                final.trace[-1].stage_code if final.trace else "",
+                await self.studies.list_dismissals(record.id),
             ),
             elements=tuple(await self.studies.list_elements(record.id)),
             supports=self._appuis(await self.studies.list_supports(record.id)),
