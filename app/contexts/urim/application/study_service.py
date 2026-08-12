@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 
 from app.contexts.urim.application.ports import (
     AssistedResolver,
+    AucuneSortie,
     ConcordanceDTO,
     ElementRecord,
     NullVerseResolver,
@@ -33,7 +34,7 @@ from app.contexts.urim.application.ports import (
     StudyDTO,
     StudyRepository,
     SupportRecord,
-    UsageSnapshot,
+    UnlimitedTierPort,
     VariantSeen,
     VerseServed,
 )
@@ -275,6 +276,9 @@ class UrimStudyService:
     conviction: ConvictionReader = field(default_factory=NullConvictionReader)
     #: L'IA de la bordure. Sans clé, `NullVerseResolver` — et Urim tourne entier.
     resolver: AssistedResolver = field(default_factory=NullVerseResolver)
+    #: La sortie du quota personnel. `AucuneSortie` **est** l'état de production tant que la
+    #: facturation n'existe pas — voir `UnlimitedTierPort`.
+    tier: UnlimitedTierPort = field(default_factory=AucuneSortie)
 
     # -- ouverture -------------------------------------------------------------
 
@@ -309,17 +313,16 @@ class UrimStudyService:
         # on travaille, et prétendre le contraire fausserait le décompte dès l'ouverture.
         # Le re-clage (S9) se fait dans `_rejouer`, dès que la péricope apparaît.
         #
-        # ⚠️ **Sans église, aucune réservation.** La réservation n'existe que pour ne pas
-        # facturer deux fois le même travail ; hors d'une église rien n'est facturé, donc il
-        # n'y a rien à réserver. En poser une quand même donnerait un décompte sans plafond
-        # — un compteur qui ne compte contre rien.
-        if church_id is not None:
-            await self.reservations.reserve(
-                church_id=church_id,
-                author_id=actor_account_id,
-                pericope_key=_cle_provisoire(raw_input),
-                at=maintenant,
-            )
+        # ⚠️ **Avec ou sans église.** La réservation portait le décompte d'une église ; elle
+        # porte aussi celui d'une personne, et c'est la même chose pour la même raison —
+        # *rouvrir le même texte n'est pas un second travail*. Sans elle, le quota personnel
+        # aurait compté les hésitations du samedi soir.
+        await self.reservations.reserve(
+            church_id=church_id,
+            author_id=actor_account_id,
+            pericope_key=_cle_provisoire(raw_input),
+            at=maintenant,
+        )
         return await self._rejouer(record, chosen_by="moteur")
 
     # -- lecture ---------------------------------------------------------------
@@ -718,7 +721,9 @@ class UrimStudyService:
         servis = verses_between(self.index, livre, (chapitre, verset), (chapitre, verset))
         return servis[0].body if servis else ""
 
-    async def _passages_verifies(self, saisie: str) -> tuple[PassageSuggestion, ...]:
+    async def _passages_verifies(
+        self, saisie: str, resolveur: AssistedResolver
+    ) -> tuple[PassageSuggestion, ...]:
         """Les passages proposés par le sens, **vérifiés un par un contre les 31 170 versets**.
 
         ⚠️ M9-1, appliqué ici sans exception : *l'IA nomme la référence, la Segond donne le
@@ -729,7 +734,7 @@ class UrimStudyService:
         Une proposition qui tombe à un seul passage est **abandonnée** : elle aurait l'autorité
         d'une résolution sans en avoir passé les vérifications, et c'est précisément le
         proof-texting qu'on refuse."""
-        proposes = await self.resolver.passages(saisie)
+        proposes = await resolveur.passages(saisie)
         lecteur = IndexedCorpusReader(self.index)
         retenus = tuple(
             recale for propose in proposes
@@ -782,13 +787,26 @@ class UrimStudyService:
         self, record: PreparationRecord, *, persist: bool = True, chosen_by: str | None = None
     ) -> StudyDTO:
         maintenant = self.clock()
-        # Sans église, pas de fenêtre d'usage : `UsageSnapshot()` par défaut dit exactement
-        # « rien de facturé, aucun plafond atteint », et c'est la vérité de l'antichambre.
-        usage = (
-            await self.reservations.usage(record.church_id, maintenant)
-            if record.church_id is not None
-            else UsageSnapshot()
+        usage = await self.reservations.usage(
+            record.church_id, record.author_id, maintenant
         )
+        # ⚠️ **Le quota éteint l'assistance, jamais Urim.**
+        #
+        # Épuisé, on remplace le modèle par le silence — et le reste continue : le corpus, les
+        # 45 557 pesées, la concordance, le contrôle de référence, le bornage. C'est le
+        # comportement `DEGRADE`, et les adaptateurs `Null*` sont des **états de production**
+        # (S12/S37), pas des modes dégradés. Un mur sec serait la seule chose que ce moteur ne
+        # sait pas faire.
+        #
+        # La sortie est consultée avant de couper : illimité, on ne compte pas.
+        assiste = self.resolver
+        if usage.assistance_exhausted and not await self.tier.is_unlimited(
+            record.author_id
+        ):
+            assiste = NullVerseResolver()
+        #: Vrai dès qu'un des trois chemins a interrogé le résolveur. Un drapeau plutôt qu'une
+        #: inspection de l'adaptateur : c'est l'appel qui coûte, et lui seul le sait.
+        sollicite = False
         axes = await self.studies.recently_preached_axes(
             record.author_id, (maintenant - _HORIZON_PRECHE).date()
         )
@@ -849,7 +867,8 @@ class UrimStudyService:
         # confondre les trois effacerait la seule chose que cette colonne existe pour porter.
         provenance = chosen_by
         if persist and record.resolved_ref is None and run.state.resolved is None:
-            trouve = await self.resolver.resolve(_lisible(record.raw_input))
+            sollicite = True
+            trouve = await assiste.resolve(_lisible(record.raw_input))
             if trouve is not None and IndexedCorpusReader(self.index).check_reference(
                 trouve
             ).exists:
@@ -881,10 +900,11 @@ class UrimStudyService:
             # intention aboutit toujours à l'écran des axes, et cet écran veut les passages.
             # Attendre de le constater ne rachetait rien qu'un aller-retour.
             lisible = _lisible(record.raw_input)
+            sollicite = True
             loci, drapeaux, proposes = await asyncio.gather(
-                self.resolver.axes(lisible),
-                self.resolver.lever(lisible),
-                self._passages_verifies(lisible),
+                assiste.axes(lisible),
+                assiste.lever(lisible),
+                self._passages_verifies(lisible, assiste),
             )
             if loci or drapeaux or proposes:
                 etat = etat.with_(
@@ -912,7 +932,8 @@ class UrimStudyService:
         # proposition ; un fait sur l'orthographe, non.
         # La conviction a déjà tout demandé plus haut ; il ne reste que le chemin citation.
         if not etat.suggested_passages and _est_une_impasse_de_recherche(run):
-            proposes = await self._passages_verifies(_lisible(record.raw_input))
+            sollicite = True
+            proposes = await self._passages_verifies(_lisible(record.raw_input), assiste)
             if proposes:
                 run = moteur.run(etat.with_(suggested_passages=proposes))
 
@@ -959,13 +980,30 @@ class UrimStudyService:
             # justement d'écrire `pericope_id`, donc comparer à l'état d'avant ne dirait
             # jamais rien. C'est `rekey_for` qui est idempotent — il cherche la clé
             # provisoire, et ne la trouve plus une fois le re-clage fait.
-            # Rien à re-cléer quand rien n'a été réservé (préparation sans église).
-            if final.pericope_id is not None and record.church_id is not None:
+            if final.pericope_id is not None:
                 await self.reservations.rekey_for(
                     church_id=record.church_id,
                     author_id=record.author_id,
                     provisional_key=_cle_provisoire(record.raw_input),
                     pericope_key=f"pericope:{final.pericope_id}",
+                    at=maintenant,
+                )
+
+            # ⚠️ **« Réserver n'est pas consommer »** — la date se pose ici, quand le modèle
+            # vient effectivement de servir, et pas à l'ouverture où l'on ignore encore s'il
+            # servira. Posée une seule fois par réservation, donc **par texte** : rouvrir,
+            # hésiter, revenir sur la même péricope reste une seule préparation comptée.
+            # `NullVerseResolver` couvre les deux silences — pas de clé, ou quota épuisé — et
+            # dans les deux cas rien n'a été consommé.
+            if sollicite and not isinstance(assiste, NullVerseResolver):
+                await self.reservations.mark_assisted(
+                    church_id=record.church_id,
+                    author_id=record.author_id,
+                    pericope_key=(
+                        f"pericope:{final.pericope_id}"
+                        if final.pericope_id is not None
+                        else _cle_provisoire(record.raw_input)
+                    ),
                     at=maintenant,
                 )
 

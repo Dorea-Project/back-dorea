@@ -86,15 +86,27 @@ class SupportRecord:
 
 @dataclass(slots=True)
 class UsageSnapshot:
-    """L'état du plafond d'une église à l'instant de la demande.
+    """L'état du plafond à l'instant de la demande — d'une église, ou d'un compte.
 
     `ceiling_reached` est la seule chose que le moteur en voit : il ne connaît ni le
-    décompte ni le quota, il sait seulement s'il doit se replier sur le domaine public."""
+    décompte ni le quota, il sait seulement s'il doit se replier sur le domaine public.
+
+    ⚠️ **`assistance_exhausted` est un autre plafond, et il ne faut pas les confondre.**
+
+    `ceiling_reached` protège une **licence** : trop de versets servis depuis une traduction
+    sous licence, on retombe sur le domaine public. Une église qui l'atteint ne doit rien
+    perdre de l'IA — ce sont deux ressources sans rapport.
+
+    `assistance_exhausted` protège le **quota d'appels de modèle** d'une personne. Il éteint
+    l'assistance et rien d'autre : le corpus, les pesées, la concordance et le contrôle de
+    référence continuent. Les avoir fondus dans un seul booléen aurait fait perdre l'IA à une
+    église pour une raison de traduction, et le texte à un pasteur pour une raison de jetons."""
 
     window_id: UUID | None = None
     metered_units: int = 0
     ceiling: int = 0
     ceiling_reached: bool = False
+    assistance_exhausted: bool = False
 
 
 @dataclass(slots=True)
@@ -372,11 +384,36 @@ class PreacherAuthorization(Protocol):
         ...
 
 
+class UnlimitedTierPort(Protocol):
+    """La **sortie** du plafond personnel — payer, ou appartenir à une église qui a payé.
+
+    ⚠️ **Elle n'existe pas encore, et c'est écrit ici plutôt que supposé ailleurs.**
+    `business_accounts` enregistre une carte prépayée ; il n'y a aucun cycle de facturation,
+    aucun prélèvement mensuel. Et l'abonnement d'église est une note de design — le module
+    `subscription` que `Tenant.operates_annexes` prétend servir n'a jamais été écrit.
+
+    Le port est donc branché sur `AucuneSortie`, qui répond « non ». Tant qu'il en est ainsi,
+    le plafond personnel doit rester haut : un plafond sans sortie n'est pas un plafond, c'est
+    un cul-de-sac."""
+
+    async def is_unlimited(self, account_id: UUID) -> bool: ...
+
+
+class AucuneSortie:
+    """La sortie qui n'existe pas encore. **Un état de production, pas une doublure de test.**
+
+    Le jour où la facturation existe, on remplace cette classe par un adaptateur et le plafond
+    descend en changeant un nombre. D'ici là, elle dit la vérité."""
+
+    async def is_unlimited(self, account_id: UUID) -> bool:
+        return False
+
+
 class ReservationPort(Protocol):
     """La réservation d'étude (§6) — ce qui empêche de facturer deux fois le même travail."""
 
     async def reserve(
-        self, *, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
+        self, *, church_id: UUID | None, author_id: UUID, pericope_key: str, at: datetime
     ) -> UUID:
         """Réserve sous une clé **provisoire** — celle de la saisie, faute de mieux."""
         ...
@@ -384,7 +421,7 @@ class ReservationPort(Protocol):
     async def rekey_for(
         self,
         *,
-        church_id: UUID,
+        church_id: UUID | None,
         author_id: UUID,
         provisional_key: str,
         pericope_key: str,
@@ -403,4 +440,12 @@ class ReservationPort(Protocol):
         donc elle est stable d'un appel à l'autre. C'est le seul fil qui relie les deux."""
         ...
 
-    async def usage(self, church_id: UUID, at: datetime) -> UsageSnapshot: ...
+    async def usage(
+        self, church_id: UUID | None, author_id: UUID, at: datetime
+    ) -> UsageSnapshot:
+        """Le sujet du comptage se **déduit** : l'église s'il y en a une, sinon le compte.
+
+        Les deux arguments plutôt qu'un « sujet » construit par l'appelant : le service
+        connaît toujours les deux, et le laisser choisir lequel compte aurait mis la règle
+        dans quatre endroits au lieu d'un."""
+        ...

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.urim.application.ports import (
@@ -38,6 +38,19 @@ _DUREE_RESERVATION = timedelta(hours=24)
 #: repli sur le domaine public est une protection de licence, pas un levier commercial,
 #: et il ne doit jamais se déclencher par accident.
 _PLAFOND_DEFAUT = 500
+
+#: Quota mensuel de **textes assistés** d'un compte sans église — en nombre de péricopes
+#: distinctes préparées avec le modèle dans le mois calendaire.
+#:
+#: ⚠️ **Volontairement haut, et provisoirement.** La valeur visée est 3 ; elle ne peut pas être
+#: posée tant qu'aucune sortie ne fonctionne. `business_accounts` enregistre une carte prépayée
+#: sans aucun cycle de facturation, et l'abonnement d'église n'existe qu'en note de design :
+#: un pasteur qui bute sur 3 aujourd'hui ne pourrait ni payer ni rattacher une église. Un
+#: plafond sans sortie n'est pas un plafond, c'est un cul-de-sac.
+#:
+#: Le jour où `UnlimitedTierPort` a un adaptateur qui répond « oui » à quelqu'un, ce nombre
+#: descend à 3 et rien d'autre ne bouge.
+_QUOTA_PERSONNEL = 500
 
 
 class SqlStudyRepository:
@@ -232,7 +245,7 @@ class SqlReservationRepository:
         self._s = session
 
     async def reserve(
-        self, *, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
+        self, *, church_id: UUID | None, author_id: UUID, pericope_key: str, at: datetime
     ) -> UUID:
         existante = await self._active(church_id, author_id, pericope_key, at)
         if existante is not None:
@@ -252,7 +265,7 @@ class SqlReservationRepository:
     async def rekey_for(
         self,
         *,
-        church_id: UUID,
+        church_id: UUID | None,
         author_id: UUID,
         provisional_key: str,
         pericope_key: str,
@@ -280,7 +293,7 @@ class SqlReservationRepository:
         await self._s.flush()
 
     async def _liberer_les_perimees(
-        self, church_id: UUID, author_id: UUID, pericope_key: str, at: datetime
+        self, church_id: UUID | None, author_id: UUID, pericope_key: str, at: datetime
     ) -> None:
         """🐛 **Périmer, c'est relâcher.**
 
@@ -305,7 +318,7 @@ class SqlReservationRepository:
 
     async def _active(
         self,
-        church_id: UUID,
+        church_id: UUID | None,
         author_id: UUID,
         pericope_key: str,
         at: datetime,
@@ -326,7 +339,52 @@ class SqlReservationRepository:
             requete = requete.where(UrimStudyReservationModel.id != sauf)
         return await self._s.scalar(requete.limit(1))
 
-    async def usage(self, church_id: UUID, at: datetime) -> UsageSnapshot:
+    async def mark_assisted(
+        self, *, church_id: UUID | None, author_id: UUID, pericope_key: str, at: datetime
+    ) -> None:
+        """Poser `metered_at` — **une seule fois par texte**, et jamais rétroactivement.
+
+        « Réserver n'est pas consommer » : à l'ouverture on ne sait pas encore si le modèle
+        servira. Ce geste dit qu'il vient de servir. Il est idempotent parce que la ligne
+        l'est : rouvrir, hésiter, revenir sur le même texte retombe sur la même réservation,
+        et la date déjà posée n'est pas repoussée — sinon un pasteur qui reprend son travail
+        le mois suivant se le verrait compter deux fois."""
+        reservation = await self._active(church_id, author_id, pericope_key, at)
+        if reservation is None:
+            return
+        row = await self._s.get(UrimStudyReservationModel, reservation)
+        if row.metered_at is None:
+            row.metered_at = at
+            await self._s.flush()
+
+    async def _quota_du_mois(self, author_id: UUID, at: datetime) -> int:
+        """Combien de **textes distincts** cet auteur a préparés avec l'assistance ce mois-ci.
+
+        On compte des réservations, pas des ouvertures : rouvrir six fois la même péricope est
+        un seul travail. Compter les ouvertures ferait payer l'hésitation du samedi soir —
+        or hésiter entre trois textes est le geste normal, pas un abus."""
+        debut = at.date().replace(day=1)
+        return await self._s.scalar(
+            select(func.count())
+            .select_from(UrimStudyReservationModel)
+            .where(UrimStudyReservationModel.church_id.is_(None))
+            .where(UrimStudyReservationModel.author_id == author_id)
+            .where(UrimStudyReservationModel.metered_at.is_not(None))
+            .where(UrimStudyReservationModel.metered_at >= debut)
+        ) or 0
+
+    async def usage(
+        self, church_id: UUID | None, author_id: UUID, at: datetime
+    ) -> UsageSnapshot:
+        if church_id is None:
+            consommes = await self._quota_du_mois(author_id, at)
+            return UsageSnapshot(
+                metered_units=consommes,
+                ceiling=_QUOTA_PERSONNEL,
+                # ⚠️ `ceiling_reached` reste **faux**. Il protège une licence, et l'antichambre
+                # ne sert que du domaine public : il n'y a rien à replier.
+                assistance_exhausted=consommes >= _QUOTA_PERSONNEL,
+            )
         jour = at.date()
         row = await self._s.scalar(
             select(UrimUsageWindowModel)

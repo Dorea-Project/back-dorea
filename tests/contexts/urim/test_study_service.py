@@ -131,15 +131,27 @@ class _Studies:
 
 
 class _Reservations:
-    def __init__(self) -> None:
+    """⚠️ **La signature exacte du port**, ici aussi.
+
+    `usage` a gagné `author_id` le jour où le quota est devenu personnel : sans église, le
+    sujet du comptage est le compte, et une doublure restée à deux arguments aurait laissé
+    passer un service qui ne compile pas."""
+
+    def __init__(self, *, epuise: bool = False) -> None:
         self.recles: list[str] = []
+        self.factures: list[str] = []
+        self._epuise = epuise
 
     async def reserve(self, *, church_id, author_id, pericope_key, at): return uuid4()
 
     async def rekey_for(self, *, church_id, author_id, provisional_key, pericope_key, at):
         self.recles.append(pericope_key)
 
-    async def usage(self, church_id, at): return UsageSnapshot()
+    async def mark_assisted(self, *, church_id, author_id, pericope_key, at):
+        self.factures.append(pericope_key)
+
+    async def usage(self, church_id, author_id, at):
+        return UsageSnapshot(assistance_exhausted=self._epuise)
 
 
 class _Acces:

@@ -23,6 +23,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.contexts.urim.application.ports import AucuneSortie
 from app.contexts.urim.application.study_service import UrimStudyService
 from app.contexts.urim.domain.errors import PreparationIntrouvableError
 
@@ -51,8 +52,8 @@ class _AccesQuiCompte(_Acces):
 
 
 class _ReservationsQuiComptent(_Reservations):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, *, epuise: bool = False) -> None:
+        super().__init__(epuise=epuise)
         self.reservations: list[str] = []
 
     async def reserve(self, *, church_id, author_id, pericope_key, at):
@@ -105,18 +106,20 @@ async def test_ouvrir_dans_une_eglise_demande_toujours_l_autorisation():
 # ================================================================== 2. rien n'est réservé
 
 
-async def test_sans_eglise_rien_n_est_reserve():
-    """La réservation existe pour ne pas facturer deux fois le même travail.
+async def test_sans_eglise_la_reservation_a_lieu_aussi():
+    """La réservation porte désormais **deux** décomptes : celui d'une église, celui d'une
+    personne — et c'est la même chose pour la même raison : *rouvrir le même texte n'est pas
+    un second travail*.
 
-    Hors d'une église, rien n'est facturé : en poser une donnerait un décompte sans plafond,
-    c'est-à-dire un compteur qui ne compte contre rien."""
+    Ce test disait le contraire hier, et c'était juste hier : sans quota personnel, une
+    réservation sans église aurait compté contre rien. Le quota lui donne un sujet, et sans
+    elle il compterait les hésitations du samedi soir au lieu des textes préparés."""
     reservations = _ReservationsQuiComptent()
     service = _service(reservations=reservations)
 
     await service.open(actor_account_id=AUTEUR, raw_input="Hébreux 13:1")
 
-    assert reservations.reservations == []
-    assert reservations.recles == []
+    assert len(reservations.reservations) == 1
 
 
 async def test_dans_une_eglise_la_reservation_a_lieu():
@@ -175,7 +178,131 @@ async def test_la_garde_de_propriete_couvre_aussi_l_ecriture():
         )
 
 
-# ========================================================== 4. l'église ne perd rien au passage
+# ============================================ 4. le quota éteint l'assistance, jamais Urim
+
+
+class _ModeleQuiCompte(_Modele):
+    """Un modèle qui **note qu'on l'a appelé** — épuisé, il ne doit plus l'être du tout."""
+
+    def __init__(self) -> None:
+        super().__init__(axes=(), passages=(), flags=())
+        self.appels = 0
+
+    async def resolve(self, text):
+        self.appels += 1
+        return await super().resolve(text)
+
+    async def axes(self, text):
+        self.appels += 1
+        return await super().axes(text)
+
+    async def lever(self, text):
+        self.appels += 1
+        return await super().lever(text)
+
+    async def passages(self, text):
+        self.appels += 1
+        return await super().passages(text)
+
+
+class _SortieOuverte:
+    """Ce que sera un compte payé — la classe qui n'existe pas encore en production."""
+
+    async def is_unlimited(self, account_id) -> bool:
+        return True
+
+
+def _service_avec(modele, *, epuise: bool, tier=None) -> UrimStudyService:
+    return UrimStudyService(
+        studies=_Studies(),
+        reservations=_ReservationsQuiComptent(epuise=epuise),
+        access=_AccesQuiCompte(),
+        index=_index(),
+        clock=lambda: MAINTENANT,
+        resolver=modele,
+        **({"tier": tier} if tier is not None else {}),
+    )
+
+
+async def test_le_quota_epuise_eteint_le_modele_et_rien_d_autre():
+    """⚠️ **Ce n'est pas un mur.**
+
+    Le pasteur garde le corpus, les pesées, la concordance, le contrôle de référence — tout le
+    déterministe. Il perd les propositions par le sens et les axes. C'est le comportement
+    `DEGRADE` et les adaptateurs `Null*`, qui sont des états de production (S12/S37)."""
+    modele = _ModeleQuiCompte()
+    service = _service_avec(modele, epuise=True)
+
+    dto = await service.open(actor_account_id=AUTEUR, raw_input="Hébreux 13:1")
+
+    assert modele.appels == 0
+    assert dto.record.id is not None  # la préparation existe, et elle a tourné
+    assert dto.outcome  # le moteur a rendu un verdict, pas une erreur
+
+
+async def test_tant_que_le_quota_tient_le_modele_sert():
+    """Le pendant — sinon le précédent prouverait seulement qu'on a débranché le modèle."""
+    modele = _ModeleQuiCompte()
+    service = _service_avec(modele, epuise=False)
+
+    await service.open(actor_account_id=AUTEUR, raw_input="je veux prêcher sur le pardon")
+
+    assert modele.appels > 0
+
+
+async def test_la_sortie_rend_le_quota_sans_effet():
+    """Payer, ou appartenir à une église qui a payé. La sortie est consultée **avant** de
+    couper — un compte illimité ne se compte pas."""
+    modele = _ModeleQuiCompte()
+    service = _service_avec(modele, epuise=True, tier=_SortieOuverte())
+
+    await service.open(actor_account_id=AUTEUR, raw_input="je veux prêcher sur le pardon")
+
+    assert modele.appels > 0
+
+
+async def test_la_sortie_de_production_repond_non():
+    """⚠️ **`AucuneSortie` est branchée en production, et elle dit la vérité.**
+
+    `business_accounts` enregistre une carte prépayée sans aucun cycle de facturation, et
+    l'abonnement d'église n'existe qu'en note de design. Tant qu'il en est ainsi, le quota
+    doit rester haut : un plafond sans sortie n'est pas un plafond, c'est un cul-de-sac."""
+    assert await AucuneSortie().is_unlimited(AUTEUR) is False
+
+
+async def test_le_texte_prepare_avec_le_modele_est_facture_une_fois():
+    """« Réserver n'est pas consommer » — et consommer se compte **par texte**, pas par appel.
+
+    C'est ce qui fait qu'hésiter le samedi soir ne coûte rien : rouvrir la même péricope
+    retombe sur la même réservation, dont la date est déjà posée."""
+    reservations = _ReservationsQuiComptent(epuise=False)
+    service = UrimStudyService(
+        studies=_Studies(), reservations=reservations, access=_AccesQuiCompte(),
+        index=_index(), clock=lambda: MAINTENANT, resolver=_ModeleQuiCompte(),
+    )
+
+    await service.open(actor_account_id=AUTEUR, raw_input="je veux prêcher sur le pardon")
+
+    assert len(reservations.factures) == 1
+
+
+async def test_sans_modele_branche_rien_n_est_facture():
+    """Pas de clé Mistral : `NullVerseResolver` sert le silence, et le silence est gratuit.
+
+    Les deux silences se confondent volontairement — pas de clé, ou quota épuisé — parce que
+    dans les deux cas aucun appel n'a eu lieu."""
+    reservations = _ReservationsQuiComptent(epuise=False)
+    service = UrimStudyService(
+        studies=_Studies(), reservations=reservations, access=_AccesQuiCompte(),
+        index=_index(), clock=lambda: MAINTENANT,
+    )
+
+    await service.open(actor_account_id=AUTEUR, raw_input="je veux prêcher sur le pardon")
+
+    assert reservations.factures == []
+
+
+# ========================================================== 5. l'église ne perd rien au passage
 
 
 async def test_sur_une_preparation_d_eglise_c_est_toujours_l_eglise_qui_dit():

@@ -311,6 +311,14 @@ class UrimUsageWindowModel(Base):
         UniqueConstraint("church_id", "period_start", name="usage_window_periode"),
     )
 
+    #: ⚠️ **Cette table est lue et n'a jamais été écrite.** Aucun code n'exécute l'`UPDATE`
+    #: ci-dessus : `metered_units` vaut zéro partout depuis toujours, et le plafond d'église
+    #: n'a donc jamais rien plafonné. C'est écrit ici plutôt que découvert plus tard.
+    #:
+    #: Le quota **personnel** ne l'a pas reprise pour autant. Un compteur dénormalisé à côté
+    #: du registre des réservations serait une seconde vérité, qui dérive au premier incrément
+    #: perdu. `urim_study_reservation.metered_at` **est** le grand livre : une réservation par
+    #: texte, posée une fois, et le mois se compte en additionnant des lignes qui existent.
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     church_id: Mapped[UUID] = mapped_column(Uuid)
     period_start: Mapped[date] = mapped_column(Date)
@@ -349,10 +357,30 @@ class UrimStudyReservationModel(Base):
             postgresql_where=text("released_at IS NULL"),
             sqlite_where=text("released_at IS NULL"),
         ),
+        # ⚠️ **Un second index, parce que `NULL <> NULL`.** Celui du dessus porte `church_id` ;
+        # sans église il ne contraint plus rien, et deux réservations personnelles du même
+        # auteur sur le même texte passeraient toutes les deux — l'idempotence que cette
+        # table existe pour tenir tomberait exactement là où elle compte le plus.
+        Index(
+            "ix_urim_reservation_personnelle",
+            "author_id",
+            "pericope_key",
+            unique=True,
+            postgresql_where=text("released_at IS NULL AND church_id IS NULL"),
+            sqlite_where=text("released_at IS NULL AND church_id IS NULL"),
+        ),
+        # Le quota du mois se lit ici, et nulle part ailleurs.
+        Index(
+            "ix_urim_reservation_quota",
+            "author_id",
+            "metered_at",
+            postgresql_where=text("church_id IS NULL AND metered_at IS NOT NULL"),
+            sqlite_where=text("church_id IS NULL AND metered_at IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
-    church_id: Mapped[UUID] = mapped_column(Uuid)
+    church_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     author_id: Mapped[UUID] = mapped_column(Uuid)
     pericope_key: Mapped[str] = mapped_column(String)
     window_id: Mapped[UUID | None] = mapped_column(
