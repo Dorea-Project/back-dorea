@@ -87,12 +87,26 @@ def _un_morpheme(code: str) -> str:
         return _un_verbe(code)
 
     lu = [_SOUS_NATURES.get((nature, code[1:2])) or _NATURES.get(nature, "")]
-    # Après la nature et sa précision, ce qui reste décrit la forme : genre, nombre, état.
-    for caractere in code[2:]:
-        for table in (_GENRES, _NOMBRES, _ETATS, _PERSONNES):
-            if caractere in table:
-                lu.append(table[caractere])
-                break
+
+    # ⚠️ **Positionnel, et non « la première table qui reconnaît la lettre ».**
+    #
+    # 🔴 `Ncmsc` rendait « nom commun masculin singulier **commun** » : le `c` final est l'état
+    # *construit*, mais `_GENRES` le réclamait d'abord au titre du genre commun. Or l'état
+    # construit est justement ce qu'un pasteur vient chercher — c'est lui qui dit « la parole
+    # **de** l'Éternel » plutôt que « une parole ». Une lettre, deux sens, et seule la place
+    # les sépare.
+    #
+    # Deux ordres possibles après la nature, et le chiffre les distingue : un suffixe ou un
+    # pronom porte `personne genre nombre` (`Sp1cs`), un nom ou un adjectif porte
+    # `genre nombre état` (`Ncmsc`).
+    reste = code[2:]
+    if reste[:1].isdigit():
+        rangs = (_PERSONNES, _GENRES, _NOMBRES)
+    else:
+        rangs = (_GENRES, _NOMBRES, _ETATS)
+    for caractere, table in zip(reste, rangs, strict=False):
+        if caractere in table:
+            lu.append(table[caractere])
     return " ".join(part for part in lu if part)
 
 

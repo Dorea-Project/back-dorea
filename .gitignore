@@ -34,3 +34,9 @@ docs/scratch/
 # fois la meme Bible, dont une que rien ne lit.
 data/ls1910_raw.json
 data/morphgnt/
+# Même raison pour l'hébreu : 53 Mo de WLC et de lexique Strong, retéléchargeables en une
+# commande et déjà dépliés en base par `urim_seed_hebrew.py`.
+data/morphhb/
+# La file du relecteur se recalcule à chaque passage du détecteur — la versionner figerait
+# une photo que le prochain lot de curation démentirait.
+data/urim_file_relecture.txt
