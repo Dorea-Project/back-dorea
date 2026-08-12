@@ -29,6 +29,7 @@ from httpx import ASGITransport, AsyncClient
 from app.contexts.auth.interface.dependencies import get_current_actor
 from app.contexts.urim.application.ports import (
     ElementRecord,
+    PassageDetailDTO,
     PreparationRecord,
     StudyDTO,
     VerseServed,
@@ -73,8 +74,10 @@ class _Service:
     def __init__(self) -> None:
         self.decisions: list[tuple[str, str]] = []
         self.explorations: list[str] = []
+        self.ouvertures: list[dict] = []
 
     async def open(self, **kw) -> StudyDTO:
+        self.ouvertures.append(kw)
         return _dto()
 
     async def get(self, **kw) -> StudyDTO:
@@ -87,9 +90,9 @@ class _Service:
     async def set_elements(self, **kw) -> StudyDTO:
         return _dto()
 
-    async def explorer(self, *, reference: str, **kw):
-        self.explorations.append(reference)
-        raise NotImplementedError
+    async def explorer(self, *, reference: str, **kw) -> PassageDetailDTO:
+        self.explorations.append((reference, kw.get("church_id")))
+        return PassageDetailDTO(reference=reference)
 
 
 @pytest.fixture
@@ -201,3 +204,43 @@ async def test_le_texte_servi_remonte_au_pasteur(client):
     (verset,) = corps["verses"]
     assert verset["reference"] == "Hébreux 13:1"
     assert "amour fraternel" in verset["text"]
+
+
+# ==================================================================== l'antichambre a une URL
+
+
+async def test_ouvrir_une_preparation_sans_eglise_a_une_url(client, service):
+    """🔴 **Le pasteur sans église n'avait aucune URL à appeler.**
+
+    Les trois routes d'entrée portaient le tenant dans leur chemin. `/iam/me` répondait déjà
+    fièrement `memberships: []` en disant qu'un compte sans église est un état normal — et
+    ce compte-là ne pouvait rien ouvrir. C'est ce trou-ci que la route comble."""
+    reponse = await client.post(
+        "/api/mobile/urim/studies", json={"raw_input": "la fraternité"}
+    )
+
+    assert reponse.status_code == 201
+    (ouverture,) = service.ouvertures
+    assert ouverture.get("church_id") is None
+    assert ouverture["actor_account_id"] == AUTEUR
+
+
+async def test_la_route_avec_eglise_transmet_toujours_l_eglise(client, service):
+    """Les deux URL ne sont pas deux façons de faire la même chose.
+
+    Celle-ci dit *« je prépare dans l'espace de cette église »* — le travail y est rattaché à
+    l'assemblée et lisible par les collègues qui y prêchent. Elle n'est donc pas dépréciée."""
+    await client.post(_url(), json={"raw_input": "la fraternité"})
+
+    (ouverture,) = service.ouvertures
+    assert ouverture["church_id"] == EGLISE
+
+
+async def test_explorer_un_passage_sans_eglise(client, service):
+    """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
+    reponse = await client.get(
+        "/api/mobile/urim/passages", params={"ref": "Luc 15:11-32"}
+    )
+
+    assert reponse.status_code == 200
+    assert service.explorations == [("Luc 15:11-32", None)]

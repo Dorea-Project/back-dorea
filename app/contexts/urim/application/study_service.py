@@ -33,6 +33,7 @@ from app.contexts.urim.application.ports import (
     StudyDTO,
     StudyRepository,
     SupportRecord,
+    UsageSnapshot,
     VariantSeen,
     VerseServed,
 )
@@ -281,7 +282,7 @@ class UrimStudyService:
         self,
         *,
         actor_account_id: UUID,
-        church_id: UUID,
+        church_id: UUID | None = None,
         raw_input: str,
         entry_origin: EntryOrigin = EntryOrigin.TYPED,
         service_date: date | None = None,
@@ -307,19 +308,25 @@ class UrimStudyService:
         # Clé **provisoire** : la saisie normalisée. On ne sait pas encore sur quel texte
         # on travaille, et prétendre le contraire fausserait le décompte dès l'ouverture.
         # Le re-clage (S9) se fait dans `_rejouer`, dès que la péricope apparaît.
-        await self.reservations.reserve(
-            church_id=church_id,
-            author_id=actor_account_id,
-            pericope_key=_cle_provisoire(raw_input),
-            at=maintenant,
-        )
+        #
+        # ⚠️ **Sans église, aucune réservation.** La réservation n'existe que pour ne pas
+        # facturer deux fois le même travail ; hors d'une église rien n'est facturé, donc il
+        # n'y a rien à réserver. En poser une quand même donnerait un décompte sans plafond
+        # — un compteur qui ne compte contre rien.
+        if church_id is not None:
+            await self.reservations.reserve(
+                church_id=church_id,
+                author_id=actor_account_id,
+                pericope_key=_cle_provisoire(raw_input),
+                at=maintenant,
+            )
         return await self._rejouer(record, chosen_by="moteur")
 
     # -- lecture ---------------------------------------------------------------
 
     async def get(self, *, actor_account_id: UUID, study_id: UUID) -> StudyDTO:
         record = await self._charger(study_id)
-        await self._ensure_preacher(actor_account_id, record.church_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
         return await self._rejouer(record, persist=False)
 
     # -- décision --------------------------------------------------------------
@@ -333,7 +340,7 @@ class UrimStudyService:
         option_code: str,
     ) -> StudyDTO:
         record = await self._charger(study_id)
-        await self._ensure_preacher(actor_account_id, record.church_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
 
         # La décision est **appliquée à l'enregistrement**, puis le pipeline est rejoué
         # depuis le début. C'est plus simple qu'une reprise à l'étage N, et c'est surtout
@@ -486,7 +493,7 @@ class UrimStudyService:
         self, *, actor_account_id: UUID, study_id: UUID, elements: Sequence[ElementRecord]
     ) -> StudyDTO:
         record = await self._charger(study_id)
-        await self._ensure_preacher(actor_account_id, record.church_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
         # Champs **libres**. Le squelette (Braga ou autre) propose un ordre ; il n'impose
         # aucun contenu, et un élément vide reste un état normal.
         await self.studies.set_elements(study_id, list(elements))
@@ -508,7 +515,7 @@ class UrimStudyService:
         avec son motif à l'affichage ; refuser la liste entière ferait perdre onze textes
         justes pour une faute de frappe, et c'est le contraire du service rendu."""
         record = await self._charger(study_id)
-        await self._ensure_preacher(actor_account_id, record.church_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
 
         lecteur = IndexedCorpusReader(self.index)
         retenues: list[SupportRecord] = []
@@ -577,7 +584,7 @@ class UrimStudyService:
     # -- exploration ------------------------------------------------------------
 
     async def explorer(
-        self, *, actor_account_id: UUID, church_id: UUID, reference: str
+        self, *, actor_account_id: UUID, church_id: UUID | None = None, reference: str
     ) -> PassageDetailDTO:
         """**En savoir plus sur un passage, sans s'engager dessus.**
 
@@ -666,7 +673,7 @@ class UrimStudyService:
         )
 
     async def concordance(
-        self, *, actor_account_id: UUID, church_id: UUID, lemme: str
+        self, *, actor_account_id: UUID, church_id: UUID | None = None, lemme: str
     ) -> ConcordanceDTO:
         """Toutes les occurrences d'un mot de l'original — **lecture pure, sans modèle**.
 
@@ -775,7 +782,13 @@ class UrimStudyService:
         self, record: PreparationRecord, *, persist: bool = True, chosen_by: str | None = None
     ) -> StudyDTO:
         maintenant = self.clock()
-        usage = await self.reservations.usage(record.church_id, maintenant)
+        # Sans église, pas de fenêtre d'usage : `UsageSnapshot()` par défaut dit exactement
+        # « rien de facturé, aucun plafond atteint », et c'est la vérité de l'antichambre.
+        usage = (
+            await self.reservations.usage(record.church_id, maintenant)
+            if record.church_id is not None
+            else UsageSnapshot()
+        )
         axes = await self.studies.recently_preached_axes(
             record.author_id, (maintenant - _HORIZON_PRECHE).date()
         )
@@ -946,7 +959,8 @@ class UrimStudyService:
             # justement d'écrire `pericope_id`, donc comparer à l'état d'avant ne dirait
             # jamais rien. C'est `rekey_for` qui est idempotent — il cherche la clé
             # provisoire, et ne la trouve plus une fois le re-clage fait.
-            if final.pericope_id is not None:
+            # Rien à re-cléer quand rien n'a été réservé (préparation sans église).
+            if final.pericope_id is not None and record.church_id is not None:
                 await self.reservations.rekey_for(
                     church_id=record.church_id,
                     author_id=record.author_id,
@@ -1099,11 +1113,40 @@ class UrimStudyService:
             raise PreparationIntrouvableError("Cette préparation n'existe pas.")
         return record
 
-    async def _ensure_preacher(self, actor_account_id: UUID, church_id: UUID) -> None:
+    async def _ensure_preacher(
+        self, actor_account_id: UUID, church_id: UUID | None
+    ) -> None:
+        """Préparer **n'exige rien** hors d'une église ; dans une église, c'est l'église qui dit.
+
+        Sans église, il n'y a personne à qui demander : la garde ne s'applique pas à
+        l'ouverture. Les appelants qui rouvrent une préparation existante passent par
+        `_ensure_owner_or_preacher`, qui referme le seul trou que ce `None` ouvrirait."""
+        if church_id is None:
+            return
         # **Quelle** permission cela recouvre est décidé par l'adaptateur, pas ici. Le
         # service pose une question de droit ; il n'a pas à connaître le vocabulaire des
         # rôles d'un autre contexte.
         await self.access.ensure_may_prepare(
             account_id=actor_account_id, church_id=church_id
         )
+
+    async def _ensure_owner_or_preacher(
+        self, actor_account_id: UUID, record: PreparationRecord
+    ) -> None:
+        """Rouvrir une préparation : **son auteur**, ou l'église quand il y en a une.
+
+        ⚠️ Sur une préparation d'église, la garde reste ce qu'elle a toujours été — le droit
+        de prêcher dans cette église, pas la propriété. Deux pasteurs d'une même assemblée
+        peuvent donc se relire, et c'est délibéré ici : un travail d'église est un objet
+        d'église.
+
+        Sans église, cette règle n'a plus personne à interroger, et la seule qui reste est la
+        propriété. C'est ce qui a décidé qu'**une préparation ne se rattache jamais d'office**
+        à l'église de son auteur : le rattachement la rendrait lisible par ses collègues, et
+        ce n'est pas un effet de bord qu'on inflige sans que quelqu'un l'ait voulu."""
+        if record.church_id is None:
+            if record.author_id != actor_account_id:
+                raise PreparationIntrouvableError("Cette préparation n'existe pas.")
+            return
+        await self._ensure_preacher(actor_account_id, record.church_id)
 

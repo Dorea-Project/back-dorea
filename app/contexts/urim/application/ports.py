@@ -29,7 +29,8 @@ class PreparationRecord:
     """La préparation telle que la base la garde — **les décisions, pas le raisonnement**."""
 
     id: UUID
-    church_id: UUID
+    #: **NULL = aucune église** — l'antichambre. Voir le modèle SQL pour la règle d'accès.
+    church_id: UUID | None
     author_id: UUID
     raw_input: str
     entry_mode: str | None = None

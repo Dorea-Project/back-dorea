@@ -79,7 +79,10 @@ class UrimPreparationModel(Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
-    church_id: Mapped[UUID] = mapped_column(Uuid)
+    #: **NULL = aucune église.** Urim est l'antichambre : on y prépare sans avoir rejoint quoi
+    #: que ce soit, et c'est le cas normal. `author_id` est alors le seul propriétaire — et le
+    #: seul à pouvoir rouvrir (cf. `_ensure_preacher`).
+    church_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     author_id: Mapped[UUID] = mapped_column(Uuid)  # propriétaire réel
     entry_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     raw_input: Mapped[str] = mapped_column(Text)

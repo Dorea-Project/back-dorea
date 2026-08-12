@@ -122,7 +122,10 @@ class TraceEntry:
 @dataclass(frozen=True, slots=True)
 class StudyState:
     session_id: UUID
-    church_id: UUID
+    #: **Aucun étage ne la lit** — elle voyage pour la trace, pas pour la décision. C'est ce
+    #: qui a rendu l'antichambre gratuite : le moteur était déjà indifférent à l'église, et
+    #: `None` ne change donc rien à ce qu'il calcule.
+    church_id: UUID | None
     author_id: UUID
     corpus_snapshot: str  # version du corpus — clé du déterminisme
 

@@ -187,3 +187,70 @@ async def explorer_passage(
     )
     return PassageDetailView.from_dto(dto)
 
+
+# ====================================================================== L'ANTICHAMBRE
+#
+# Les mêmes gestes, sans église. Urim s'installe seul : le pasteur qui n'a rejoint aucune
+# assemblée — le cas **normal**, pas le cas particulier — n'avait jusqu'ici aucune URL à
+# appeler, puisque le tenant était dans le chemin.
+#
+# ⚠️ **Les routes `/tenants/{id}/…` restent, et ne sont pas dépréciées.** Elles ne sont pas
+# une ancienne façon de faire la même chose : elles disent *« je prépare dans l'espace de
+# cette église »*, ce qui rattache le travail à l'assemblée et le rend lisible par les
+# collègues qui y prêchent. Deux gestes différents, deux URL.
+
+
+@router.post(
+    "/studies",
+    response_model=StudyView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ouvrir une préparation personnelle — sans église, sans rôle, sans permission",
+)
+async def open_personal_study(
+    payload: OpenStudyBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """Préparer n'exige rien d'autre que d'être authentifié.
+
+    Il n'y a personne à qui demander l'autorisation : sans église, aucune permission ne
+    s'applique. La préparation appartient à son auteur, et à lui seul — c'est la propriété,
+    et non un rôle, qui la garde à la relecture."""
+    dto = await service.open(
+        actor_account_id=actor.account_id,
+        raw_input=payload.raw_input,
+        entry_origin=payload.entry_origin,
+        service_date=payload.service_date,
+    )
+    return StudyView.from_dto(dto)
+
+
+@router.get(
+    "/lemmes",
+    response_model=ConcordanceView,
+    summary="La concordance — sans église",
+)
+async def personal_concordance(
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    lemme: str = Query(min_length=1, max_length=60, examples=["ὑπόδημα"]),
+) -> ConcordanceView:
+    """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
+    dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
+    return ConcordanceView.from_dto(dto)
+
+
+@router.get(
+    "/passages",
+    response_model=PassageDetailView,
+    summary="En savoir plus sur un passage — sans église",
+)
+async def explorer_passage_personnel(
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    ref: str = Query(min_length=2, max_length=80, examples=["Luc 10:25-37"]),
+) -> PassageDetailView:
+    """Lecture pure du corpus, comme au-dessus — et pour la même raison."""
+    dto = await service.explorer(actor_account_id=actor.account_id, reference=ref)
+    return PassageDetailView.from_dto(dto)
+

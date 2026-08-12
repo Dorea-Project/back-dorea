@@ -329,6 +329,43 @@ n'est pas de la génération, c'est le même geste que le grec. 23 243 versets d
    La requête réutilise `GetMyMemberships` au lieu de relire les appartenances : une seconde
    définition de « mes églises » aurait divergé de la première.
 
+   **L'espace personnel — livré le 11/08/2026.** Urim est l'**antichambre** : on y entre sans
+   rien savoir de Dorea, et le rôle Dorea `null` est le cas normal. `GET /iam/me` répondait
+   déjà `memberships: []` en disant qu'un compte sans église est un état normal — et ce
+   compte-là n'avait aucune URL à appeler, les trois routes d'entrée portant le tenant dans
+   leur chemin.
+
+   - `urim_preparation.church_id` devient **nullable** — pas de table `urim_workspace` :
+     une préparation qui n'appartient à aucune église, une colonne nulle le dit exactement.
+     `author_id` est la vraie clé, et l'était déjà (« propriétaire réel »).
+   - `POST /studies`, `GET /lemmes`, `GET /passages` **sans tenant**. Les routes
+     `/tenants/{id}/…` restent et **ne sont pas dépréciées** : elles disent « je prépare dans
+     l'espace de cette église », ce qui est un autre geste. Aucune rupture pour Flutter.
+   - **Préparer n'exige rien.** `ensure_may_prepare` ne garde plus l'entrée : sans église, il
+     n'y a personne à qui demander. `PUBLISH_SERMON` continue de garder la publication du
+     sermon, qui est le contexte Sermon.
+   - **Aucune réservation, aucune fenêtre d'usage** sans église : rien n'y est facturé, et un
+     compteur qui ne compte contre aucun plafond ment.
+
+   Le moteur n'a rien coûté : `StudyState.church_id` était déclarée et **lue par aucun étage**.
+   Il était déjà indifférent à l'église.
+
+   **Les trois questions ouvertes, tranchées — et c'est le code qui en a décidé une.** En
+   relisant la garde : sur une préparation d'église, l'accès est le droit de *prêcher dans
+   cette église*, pas la propriété. Deux pasteurs d'une même assemblée se relisent. Donc
+   rattacher d'office la préparation d'un pasteur à son église la rendrait lisible par ses
+   collègues — un effet qu'on n'inflige pas sans que quelqu'un l'ait voulu.
+
+   1. *Rattachement d'office ?* **Non.** Le défaut est personnel ; rattacher est un geste.
+      Conséquence : `urim_user_settings` n'a toujours aucun champ à stocker, et attend.
+   2. *Verser une préparation personnelle dans l'église plus tard ?* **Pas construit
+      maintenant, rien ne l'empêche** — colonne nue, sans FK.
+   3. *Rupture des routes ?* **Non.** Les deux surfaces coexistent, chacune avec son sens.
+
+   Hors d'une église, la relecture est gardée par la **propriété**, et un tiers reçoit
+   « cette préparation n'existe pas » plutôt qu'un refus : sur un objet privé, confirmer
+   l'existence dirait déjà que cette personne prépare, sur quoi, et quand.
+
 6. Les trois lacunes du noyau : `reset-secret-code`, `delete-account`, `devices`.
 
 ### Lot E — la profondeur *(quand le reste tient)*
