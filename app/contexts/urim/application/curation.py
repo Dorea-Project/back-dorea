@@ -26,6 +26,8 @@ par défiance, mais parce que le geste n'a pas la bonne portée.
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
@@ -55,6 +57,51 @@ SIGNATAIRE_IA = "ia-mistral"
 #: Longueur minimale d'un motif. Un `rationale` vide passerait le `NOT NULL` de la base et
 #: ne dirait rien au pasteur — or c'est *la* phrase qu'il lit pour comprendre ces bornes-là.
 _MOTIF_MINIMUM = 20
+
+#: Les verdicts qu'un relecteur peut poser sur un écart signalé.
+#:
+#: ⚠️ **`accepte` n'est pas « c'est bien », c'est « l'écart est réel et la curation est juste
+#: quand même ».** Apocalypse 5 porte réellement huit loci ; le détecteur a raison de la
+#: trouver inhabituelle et tort d'en faire un défaut. Sans ce verdict, elle reviendrait en tête
+#: de file à chaque passage, éternellement — et une file qui ne décroît pas n'est pas une file,
+#: c'est un reproche permanent.
+VERDICTS = frozenset({"accepte", "corrige", "a_reprendre"})
+
+#: Le signalement qui porte sur l'unité entière plutôt que sur un détecteur — c'est par lui
+#: qu'on saura un jour quelle part du corpus un humain a vraiment relue.
+PORTEE_ENSEMBLE = "ensemble"
+
+
+def empreinte_de_curation(lignes: Iterable[tuple[str, str, str]]) -> str:
+    """Ce sur quoi le verdict a porté — `(couche, axe, corps)`, trié puis condensé.
+
+    ⚠️ **Un verdict doit se périmer quand ce qu'il jugeait a changé.** Un relecteur qui accepte
+    les huit loci d'Apocalypse 5 juge *ces* pesées-là ; si une régénération les réécrit, son
+    accord ne vaut plus et l'unité doit revenir en file. Sans empreinte, un verdict posé une
+    fois protégerait indéfiniment une curation qu'il n'a jamais vue.
+
+    C'est le troisième endroit du produit où ce patron sert — `corpus_snapshot` pour le corpus,
+    `input_hash` pour les suggestions du modèle, celui-ci pour la relecture. Chaque fois pour la
+    même raison : *une décision ne vaut que sur l'objet qu'elle a regardé.*"""
+    empilees = "\n".join(sorted(f"{couche}|{axe}|{corps}" for couche, axe, corps in lignes))
+    return hashlib.sha256(empilees.encode()).hexdigest()[:32]
+
+
+def verifier_verdict(verdict: str, portee: str, relu_par: str) -> None:
+    """Un verdict est **humain, ou il n'est pas**.
+
+    Le garde des signatures vaut ici comme ailleurs, et `SIGNATAIRE_IA` s'y ajoute : toute la
+    valeur de cette table tient à ce qu'une machine n'y écrive jamais. Une file d'attente que
+    le modèle pourrait vider lui-même ne mesurerait plus rien."""
+    if verdict not in VERDICTS:
+        raise CurationInvalideError(f"« {verdict} » n'est pas un verdict.")
+    if not portee.strip():
+        raise CurationInvalideError("Un verdict porte sur un détecteur, ou sur l'ensemble.")
+    nom = relu_par.strip()
+    if not nom or nom.lower() in _SIGNATURES_REFUSEES or nom == SIGNATAIRE_IA:
+        raise CurationInvalideError(
+            "Un verdict se signe d'un nom qui désigne quelqu'un — jamais d'une machine."
+        )
 
 
 @dataclass(slots=True)

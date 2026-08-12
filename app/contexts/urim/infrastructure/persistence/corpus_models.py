@@ -373,6 +373,51 @@ class CorpusDoctrinalCaveatModel(Base):
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class CorpusReviewModel(Base):
+    """Le **registre de relecture** — ce qu'un humain a jugé, et qui ne se rejuge pas.
+
+    Le détecteur d'écarts signale ; il ne décide de rien. Sans cette table, sa file recalcule
+    les mêmes unités à chaque passage : un relecteur qui en traite cinquante retrouve les mêmes
+    le lendemain, et **une file qui ne décroît pas n'est pas une file, c'est un reproche
+    permanent**. Apocalypse 5 porte réellement huit loci ; il faut pouvoir le dire une fois.
+
+    ⚠️ **`judged_fingerprint` périme le verdict quand ce qu'il jugeait change.** Accepter les
+    pesées d'Apocalypse 5 juge *celles-là* ; une régénération les réécrit, et l'accord ne vaut
+    plus. Sans empreinte, un verdict posé une fois protégerait indéfiniment une curation qu'il
+    n'a jamais vue. Même patron que `corpus_snapshot` et que `input_hash` sur les suggestions —
+    *une décision ne vaut que sur l'objet qu'elle a regardé*.
+
+    **Son second usage vaut plus que le premier.** Ce module promet que les pesées et les mises
+    en garde « restent à quelqu'un qui répond de ce qu'il affirme » ; 45 557 d'entre elles sont
+    signées `ia-mistral`. Cette table est la seule chose qui saura dire quelle part du corpus un
+    humain a réellement relue — et donc de combien la promesse est en retard sur le fait.
+    """
+
+    __tablename__ = "urim_corpus_review"
+
+    __table_args__ = (
+        CheckConstraint(
+            "verdict IN ('accepte','corrige','a_reprendre')", name="review_verdict_clos"
+        ),
+        # Le cœur du dispositif : une machine ne vide pas la file qu'elle a remplie.
+        CheckConstraint("reviewed_by <> 'ia-mistral'", name="review_signature_humaine"),
+        Index("ix_urim_review_verdict", "verdict", "reviewed_at"),
+    )
+
+    pericope_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_corpus_pericope.id"), primary_key=True
+    )
+    #: Le détecteur jugé (`D1`…`D5`), ou `ensemble` pour une relecture de l'unité entière.
+    #: Explicite plutôt que NULL : sous PostgreSQL deux NULL ne s'égalent pas, et la clé
+    #: primaire aurait laissé passer autant de doublons qu'on en aurait écrit.
+    scope: Mapped[str] = mapped_column(String, primary_key=True)
+    verdict: Mapped[str] = mapped_column(String)
+    judged_fingerprint: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[str] = mapped_column(String)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class CorpusContextNoteModel(Base):
     """**Sourcé, ou absent.** Il n'y a pas de troisième possibilité (S40).
 
