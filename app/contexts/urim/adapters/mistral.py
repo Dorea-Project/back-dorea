@@ -122,6 +122,65 @@ _SYSTEME_PASSAGES = (
     '"fin": 13, "motif": "..."}]}'
 )
 
+#: L'aiguilleur — **il classe, il ne répond jamais**.
+#:
+#: ⚠️ Trois choses qu'il ne voit pas, et c'est délibéré :
+#:
+#: **L'ouverture.** Au premier message le détecteur d'entrée fait mieux — il croise sur les
+#: 31 170 versets, lit la notation du pasteur (`Hb 2v29`) et recale les noms de livres longs.
+#: Un modèle qui trancherait « référence ou intention ? » serait moins fiable que ce qui est là.
+#:
+#: **Les réponses à une question posée.** « Ecclésiologie », « L'unité », « Expositif » sont des
+#: *liaisons* vers une option déjà offerte, résolues par comparaison de chaînes avant tout appel.
+#: L'aiguilleur ne les voit jamais — il se tromperait, « Ecclésiologie » ressemblant furieusement
+#: à un sujet de prédication.
+#:
+#: **L'état.** Il ne reçoit que le texte. « Quel plan je peux tenir ? » posé avant qu'un texte
+#: soit résolu part quand même en `interroger_travail`, et le répondeur dit la vérité — *il faut
+#: d'abord un texte*. Aveugle, il reste une fonction pure : testable hors rejeu, et il ne reçoit
+#: aucune confidence sur l'assemblée qu'il n'aurait pas besoin de connaître.
+#:
+#: ⚠️ **Le vocabulaire fermé est un clapet anti-retour.** Le modèle n'a aucun canal de sortie en
+#: prose : rien de ce que le pasteur confie ne peut ressortir par lui. C'est structurel, pas une
+#: politique.
+_SYSTEME_AIGUILLAGE = (
+    "Un pasteur prépare une prédication et vient d'écrire un message. Ta SEULE tâche est de "
+    "dire ce qu'il veut, en choisissant EXACTEMENT un code parmi les sept suivants. Tu ne "
+    "réponds jamais à sa question, tu ne commentes rien, tu ne produis aucune prose.\n"
+    "- preciser : il corrige la façon dont on a lu sa saisie ('ce n'est pas ça', 'ce n'est pas "
+    "une citation', 'c'est mon sujet', 'non je parlais du chapitre entier').\n"
+    "- interroger_texte : il pose une question SUR LE TEXTE BIBLIQUE ou ce qui l'entoure — le "
+    "sens d'un mot, l'original grec ou hébreu, pourquoi un passage commence ou finit là, un "
+    "usage historique, une coutume, un personnage. MÊME si la réponse est incertaine ou si "
+    "elle porte sur le monde antique plutôt que sur les mots.\n"
+    "- interroger_travail : il pose une question SUR SA PROPRE PRÉPARATION — quel plan est "
+    "tenable, ce qui résiste à son axe, ce qu'il a déjà choisi, où il en est.\n"
+    "- demander_production : il demande qu'on lui FABRIQUE quelque chose — un thème, une mise "
+    "en forme, un document, des diapositives.\n"
+    "- changer_de_sujet : il abandonne le texte en cours pour un autre sujet de prédication.\n"
+    "- hors_champ : il S'ADRESSE BIEN À TOI et on comprend sa demande, mais ce n'est pas ce que "
+    "fait un atelier de préparation. Deux formes : un CONSEIL sur des personnes ou sur son "
+    "assemblée (comment annoncer, que faire d'un membre, comment se sentir), et une demande "
+    "qui te prend pour quelqu'un ('prie pour moi', 'tu penses quoi de moi').\n"
+    "- indechiffrable : le message NE T'EST PAS ADRESSÉ, ou ne porte aucune demande. Trois "
+    "formes : une parole captée par un micro resté ouvert et qui parle de tout autre chose "
+    "qu'une prédication (la vie courante, un bout de conversation) ; des mots sans suite ou un "
+    "fragment interrompu ; un acquiescement seul ('oui', 'ok').\n"
+    "LE PARTAGE ENTRE LES DEUX N'EST PAS « ai-je compris ? » MAIS « me parle-t-il ? ». Une "
+    "phrase parfaitement claire sur une voiture à réparer est indechiffrable : elle a atterri "
+    "là par accident. 'Prie pour moi' est hors_champ : il te parle, et on ne sait pas répondre.\n"
+    "DISTINCTION IMPORTANTE : une question sur ce que portaient les esclaves, sur une coutume "
+    "ou sur un mot est 'interroger_texte' même si le corpus ne sait pas y répondre — c'est le "
+    "répondeur qui dira ce qu'il a. 'hors_champ' est réservé aux conseils sur des PERSONNES.\n"
+    'Réponds par un objet JSON : {"intention": "..."} avec exactement un de ces sept codes.'
+)
+
+#: ⚠️ **Fermé.** Un code hors liste est jeté à la source — même règle que `_LOCI_CONNUS`.
+INTENTIONS_CONNUES = frozenset({
+    "preciser", "interroger_texte", "interroger_travail",
+    "demander_production", "changer_de_sujet", "hors_champ", "indechiffrable",
+})
+
 _LOCI_CONNUS = frozenset({
     "theologie_propre", "christologie", "pneumatologie", "anthropologie", "hamartiologie",
     "soteriologie", "ecclesiologie", "angelologie", "demonologie", "eschatologie",
@@ -292,6 +351,26 @@ class MistralAssistant:
         # **Un seul passage rendu n'en est pas un** : il aurait l'autorité d'une résolution
         # sans en avoir passé les vérifications. On préfère ne rien proposer.
         return tuple(proposes) if len(proposes) > 1 else ()
+
+    async def aiguiller(self, text: str) -> str | None:
+        """Le tour du pasteur → **une intention**, ou rien.
+
+        `None` n'est pas un échec silencieux : c'est un tour qu'on ne sait pas lire, et le
+        répondeur le traitera comme `indechiffrable` — en le disant. Deviner serait pire, parce
+        que les répondeurs sont déterministes : une intention mal aiguillée donne une réponse
+        **hors sujet, jamais fausse**, et c'est ce qui rend l'aiguillage probabiliste acceptable
+        devant eux."""
+        contenu = await self.demander(_SYSTEME_AIGUILLAGE, text, etiquette="aiguillage")
+        if not contenu:
+            return None
+        bloc = re.search(r"\{.*\}", contenu, re.S)
+        if bloc is None:
+            return None
+        try:
+            rendu = json.loads(bloc.group(0)).get("intention")
+        except json.JSONDecodeError:
+            return None
+        return rendu if rendu in INTENTIONS_CONNUES else None
 
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque — **des marques de forme, jamais un sentiment**."""

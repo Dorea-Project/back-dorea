@@ -216,10 +216,86 @@ maquette.*
 
 ---
 
-## 7. Ordre de construction
+## 7. Le vocabulaire d'intentions
 
-1. **Trou 1** — la dominance sur l'option. Sans elle, le tour 2 n'est pas rendable.
-2. **Le champ `turn`** sur les réponses existantes, avec les sept blocs.
+L'aiguilleur ne rend **jamais de prose** : un code, d'une liste fermée, comme `axes()` et
+`lever()` avant lui. Le vocabulaire fermé n'est pas seulement une garde anti-hallucination —
+c'est un **clapet anti-retour** : le modèle n'ayant aucun canal de sortie en texte, rien de ce
+que le pasteur confie ne peut ressortir par lui. C'est structurel, pas une politique.
+
+### Ce que l'aiguilleur ne voit pas
+
+**L'ouverture.** Le détecteur d'entrée fait mieux — il croise sur 31 170 versets, lit `Hb 2v29`
+et recale « Actes des Apôtres ». L'aiguilleur n'existe qu'à partir du deuxième tour.
+
+**Les réponses à une question posée.** « Ecclésiologie », « L'unité », « Expositif » sont des
+**liaisons** vers une option offerte, résolues par comparaison de chaînes. Sur les six tours de
+la maquette, **quatre sont des liaisons** : les deux tiers du fil ne coûtent rien et ne peuvent
+pas se tromper.
+
+> **La liaison consomme ce qu'elle reconnaît, l'aiguilleur reçoit le reste.** « Expositif.
+> Propose-moi un thème. » porte deux gestes ; sans cette règle on en perd un, en silence.
+
+**L'état.** Il ne reçoit que le texte. « Quel plan je peux tenir ? » posé avant qu'un texte soit
+résolu part quand même en `interroger_travail`, et le répondeur dit la vérité. Aveugle, il reste
+une fonction pure — testable hors rejeu, et sans confidence sur une assemblée.
+
+### Les sept codes
+
+| Code | Le répondeur | État |
+| :-- | :-- | :-- |
+| `preciser` | options `origin: entree` | ✅ |
+| `interroger_texte` | concordance, notes de contexte, motif de l'unité, original | ✅ |
+| `interroger_travail` | `couples`, `bearings`, `resisting_elsewhere` | ✅ |
+| `demander_production` | thème ✅ / livrable ❌ verrouillé |
+| `changer_de_sujet` | **propose** une nouvelle préparation | ✅ |
+| `hors_champ` | le tour qui redirige | ❌ à écrire |
+| `indechiffrable` | le tour qui repose le fil | ❌ à écrire |
+
+**Une intention ne déclenche jamais un acte irréversible — elle propose.** Un aiguilleur
+probabiliste n'a aucun pouvoir d'exécution.
+
+**Pas de score de confiance.** Chaque tour montre déjà sa lecture et offre la correction. Et
+comme les répondeurs sont déterministes, **une intention mal aiguillée donne une réponse hors
+sujet, jamais une réponse fausse** : le mode d'échec est la non-pertinence, pas le mensonge.
+C'est ce qui rend l'aiguillage probabiliste acceptable devant eux.
+
+### Le banc — `scripts/urim_banc_aiguillage.py`
+
+38 cas étiquetés, **avec leur provenance**. `reel` = écrit par un vrai pasteur ; `construit` =
+écrit par moi. Le score est rendu séparément, et c'est ce qui rend le banc honnête : *nous
+n'avons presque aucune saisie réelle de deuxième tour*, puisque tout ce que le Pasteur X a écrit
+sont des **ouvertures**, que l'aiguilleur ne voit jamais.
+
+**38/38 sur `mistral-small`.** Deux confusions que j'avais prédites ne se sont pas produites :
+`interroger_texte` contre `interroger_travail` tient à 14/14, y compris sur le cas que j'avais
+moi-même marqué ambigu.
+
+**Ce que le banc a trouvé, et que je n'avais pas vu.** « Prie pour moi » partait en
+`indechiffrable`. Répondre *« je n'ai pas su lire ça »* à un pasteur seul un samedi soir
+traiterait une adresse réelle comme un parasite. J'ai élargi `hors_champ` — et le raté s'est
+déplacé sur **le cas réel** du micro resté ouvert, que la nouvelle définition avalait.
+
+Le bon partage n'est pas *« ai-je compris ? »* mais **« me parle-t-il ? »**. Une phrase
+parfaitement claire sur une voiture à réparer est `indechiffrable` : elle a atterri là par
+accident. « Prie pour moi » est `hors_champ` : il vous parle, et on ne sait pas répondre.
+
+Sans la colonne `provenance`, 37/38 aurait ressemblé à un progrès — alors que j'échangeais un
+cas inventé contre un cas attesté.
+
+⚠️ **100 % est un avertissement, pas un résultat.** Un banc que son auteur réussit intégralement
+est un banc trop facile. Il ne vaudra vraiment que le jour où il portera des dizaines de saisies
+de deuxième tour venues de vrais pasteurs — et c'est la première chose à collecter dès qu'un fil
+tourne.
+
+---
+
+## 8. Ordre de construction
+
+1. **Les deux répondeurs manquants** — `hors_champ` et `indechiffrable`. Petits, purs, et ce
+   sont les seuls codes du vocabulaire que personne n'écoute aujourd'hui.
+2. **Trou 1** — la dominance sur l'option. Sans elle, le tour 2 n'est pas rendable.
+3. **Le champ `turn`** sur les réponses existantes, avec les sept blocs.
 3. **Trou 4**, version client : accepter `entry_origin=dictated` sur `POST /studies` (déjà le
    cas) et documenter la confirmation attendue.
 4. **Trou 2** — la question libre. Il ouvre une surface neuve et mérite sa propre conception :
