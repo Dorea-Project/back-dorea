@@ -194,6 +194,9 @@ class WeighConviction:
                 code=f"texte:{site.pericope_id}",
                 label=f"{site.label} — {_CE_QUE_LE_TEXTE_FAIT.get(site.strength, site.strength)}",
                 rationale=site.rationale,
+                # Ce que le texte fait de l'axe voyage **aussi** en clair : le libellé le dit
+                # au pasteur, ce champ le dit au client, qui peut alors grouper sans lire.
+                strength=site.strength,
             )
             for site in sites
         )

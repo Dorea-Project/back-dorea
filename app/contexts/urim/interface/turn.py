@@ -215,8 +215,19 @@ _LIVRABLE_FERME = (
     "Le livrable n'est pas ouvert : une citation projetée doit d'abord être contrôlée."
 )
 
-#: Les étages dont les options sont des textes à ouvrir, non des pastilles à toucher.
-_ETAGES_D_UNITES = frozenset({"resolve_passage"})
+#: ⚠️ **Les groupes suivent la donnée, pas le nom de l'étage.**
+#:
+#: Une option qui porte une force est une unité pesée, d'où qu'elle vienne ; une option sans
+#: force est une pastille. Lier le type de bloc à un nom d'étage aurait fallu le corriger à
+#: chaque étage nouveau, et se serait trompé le jour où deux étages proposent des unités.
+#:
+#: `resiste` a son groupe, et ce n'est pas un détail : c'est la seule mécanique
+#: anti-proof-texting du produit, et elle s'affiche **au même rang** que ce qui porte.
+_GROUPES = (
+    ("dominant", "En fait son sujet"),
+    ("porte", "Le soutient"),
+    ("resiste", "Lui résiste"),
+)
 
 
 def _pastilles(options: list) -> list[ChipItem]:
@@ -237,15 +248,29 @@ def _blocs(vue, etage: str) -> list[Block]:
     lui donne dans l'ordre où on le lui donne."""
     blocs: list[Block] = []
 
-    if etage in _ETAGES_D_UNITES and vue.options:
-        blocs.append(UnitsBlock(groups=[UnitGroup(
-            role="proposed",
-            heading="Traitent votre sujet",
-            items=[
-                UnitItem(code=o.code, label=o.label, reference=o.code, rationale=o.rationale)
-                for o in vue.options if not o.dismissed
-            ],
-        )]))
+    vivantes = [o for o in vue.options if not o.dismissed]
+    pesees = [o for o in vivantes if o.strength]
+
+    if pesees:
+        groupes = [
+            UnitGroup(
+                role=role,
+                heading=titre,
+                items=[
+                    UnitItem(
+                        code=o.code, label=o.label,
+                        reference=o.code, rationale=o.rationale,
+                    )
+                    for o in pesees if o.strength == role
+                ],
+            )
+            for role, titre in _GROUPES
+        ]
+        blocs.append(UnitsBlock(groups=[g for g in groupes if g.items]))
+        # Les options non pesées de la même liste — « allez droit à un texte » — restent des
+        # pastilles : elles n'ont rien de relu, et les mêler aux unités le laisserait croire.
+        if autres := [o for o in vivantes if not o.strength]:
+            blocs.append(ChipsBlock(items=_pastilles(autres)))
     elif etage == "bound_pericope" and vue.options:
         blocs.append(BoundsBlock(
             items=_pastilles(vue.options),

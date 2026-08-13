@@ -58,8 +58,8 @@ def _dto(**kw) -> StudyDTO:
         rationale="Laquelle prêchez-vous ?",
         trace=(("route_entry", "Lu comme une intention."),),
         options=(
-            ("axe:christologie", "Christologie", "Disponible.", "locus", False),
-            ("Hébreux 13:1-2", "Hébreux 13:1-2", "Traite ce sujet.", "sens", False),
+            ("axe:christologie", "Christologie", "Disponible.", "locus", False, None),
+            ("Hébreux 13:1-2", "Hébreux 13:1-2", "Traite ce sujet.", "sens", False, None),
         ),
         verses=(VerseServed("Hébreux 13:1", "Persévérez dans l'amour fraternel."),),
         elements=(ElementRecord("introduction", 0, None),),

@@ -98,6 +98,10 @@ class OptionView(BaseModel):
     #: ferait perdre ce qu'on lui avait proposé, et rendrait son geste irréversible par accident.
     dismissed: bool = False
 
+    #: Ce que le texte fait de l'axe — `dominant`, `porte`, `resiste`, ou `null`. C'est ce qui
+    #: permet au client de séparer *en fait son sujet* de *le soutient* sans lire le libellé.
+    strength: str | None = None
+
 
 class ElementView(BaseModel):
     element_code: str
@@ -252,8 +256,10 @@ class StudyView(BaseModel):
             rationale=dto.rationale,
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
             options=[
-                OptionView(code=c, label=lib, rationale=m, origin=o, dismissed=e)
-                for c, lib, m, o, e in dto.options
+                OptionView(
+                    code=c, label=lib, rationale=m, origin=o, dismissed=e, strength=f
+                )
+                for c, lib, m, o, e, f in dto.options
             ],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,

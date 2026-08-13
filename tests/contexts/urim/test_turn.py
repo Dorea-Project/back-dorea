@@ -19,12 +19,15 @@ class _Trace:
 
 
 class _Option:
-    def __init__(self, code: str, dismissed: bool = False) -> None:
+    def __init__(
+        self, code: str, dismissed: bool = False, strength: str | None = None
+    ) -> None:
         self.code = code
         self.label = f"libellé {code}"
         self.rationale = "parce que ce texte traite le sujet"
         self.origin = "locus"
         self.dismissed = dismissed
+        self.strength = strength
 
 
 class _Vue:
@@ -135,3 +138,46 @@ def test_le_tour_est_serialisable_tel_quel() -> None:
     tour = construire_tour(_Vue(theme="Un thème", trace=[_Trace("propose_theme")]))
     rendu = TurnView.model_validate(tour.model_dump()).model_dump()
     assert {b["kind"] for b in rendu["blocks"]} == {"theme", "actions", "chips"}
+
+
+# -- la dominance : le trou 1 du contrat ---------------------------------------------
+
+
+def test_les_unites_sont_groupees_par_ce_qu_elles_font_du_sujet() -> None:
+    """🔴 **Le trou 1, et il est bouché par une donnée qui existait déjà.**
+
+    `sites_for_axis` portait la force depuis le premier jour — elle voyageait *collée dans le
+    libellé* : « La charité sans hypocrisie — en fait son sujet ». Le client qui veut séparer
+    les groupes devait donc lire le texte du libellé, ce qui marche jusqu'au jour où la
+    formulation change."""
+    vue = _Vue(options=[
+        _Option("texte:a", strength="dominant"),
+        _Option("texte:b", strength="porte"),
+        _Option("texte:c", strength="resiste"),
+    ])
+    bloc = construire_tour(vue).blocks[0]
+    assert bloc.kind == "units"
+    assert [g.role for g in bloc.groups] == ["dominant", "porte", "resiste"]
+
+
+def test_le_texte_qui_resiste_a_son_groupe() -> None:
+    """C'est la seule mécanique anti-proof-texting du produit : elle s'affiche au même rang."""
+    vue = _Vue(options=[_Option("texte:c", strength="resiste")])
+    groupes = construire_tour(vue).blocks[0].groups
+    assert [g.role for g in groupes] == ["resiste"]
+
+
+def test_un_groupe_vide_n_est_pas_emis() -> None:
+    vue = _Vue(options=[_Option("texte:a", strength="dominant")])
+    assert len(construire_tour(vue).blocks[0].groups) == 1
+
+
+def test_les_options_non_pesees_restent_des_pastilles() -> None:
+    """⚠️ « Allez droit à un texte » n'a rien de relu — le mêler aux unités le laisserait croire."""
+    vue = _Vue(options=[
+        _Option("texte:a", strength="dominant"),
+        _Option("Hébreux 13:1-2"),
+    ])
+    blocs = construire_tour(vue).blocks
+    assert [b.kind for b in blocs[:2]] == ["units", "chips"]
+    assert [i.code for i in blocs[1].items] == ["Hébreux 13:1-2"]

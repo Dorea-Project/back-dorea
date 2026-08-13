@@ -44,6 +44,18 @@ class Option:
     #: sans avoir à deviner la provenance depuis la forme du motif.
     origin: str = "moteur"
 
+    #: ⚠️ **Ce que le texte fait de l'axe** — `dominant`, `porte`, `resiste`, ou `None`.
+    #:
+    #: 🔴 L'information existait et voyageait **collée dans le libellé** : « La charité sans
+    #: hypocrisie — en fait son sujet ». Le client qui veut séparer *en fait son sujet* de *le
+    #: soutient* devait donc lire le texte du libellé, ce qui marche jusqu'au jour où la
+    #: formulation change. C'est le trou 1 de `docs/Urim_Conversation.md`.
+    #:
+    #: `None` n'est pas un défaut : une option de bornage ou une correction d'entrée ne pèse
+    #: aucun axe, et le vocabulaire reste celui du corpus — le même mot que `BearingView`,
+    #: jamais un synonyme.
+    strength: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class StageResult:

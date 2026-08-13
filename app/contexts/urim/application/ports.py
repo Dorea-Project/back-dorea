@@ -166,7 +166,9 @@ class StudyDTO:
     #: `dismissed` dit que le pasteur l'a **écartée**. Elle reste dans la liste, reléguée en
     #: fin : la retirer lui ferait perdre ce qu'on lui avait proposé, et rendrait son geste
     #: irréversible par accident.
-    options: tuple[tuple[str, str, str, str, bool], ...] = ()
+    #: `(code, libellé, motif, origine, écartée, force)` — la force dit ce que le texte fait de
+    #: l'axe (`dominant`, `porte`, `resiste`), ou `None` quand l'option ne pèse aucun axe.
+    options: tuple[tuple[str, str, str, str, bool, str | None], ...] = ()
     elements: tuple[ElementRecord, ...] = ()
     resolved_label: str | None = None
 
