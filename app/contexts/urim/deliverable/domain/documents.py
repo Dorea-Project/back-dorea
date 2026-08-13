@@ -55,6 +55,8 @@ livrable, parce que c'est lui que le verrou interroge.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 #: Les dix éléments du squelette (Braga) — l'ordre que la spec fixe, et que l'écran propose.
@@ -111,6 +113,80 @@ class Deck:
     diapositives: tuple[Diapositive, ...]
 
 
+#: Les mots que toute phrase française porte — ils reviendraient dans n'importe quels versets
+#: et ne diraient donc rien du mot grec qu'on cherche.
+_OUTILS = frozenset(
+    "le la les un une des du de d a à au aux et ou que qui quoi dont où ce cet cette ces "
+    "il elle ils elles je tu nous vous on se sa son ses leur leurs mon ma mes ton ta tes "
+    "est sont était fut sera être avoir a ont avait eu en y ne pas plus ni mais donc or car "
+    "pour par avec sans sur sous dans vers chez comme si tout tous toute toutes".split()
+)
+
+
+def mots_communs(versets: tuple[str, ...], combien: int = 4) -> tuple[str, ...]:
+    """Les mots que **tous** ces versets partagent — un fait, pas une traduction.
+
+    ⚠️ **La nuance décide de ce qu'on a le droit d'afficher.** Dire *« πρῶτος signifie
+    premièrement »* serait une glose, et il n'y en a pas dans ce dépôt. Dire *« ces trois
+    versets ont en commun : premièrement, abord »* est une **observation vérifiable sur le
+    texte français**, que le pasteur peut confirmer d'un coup d'œil.
+
+    C'est ce qui répond, sans rien inventer, à la question *« quel mot est-ce qu'il
+    remplace ? »* : le mot français qui revient partout où le mot grec paraît est presque
+    toujours sa traduction — et quand il ne l'est pas, le pasteur le voit, parce que les
+    versets sont là.
+
+    Les mots-outils sont retirés : *le*, *de*, *et* reviennent dans n'importe quel verset et
+    ne désigneraient rien.
+
+    ⚠️ **La majorité, pas l'unanimité** — et c'est le premier essai réel qui l'a montré. Sur
+    `πρῶτος` : *« va d'**abord** te réconcilier »*, *« cherchez **premièrement** le royaume »*,
+    *« ôte **premièrement** la poutre »*. Une traduction rend un même mot grec par plusieurs
+    mots français ; exiger qu'ils soient tous identiques ne rendrait presque jamais rien."""
+    if len(versets) < 2:
+        return ()
+    compte: dict[str, int] = {}
+    for verset in versets:
+        for mot in {
+            mot for mot in _decouper(verset) if len(mot) > 2 and mot not in _OUTILS
+        }:
+            compte[mot] = compte.get(mot, 0) + 1
+    seuil = max(2, (len(versets) + 1) // 2)
+    retenus = sorted(
+        (mot for mot, n in compte.items() if n >= seuil),
+        key=lambda mot: (-compte[mot], mot),
+    )
+    return tuple(retenus[:combien])
+
+
+def _decouper(texte: str) -> list[str]:
+    plie = unicodedata.normalize("NFD", texte.casefold())
+    sans_accent = "".join(c for c in plie if unicodedata.category(c) != "Mn")
+    return [mot for mot in re.split(r"[^0-9a-z]+", sans_accent) if mot]
+
+
+@dataclass(frozen=True, slots=True)
+class MotOriginal:
+    """Un mot du texte d'origine, tel que la note le montre.
+
+    **Quatre choses, et aucune n'est une traduction** : où il est employé, comment il se dit,
+    ce que sa forme fait, et où il revient. C'est le maximum qu'on puisse offrir tant que
+    `urim_corpus_lemma.gloss` est vide — et c'est déjà ce qui manquait le plus."""
+
+    reference: str
+    forme: str
+    #: `prôtos` — **mécanique, donc permis** : translittérer n'est pas traduire.
+    phonetique: str
+    lemme: str
+    nature: str
+    morphologie: str
+    #: `(référence, verset français)` — la concordance, avec le texte et non la seule adresse.
+    ailleurs: tuple[tuple[str, str], ...] = ()
+    #: Ce que ces versets ont en commun — l'indice de ce que le mot rend, **jamais présenté
+    #: comme sa définition**.
+    communs: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class Note:
     """Le `.docx` — la note du prédicateur, où **tout** ce que le moteur a rassemblé a sa place.
@@ -141,6 +217,11 @@ class Note:
     plan: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...]
     #: Le texte servi par le corpus — jamais saisi, donc rien à falsifier.
     versets: tuple[tuple[str, str], ...]
+    #: **Dans quelle version il a préparé.** Sur Romains 8:1, l'Ostervald porte une clause
+    #: que la LSG omet : sans la clause « aucune condamnation » est inconditionnel, avec
+    #: elle c'est une condition morale. Une note qui ne dit pas d'où vient son texte laisse
+    #: son lecteur croire qu'il n'y en avait qu'un.
+    version: str
     #: `(axe, force, motif)` — les dix, `absent` compris.
     pesees: tuple[tuple[str, str, str], ...]
     #: **L'axe que le pasteur a retenu** — sa décision, pas le calcul du corpus.
@@ -160,26 +241,8 @@ class Note:
     resistances: tuple[tuple[str, str], ...]
     #: `(référence, texte, verdict)` — la chaîne d'appuis, **saisies illisibles comprises**.
     appuis: tuple[tuple[str, str, str], ...]
-    #: Les mots de l'original : `(référence, forme, lemme, nature, morphologie, ailleurs)`.
-    #:
-    #: ⚠️ **Il n'y a pas de traduction, et ce n'est pas un oubli.** MorphGNT n'en porte aucune,
-    #: et les lexiques libres sont en anglais ; une glose produite par un modèle aurait l'air
-    #: d'une source, et personne ne relit une définition grecque avant de la redire en chaire.
-    #:
-    #: Ce qui la remplace : **la référence** (on sait donc *où* le mot est employé) et
-    #: **`ailleurs`**, les autres endroits où le même lemme paraît — **avec leur verset
-    #: français**. C'est la concordance, et c'est la seule façon de dire ce qu'un mot porte
-    #: sans rien inventer : la culture matérielle s'y enseigne par la récurrence. Voir
-    #: `ὑπόδημα` — Jean-Baptiste indigne de délier la sandale, les disciples envoyés sans
-    #: sandales, le père qui fait *chausser* son fils : trois versets disent ce qu'est cet
-    #: objet mieux qu'une définition.
-    #:
-    #: ⚠️ **Ce n'est pas encore un sens.** `urim_corpus_lemma.gloss` existe et est **vide** ;
-    #: 8 640 lemmes portent déjà un code Strong. Le jour où un lexique du domaine public la
-    #: remplit, le sens littéral tiendra ici — *acquis*, jamais généré.
-    original: tuple[
-        tuple[str, str, str, str, str, tuple[tuple[str, str], ...]], ...
-    ]
+    #: Les mots de l'original — voir `MotOriginal`.
+    original: tuple[MotOriginal, ...]
     #: Ce qui a été **écarté**, avec son motif : la moitié du dialogue qu'on oublie d'imprimer.
     ecartees: tuple[tuple[str, str], ...]
     signature: str | None

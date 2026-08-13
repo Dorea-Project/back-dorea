@@ -224,6 +224,11 @@ def rendre_note(note: Note) -> bytes:
 
     if note.versets:
         document.add_heading("Le texte", level=1)
+        # ⚠️ **Dire dans quelle version il a préparé.** Sur Romains 8:1, l'Ostervald porte
+        # une clause que la LSG omet, et les deux versets font deux sermons opposés. Une
+        # note muette sur sa source laisse croire qu'il n'y en avait qu'une.
+        if note.version:
+            _sous_texte(document, f"Version préparée : {note.version}")
         for reference, corps in note.versets:
             document.add_paragraph(f"{reference} — {corps}")
 
@@ -237,9 +242,18 @@ def rendre_note(note: Note) -> bytes:
             document.add_paragraph(garde, style="List Bullet")
 
     if note.resistances:
-        document.add_heading("Les textes qui compliquent votre propos", level=1)
+        document.add_heading("Ailleurs, des textes en tension avec le vôtre", level=1)
+        # **La rubrique qui protège du proof-texting**, et la seule que le pasteur ne
+        # trouvera pas seul : ce sont précisément les textes qu'on ne cherche pas quand
+        # on a déjà son idée. Ils viennent d'AUTRES livres, sur l'axe qu'il a retenu.
+        _sous_texte(
+            document,
+            "Ces passages compliquent l'axe que vous avez retenu. Les rencontrer avant "
+            "dimanche vaut mieux que de les entendre après.",
+        )
         for reference, motif in note.resistances:
-            document.add_paragraph(reference, style="List Bullet")
+            ligne = document.add_paragraph(style="List Bullet")
+            ligne.add_run(reference).bold = True
             _sous_texte(document, motif)
 
     if note.faisabilites:
@@ -277,16 +291,32 @@ def rendre_note(note: Note) -> bytes:
             "Aucune traduction n'est proposée : elle serait inventée. À la place, les mêmes "
             "mots ailleurs dans l'Écriture — c'est l'usage qui donne le sens.",
         )
-        for reference, forme, lemme, nature, morphologie, ailleurs in note.original:
+        for mot in note.original:
             ligne = document.add_paragraph(style="List Bullet")
-            ligne.add_run(forme).bold = True
-            detail = f" ({lemme})" if lemme and lemme != forme else ""
-            grammaire = " · ".join(part for part in (nature, morphologie) if part)
-            ligne.add_run(f"{detail} — {reference}{' · ' + grammaire if grammaire else ''}")
+            ligne.add_run(mot.forme).bold = True
+            # **La phonétique d'abord** : sans elle, le mot reste étranger même sous les yeux
+            # de celui qui le lit — il ne peut ni le dire, ni le retenir, ni le rechercher.
+            if mot.phonetique:
+                prononce = ligne.add_run(f"  [{mot.phonetique}]")
+                prononce.italic = True
+            detail = f" ({mot.lemme})" if mot.lemme and mot.lemme != mot.forme else ""
+            grammaire = " · ".join(p for p in (mot.nature, mot.morphologie) if p)
+            ligne.add_run(
+                f"{detail} — {mot.reference}{' · ' + grammaire if grammaire else ''}"
+            )
+            # ⚠️ **Ce que ces versets ont en commun**, présenté comme un fait et jamais comme
+            # une définition : le mot français qui revient là où le mot grec paraît est presque
+            # toujours sa traduction — et quand il ne l'est pas, le pasteur le voit, parce que
+            # les versets sont juste dessous.
+            if mot.communs:
+                _sous_texte(
+                    document,
+                    "ces versets ont en commun : " + ", ".join(mot.communs),
+                )
             # ⚠️ **Le verset entier, pas seulement sa référence.** « revient en Luc 15:22 » ne
             # dit rien à personne ; « on lui mit des souliers aux pieds » dit ce qu'est
             # l'objet. C'est la demande d'un sens littéral, servie par le texte lui-même.
-            for ou, servi in ailleurs:
+            for ou, servi in mot.ailleurs:
                 _sous_texte(document, f"{ou} — {servi}")
 
     if note.ecartees:

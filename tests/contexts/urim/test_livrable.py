@@ -219,6 +219,41 @@ def test_le_deck_n_a_nulle_part_ou_mettre_une_mise_en_garde():
     assert _champs(Diapositive) & interdits == set()
 
 
+def test_la_phonetique_est_mecanique_donc_permise():
+    """**Translittérer n'est pas traduire.** Aucune affirmation sur le sens, donc rien à
+    inventer — c'est pourquoi cette pièce peut exister alors que la glose attend un lexique.
+
+    Trois cas qui décident de la table : l'esprit rude devient un `h` initial, le gamma devant une
+    gutturale se dit `n` (ἄγγελος, jamais *aggelos*), et les diphtongues se résolvent avant
+    les lettres seules."""
+    from app.contexts.urim.infrastructure.corpus.translitteration import phonetique
+
+    assert phonetique("ἑορτή") == "heortè"
+    assert phonetique("ἄγγελος") == "angelos"
+    assert phonetique("πνεῦμα") == "pneuma"
+    # …et rien pour une langue qu'on ne sait pas transcrire : un pasteur qui prononce de
+    # travers devant son assemblée ne peut pas le savoir.
+    assert phonetique("בַּיִת", "hbo") == ""
+
+
+def test_les_mots_communs_sont_un_fait_pas_une_traduction():
+    """La réponse à *« quel mot est-ce qu'il remplace ? »* sans rien inventer : ce que les
+    versets d'occurrence **partagent**, ce que le pasteur peut vérifier d'un coup d'œil.
+
+    ⚠️ **La majorité, pas l'unanimité** — une traduction rend un même mot grec par plusieurs
+    mots français (« d'abord », « premièrement »), et exiger l'unanimité ne rendrait rien."""
+    from app.contexts.urim.deliverable.domain.documents import mots_communs
+
+    versets = (
+        "va d'abord te réconcilier avec ton frère",
+        "cherchez premièrement le royaume",
+        "ôte premièrement la poutre de ton œil",
+    )
+    assert "premierement" in mots_communs(versets)
+    # Un seul verset ne partage rien : on ne conclut pas d'une occurrence.
+    assert mots_communs(("cherchez premièrement le royaume",)) == ()
+
+
 def test_la_note_distingue_le_choix_du_pasteur_du_dominant_du_corpus():
     """**Les deux ne coïncident pas toujours, et c'est l'information la plus utile.**
 

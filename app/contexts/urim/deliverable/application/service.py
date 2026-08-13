@@ -346,7 +346,12 @@ def _note_depuis(etude) -> Note:
             (reference, texte, verdict)
             for _brut, reference, texte, verdict in etude.supports
         ),
+        # ⚠️ **Vide, et nommé** : `StudyDTO` ne rend pas les mots de l'original (ils vivent
+        # dans la vue « en savoir plus sur un passage »). Les inventer serait pire.
         original=(),
+        # La version dans laquelle il a préparé — Q9 a montré qu'elle change la doctrine
+        # d'un verset. Le libellé se lit sur l'index ; l'identifiant seul ne dirait rien.
+        version="",
         ecartees=tuple(
             (libelle, motif)
             for _code, libelle, motif, _origine, ecartee in etude.options
