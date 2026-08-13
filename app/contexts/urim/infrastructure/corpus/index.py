@@ -54,8 +54,13 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusTextualVariantModel,
     CorpusTokenModel,
     CorpusVerseModel,
+    CorpusVersificationMapModel,
     CorpusVersionModel,
 )
+
+#: Le schéma dans lequel le pasteur écrit ses références, et que tout le produit tient.
+#: Les tables de correspondance partent toutes de lui (`from_scheme`).
+SCHEMA_DE_REFERENCE = "LSG"
 
 #: Part maximale du corpus qu'un mot peut couvrir pour rester dans l'index inverse.
 #: Au-dela, il ne designe plus rien — « et », « de », « le » sont dans un verset sur deux.
@@ -157,6 +162,25 @@ class OriginalWord:
 
 
 @dataclass(frozen=True, slots=True)
+class Temoin:
+    """Un second témoin — **sa numérotation, et pas son texte**.
+
+    Ce qu'il faut savoir d'une autre traduction pour répondre honnêtement à *« où range-t-elle
+    cette référence ? »* tient dans deux choses : les correspondances qu'un humain a validées, et
+    les versets qu'elle tient réellement. Charger en plus ses 31 000 versets serait payer
+    d'avance une décision qui n'est pas prise — **servir** un second texte est une autre affaire
+    que savoir où il range ses numéros.
+    """
+
+    code: str
+    #: `(livre, chapitre) → les numéros de verset réellement tenus`. Pas un intervalle : une
+    #: traduction saute des numéros (Darby n'a pas Actes 8:37, le texte critique ne le porte pas).
+    tenus: Mapping[tuple[int, int], frozenset[int]]
+    #: Référence **du schéma de référence** → `(chapitre, verset)` chez ce témoin.
+    correspondances: Mapping[tuple[int, int, int], tuple[int, int]]
+
+
+@dataclass(frozen=True, slots=True)
 class CorpusIndex:
     """Tout ce que les lecteurs ont besoin de savoir — gelé, sans connexion."""
 
@@ -234,6 +258,9 @@ class CorpusIndex:
         default_factory=dict
     )
 
+    #: Les autres traductions semées, par code — leur numérotation seule (voir `Temoin`).
+    temoins: Mapping[str, Temoin] = field(default_factory=dict)
+
     # -- comptages : LUS DANS LE TEXTE, jamais ailleurs ---------------------------
     #
     # Il a existé ici un `canon.py` portant 66 comptes de chapitres écrits à la main,
@@ -257,6 +284,34 @@ class CorpusIndex:
     def holds(self, book_id: int, chapter: int) -> bool:
         return chapter in self.chapters_held.get(book_id, frozenset())
 
+    def reference_chez(
+        self, code: str, book_id: int, chapter: int, verse: int
+    ) -> tuple[int, int] | None:
+        """Où ce témoin range la référence — ou `None` s'il ne la tient pas.
+
+        🔴 **`None` est une réponse, et c'est la bonne.** Deux façons de se tromper, que cette
+        méthode ferme l'une après l'autre :
+
+            Exode 7:26      existe dans la Segond, pas dans Ostervald qui l'a poussé en 8:1.
+                            L'identité seule rendrait un 7:26 qui n'existe pas.
+            Ézéchiel 43:27  existe chez Martin, mais y porte DEUX versets fondus dont le 25.
+                            L'identité seule rendrait du texte — le mauvais.
+
+        D'où l'ordre : la table propose, **le texte réellement tenu tranche**, et le silence
+        conclut. Rendre le mauvais verset sous la bonne référence est la seule faute que ce
+        corpus refuse ; ne rien rendre se voit, se dit, et n'enseigne rien de faux.
+
+        La table et l'identité sont vérifiées **de la même façon** : une correspondance qui
+        pointerait sur un verset absent ne vaut pas mieux qu'une identité qui le fait.
+        """
+        temoin = self.temoins.get(code)
+        if temoin is None:
+            return None
+        cible = temoin.correspondances.get((book_id, chapter, verse), (chapter, verse))
+        if cible[1] in temoin.tenus.get((book_id, cible[0]), frozenset()):
+            return cible
+        return None
+
 
 async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
     """Lit tout le corpus curé en une passe et le gèle."""
@@ -265,7 +320,24 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         raise CorpusVideError(
             "Le corpus Urim est vide. Semer avec : python scripts/seed_urim_corpus.py"
         )
-    repli = next(v for v in versions if v.license_kind == "domaine_public")
+    # 🔴 **Le repli se nomme, il ne se tire pas au sort.** `next(...)` sur un `select` sans
+    # `order_by` rendait la première ligne **physique**. Tant qu'une seule version était en
+    # domaine public le résultat était juste par construction ; elles sont quatre, et c'était
+    # donc l'ordre d'insertion qui décidait ce que le produit sert. Un `--purge` de la Segond,
+    # un `VACUUM FULL`, et le pasteur lisait Martin sans que rien ne le dise.
+    repli = next((v for v in versions if v.code == SCHEMA_DE_REFERENCE), None) or next(
+        (
+            v
+            for v in sorted(versions, key=lambda v: v.code)
+            if v.license_kind == "domaine_public"
+        ),
+        None,
+    )
+    if repli is None:
+        raise CorpusVideError(
+            f"Aucune version de repli : ni « {SCHEMA_DE_REFERENCE} », ni domaine public. "
+            "Semer avec : python scripts/seed_urim_corpus.py"
+        )
 
     books = (await session.execute(select(CorpusBookModel))).scalars().all()
     noms = (
@@ -464,6 +536,47 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
             doctrinal_weight=v.doctrinal_weight, note=v.note, source_ref=v.source_ref,
         ))
 
+    # --- les témoins seconds : leur numérotation, jamais leur texte ---------------
+    #
+    # Deux tables, et l'une ne suffit pas sans l'autre : les correspondances disent où un
+    # verset a bougé, les versets tenus disent s'il existe. Une table de correspondances est
+    # forcément partielle — elle ne porte que ce qu'un humain a validé — donc l'identité reste
+    # le cas ordinaire, et c'est justement celui qu'il faut vérifier.
+    par_id = {v.id: v.code for v in versions}
+    tenus: dict[str, dict[tuple[int, int], set[int]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    for version_id, livre, chapitre, verset in await session.execute(
+        select(
+            CorpusVerseModel.version_id, CorpusVerseModel.book_id,
+            CorpusVerseModel.chapter, CorpusVerseModel.verse,
+        ).where(CorpusVerseModel.version_id != repli.id)
+    ):
+        tenus[par_id[version_id]][(livre, chapitre)].add(verset)
+
+    correspondances: dict[str, dict[tuple[int, int, int], tuple[int, int]]] = defaultdict(
+        dict
+    )
+    for lien in (
+        await session.execute(
+            select(CorpusVersificationMapModel).where(
+                CorpusVersificationMapModel.from_scheme == SCHEMA_DE_REFERENCE
+            )
+        )
+    ).scalars():
+        correspondances[lien.to_scheme][
+            (lien.book_id, lien.from_ch, lien.from_v)
+        ] = (lien.to_ch, lien.to_v)
+
+    temoins = {
+        code: Temoin(
+            code=code,
+            tenus={cle: frozenset(v) for cle, v in chapitres.items()},
+            correspondances=dict(correspondances.get(code, {})),
+        )
+        for code, chapitres in sorted(tenus.items())
+    }
+
     derniere = await session.scalar(select(func.max(CorpusPericopeModel.reviewed_at)))
 
     return CorpusIndex(
@@ -497,6 +610,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         sites_by_axis=sites_by_axis,
         originals=originals,
         occurrences_by_lemma=occurrences_by_lemma,
+        temoins=temoins,
     )
 
 
