@@ -207,13 +207,20 @@ def rendre_note(note: Note) -> bytes:
 
     if note.plan:
         document.add_heading("Votre plan", level=1)
-        for code, corps in note.plan:
+        for code, corps, appuis in note.plan:
             # ⚠️ **Chaque point est un TITRE, pas une puce.** En liste, les trois points d'un
             # sermon tiennent en cinq lignes et le document n'offre nulle part où les
             # développer — or c'est là que le travail se fait. Un titre ouvre la place ;
             # une puce la ferme.
             document.add_heading(corps, level=2)
             _sous_texte(document, _SECTIONS.get(code, code))
+            # **Ce qui développe le point sans l'écrire** : les textes que le pasteur a
+            # lui-même convoqués dans sa ligne, servis dessous. Urim n'ajoute pas une phrase
+            # de sermon — il pose sous la main ce qu'il faudrait aller chercher.
+            for reference, servi in appuis:
+                appui = document.add_paragraph(style="List Bullet")
+                appui.add_run(f"{reference} — ").bold = True
+                appui.add_run(servi)
 
     if note.versets:
         document.add_heading("Le texte", level=1)
@@ -276,8 +283,8 @@ def rendre_note(note: Note) -> bytes:
         # mot paraît. La culture d'un mot s'enseigne par sa récurrence, pas par un synonyme.
         _sous_texte(
             document,
-            "Aucune traduction n'est proposée : elle serait inventée. À la place, les autres "
-            "passages où le même mot paraît — c'est le texte qui le définit.",
+            "Aucune traduction n'est proposée : elle serait inventée. À la place, les mêmes "
+            "mots ailleurs dans l'Écriture — c'est l'usage qui donne le sens.",
         )
         for reference, forme, lemme, nature, morphologie, ailleurs in note.original:
             ligne = document.add_paragraph(style="List Bullet")
@@ -285,8 +292,11 @@ def rendre_note(note: Note) -> bytes:
             detail = f" ({lemme})" if lemme and lemme != forme else ""
             grammaire = " · ".join(part for part in (nature, morphologie) if part)
             ligne.add_run(f"{detail} — {reference}{' · ' + grammaire if grammaire else ''}")
-            if ailleurs:
-                _sous_texte(document, "revient en " + ", ".join(ailleurs))
+            # ⚠️ **Le verset entier, pas seulement sa référence.** « revient en Luc 15:22 » ne
+            # dit rien à personne ; « on lui mit des souliers aux pieds » dit ce qu'est
+            # l'objet. C'est la demande d'un sens littéral, servie par le texte lui-même.
+            for ou, servi in ailleurs:
+                _sous_texte(document, f"{ou} — {servi}")
 
     if note.ecartees:
         document.add_heading("Ce que vous avez écarté en chemin", level=1)

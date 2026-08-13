@@ -347,6 +347,50 @@ async def test_relire_rend_le_dossier_et_garde_la_meme_garde():
     assert len(relu.controles) == 1
 
 
+# ============================================================ 5 bis. les appuis d'un point
+
+
+async def test_les_references_ecrites_dans_un_point_sont_retrouvees():
+    """Les notes réelles portent leurs appuis **dans la ligne du point** — jamais dans un
+    champ dédié : « il est couronné de gloire et d'honneur Hb 2v29 ».
+
+    C'est ce qui permet de développer un point sans l'écrire : on sert dessous le texte que le
+    pasteur y a lui-même convoqué."""
+    from app.contexts.urim.deliverable.application.service import _references_dans
+
+    trouvees = _references_dans("Don de l'Esprit Jn 14v2-3 ; intercesseur Rom 8v34", _index())
+    # L'index de test ne connaît qu'Hébreux : ce qu'il ignore ne peut pas être trouvé.
+    assert trouvees == []
+
+    hebreux = _references_dans("il est entré une fois pour toutes Hb 13v1", _index())
+    assert [(r.book, r.chapter, r.verse_start) for r in hebreux] == [("Hébreux", 13, 1)]
+
+
+async def test_un_nom_de_livre_en_plein_francais_n_est_pas_une_reference():
+    """🐛 **S35, et le balayage y est tombé au premier essai réel.**
+
+    Sur « il a reçu le nom au dessus de tout nom Ph 28v9 », la lecture permissive rendait
+    **« Nombres 28:9 »** : `nom` est un nom de livre autant qu'un mot français. Job, Juges,
+    Actes et Rois tendent le même piège — et « trop de juges dans cette assemblée » est une
+    phrase que ce dépôt connaît déjà.
+
+    La règle : tout ce qui suit le nom de livre doit être un chiffre ou un séparateur."""
+    from app.contexts.urim.deliverable.application.service import _references_dans
+
+    assert _references_dans("il y a trop de juges dans cette assemblée", _index()) == []
+    assert _references_dans("Hébreux nous le dit clairement", _index()) == []
+    # …et le couple : collé aux chiffres, le même nom devient bien une référence.
+    assert len(_references_dans("comme le dit Hébreux 13v1", _index())) == 1
+
+
+async def test_la_notation_collee_du_pasteur_est_lue():
+    """`Jn14v28` en un seul mot est la forme la plus fréquente des notes — la perdre reviendrait
+    à ne rien lire du tout."""
+    from app.contexts.urim.deliverable.application.service import _references_dans
+
+    assert len(_references_dans("son antécédent Hb13v1 le montre", _index())) == 1
+
+
 # ============================================================ 6. les octets
 
 

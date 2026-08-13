@@ -127,8 +127,18 @@ class Note:
     #: L'unité littéraire retenue et **le motif de son découpage**.
     unite: str
     motif_unite: str
-    #: Le plan du pasteur : `(code Braga, texte)`, dans son ordre.
-    plan: tuple[tuple[str, str], ...]
+    #: Le plan du pasteur : `(code, texte, appuis)`, dans son ordre.
+    #:
+    #: **`appuis` est ce qui développe le point sans l'écrire.** Un titre seul ne sert à rien —
+    #: c'est sous lui que le travail se fait. Mais développer *à sa place* serait la machine à
+    #: sermons. La seule matière qu'on puisse y mettre sans rien inventer est **le texte qu'il
+    #: a lui-même convoqué dans ce point** : les références écrites dans sa ligne sont
+    #: résolues, et le verset s'imprime dessous.
+    #:
+    #: ⚠️ **Une référence qui n'existe pas s'imprime avec le motif du corpus**, jamais en
+    #: silence : les notes du Pasteur X portaient `Hb 2v29` et `Ph 28v9`, et c'est exactement
+    #: là qu'Urim doit parler.
+    plan: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...]
     #: Le texte servi par le corpus — jamais saisi, donc rien à falsifier.
     versets: tuple[tuple[str, str], ...]
     #: `(axe, force, motif)` — les dix, `absent` compris.
@@ -148,10 +158,19 @@ class Note:
     #: d'une source, et personne ne relit une définition grecque avant de la redire en chaire.
     #:
     #: Ce qui la remplace : **la référence** (on sait donc *où* le mot est employé) et
-    #: **`ailleurs`**, les autres endroits où le même lemme paraît. C'est la concordance, et
-    #: c'est la seule façon de dire ce qu'un mot porte sans rien inventer — la culture
-    #: matérielle s'y enseigne par la récurrence.
-    original: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...]
+    #: **`ailleurs`**, les autres endroits où le même lemme paraît — **avec leur verset
+    #: français**. C'est la concordance, et c'est la seule façon de dire ce qu'un mot porte
+    #: sans rien inventer : la culture matérielle s'y enseigne par la récurrence. Voir
+    #: `ὑπόδημα` — Jean-Baptiste indigne de délier la sandale, les disciples envoyés sans
+    #: sandales, le père qui fait *chausser* son fils : trois versets disent ce qu'est cet
+    #: objet mieux qu'une définition.
+    #:
+    #: ⚠️ **Ce n'est pas encore un sens.** `urim_corpus_lemma.gloss` existe et est **vide** ;
+    #: 8 640 lemmes portent déjà un code Strong. Le jour où un lexique du domaine public la
+    #: remplit, le sens littéral tiendra ici — *acquis*, jamais généré.
+    original: tuple[
+        tuple[str, str, str, str, str, tuple[tuple[str, str], ...]], ...
+    ]
     #: Ce qui a été **écarté**, avec son motif : la moitié du dialogue qu'on oublie d'imprimer.
     ecartees: tuple[tuple[str, str], ...]
     signature: str | None

@@ -596,6 +596,71 @@ prochain `uv sync` les y fera entrer tous les trois d'un coup.
 
 ---
 
+## 8 ter. Le sens des mots d'origine — **ce qui manque est un lexique, pas un modèle**
+
+Retour de l'auteur sur le premier rendu : *« pour les mots originaux, il y a le sens
+littéralement sous une désignation — par exemple pour soulier, ce qu'on porte sous le pied.
+C'est important. »*
+
+La demande est juste : un mot grec avec sa seule morphologie ne sert à rien. Mais la réponse
+évidente — faire produire la glose par le modèle — est **refusée depuis le premier jour**, et
+le motif tient toujours : *personne ne relit une définition grecque avant de la redire en
+chaire*. Une glose inventée aurait l'apparence d'une source et l'autorité d'une note de bas
+de page.
+
+**Ce qui a été livré en attendant, et qui va assez loin** : la concordance rend désormais le
+**verset français** de chaque autre occurrence, et non plus sa seule référence. Sur `πρῶτος`,
+la note imprime *« va d'abord te réconcilier »*, *« cherchez premièrement le royaume »*,
+*« ôte premièrement la poutre »* — le sens se lit dans l'usage, et rien n'est inventé. C'est
+exactement l'argument que la concordance porte depuis sa conception : *la culture matérielle
+s'y enseigne par la récurrence.*
+
+**Ce qui reste, et c'est un chantier de données** — mesuré en base le 2026-08-13 :
+
+| Fait | Conséquence |
+| :-- | :-- |
+| `urim_corpus_lemma.gloss` **existe et est vide** | la colonne qui recevra le sens est déjà là |
+| **8 640 lemmes sur 14 101 portent un `strong_code`** | le pont vers un lexique existe déjà pour plus de la moitié |
+| Aucun lexique n'est chargé | c'est **l'acquisition** qui manque, pas le code |
+
+> **La règle ne bouge pas : le sens s'acquiert, il ne se génère pas.** Un lexique du domaine
+> public (Strong, 1890) et sa traduction française — dont la licence est **à vérifier**, c'est
+> le vrai point ouvert — remplit `gloss`, et le sens littéral apparaît sous chaque mot sans
+> qu'aucun modèle n'ait écrit une ligne.
+
+## 8 quater. Développer un point sans l'écrire
+
+Seconde remarque : *« chaque titre d'un point a besoin de plus d'explication, de détails, et
+même d'exemples ou de versets en appui. »*
+
+Ici la frontière est étroite. **Développer le point à sa place, c'est la machine à sermons** —
+tout ce document existe pour l'interdire. Mais un titre nu ne sert à rien non plus.
+
+> **Tranché : on sert sous chaque point les textes que le pasteur y a lui-même convoqués.**
+
+Les notes réelles ne séparent pas les appuis du propos — *« il est couronné de gloire et
+d'honneur Hb 2v29 »*. Ces références n'avaient **aucune surface où être servies** : Urim les
+lit maintenant dans la ligne du point, résout, et imprime le verset dessous. Urim n'ajoute pas
+une phrase de sermon ; il pose sous la main ce qu'il faudrait aller chercher.
+
+**Et c'est là que la garantie du dépôt trouve enfin sa surface.** Sur le témoin de l'Ascension,
+onze appuis sont servis et **deux sont refusés avec le motif du corpus** :
+
+```
+Hébreux 2:29     → « Hébreux 2 compte 18 versets — il n'y a pas de verset 29. »
+Philippiens 28:9 → « Philippiens compte 4 chapitres — il n'y a pas de chapitre 28. »
+```
+
+Ce sont les deux vraies fautes de ses notes, celles qu'Urim *savait détecter depuis le premier
+jour et n'avait jamais vues*.
+
+> 🐛 **Et le balayage est tombé dans S35 au premier essai réel.** *« il a reçu le nom au dessus
+> de tout nom »* rendait **« Nombres 28:9 »** : `nom` est un nom de livre autant qu'un mot
+> français. Refermé par la règle de contiguïté — *ce qui suit le nom de livre doit être un
+> chiffre* — avec ses deux tests, dont « trop de juges dans cette assemblée ».
+
+---
+
 ## 9. Ce que cette note appelle comme code — et où elle s'arrête
 
 Elle s'arrête ici. Voici ce qu'il faudra écrire, pour que personne ne le découvre en cours de route.
