@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from app.contexts.urim.application.ports import StudyDTO
 from app.contexts.urim.engine.state import EntryOrigin
 from app.contexts.urim.infrastructure.corpus import morphology, morphology_hebrew
+from app.contexts.urim.interface.turn import TurnView, construire_tour
 
 
 def _decrire(code: str | None, langue: str) -> str:
@@ -231,6 +232,14 @@ class StudyView(BaseModel):
     corpus_snapshot: str | None
     corpus_drifted: bool
 
+    #: ⚠️ **Le tour vient EN PLUS, il ne remplace rien.** `StudyView` reste le contrat d'état et
+    #: ses tests restent valides ; `turn` est la présentation conversationnelle des mêmes
+    #: données. Un client ancien l'ignore et continue de fonctionner.
+    #:
+    #: Il est calculé après coup, dans `construire_tour`, pour que la vue ne dépende pas de sa
+    #: propre présentation — c'est ce qui garantit que les deux ne peuvent pas se contredire.
+    turn: TurnView | None = None
+
     @classmethod
     def from_dto(cls, dto: StudyDTO) -> StudyView:
         r = dto.record
@@ -304,6 +313,17 @@ class StudyView(BaseModel):
             corpus_snapshot=r.corpus_snapshot,
             corpus_drifted=dto.corpus_drifted,
         )
+
+    @classmethod
+    def avec_tour(cls, dto: StudyDTO) -> StudyView:
+        """La vue, **plus** sa présentation conversationnelle.
+
+        Deux temps et non un : la vue se construit sans rien savoir du tour, puis le tour se
+        construit à partir d'elle. Un tour bâti dans `from_dto` aurait pu lire le DTO
+        directement et diverger de ce que la vue affiche — c'est-à-dire dire au pasteur autre
+        chose que ce que l'écran lui montre."""
+        vue = cls.from_dto(dto)
+        return vue.model_copy(update={"turn": construire_tour(vue)})
 
 
 class OriginalWordView(BaseModel):

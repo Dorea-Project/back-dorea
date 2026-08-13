@@ -54,7 +54,7 @@ async def open_study(
         entry_origin=payload.entry_origin,
         service_date=payload.service_date,
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.get(
@@ -66,7 +66,7 @@ async def get_study(
     study_id: UUID, actor: CurrentActor, service: StudyServiceDep
 ) -> StudyView:
     dto = await service.get(actor_account_id=actor.account_id, study_id=study_id)
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.post(
@@ -86,7 +86,7 @@ async def decide(
         stage_code=payload.stage_code,
         option_code=payload.option_code,
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.post(
@@ -113,7 +113,7 @@ async def dismiss(
         stage_code=payload.stage_code,
         option_code=payload.option_code,
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.put(
@@ -134,7 +134,7 @@ async def set_elements(
             ElementRecord(e.element_code, e.ordinal, e.body) for e in payload.elements
         ],
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.put(
@@ -163,7 +163,7 @@ async def set_supports(
         study_id=study_id,
         saisies=payload.supports,
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.get(
@@ -249,7 +249,7 @@ async def open_personal_study(
         entry_origin=payload.entry_origin,
         service_date=payload.service_date,
     )
-    return StudyView.from_dto(dto)
+    return StudyView.avec_tour(dto)
 
 
 @router.get(
