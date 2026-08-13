@@ -1,0 +1,180 @@
+"""Le livrable — **le cœur pur** : ce qui décide, avant qu'aucun fichier n'existe.
+
+Deux propriétés, et ce sont celles dont tout le reste du module dépend.
+
+**1. La troncature n'est pas l'altération.** C'est la correction S4, et elle est vitale : un
+booléen rejetterait au même titre le pasteur qui coupe la fin d'un verset pour l'écran — donc
+tout le monde — et le garde-fou mourrait de son excès de zèle, contourné par ceux qu'il protège.
+
+**2. La frontière écran/note tient dans le TYPE.** `Deck` n'a nulle part où mettre une mise en
+garde. Un filtre s'oublie à la première refonte ; un champ qui n'existe pas ne s'oublie pas.
+
+Chaque cas présente le **couple** : ce qui passe, et sa jumelle qui ne passe pas. Une garde qui
+refuse tout ne prouve rien.
+"""
+
+from __future__ import annotations
+
+from dataclasses import fields
+
+from app.contexts.urim.deliverable.domain.citation import (
+    ALTERE,
+    EXACT,
+    EXTRAIT,
+    juger,
+    mots,
+)
+from app.contexts.urim.deliverable.domain.documents import (
+    ELEMENTS,
+    POINT_CENTRAL,
+    Deck,
+    Diapositive,
+    Note,
+    point_central_renseigne,
+)
+
+#: Romains 8:1 en LSG — le verset le plus piégeux du Nouveau Testament, et celui sur lequel une
+#: altération d'une clause change la doctrine (S17).
+ROM_8_1 = (
+    "Il n'y a donc maintenant aucune condamnation pour ceux qui sont en Jésus-Christ."
+)
+
+
+# ============================================================ 1. troncature ≠ altération
+
+
+def test_le_verset_mot_pour_mot_est_exact():
+    assert juger(ROM_8_1, ROM_8_1).verdict == EXACT
+
+
+def test_couper_la_fin_pour_l_ecran_est_un_extrait_legitime():
+    """Le geste le plus universel de la projection. Le rejeter ferait contourner la validation
+    — et une validation contournée ne protège personne."""
+    verdict = juger("Il n'y a donc maintenant aucune condamnation", ROM_8_1)
+    assert verdict.verdict == EXTRAIT
+    assert verdict.projetable
+
+
+def test_un_seul_mot_change_est_une_alteration():
+    """Le couple du test précédent, et **la raison d'être du contrôle**.
+
+    « aucune condamnation » devenu « aucune accusation » se prêche sans que personne dans
+    l'assemblée n'ouvre sa Bible pour vérifier."""
+    verdict = juger(
+        "Il n'y a donc maintenant aucune accusation pour ceux qui sont en Jésus-Christ.",
+        ROM_8_1,
+    )
+    assert verdict.verdict == ALTERE
+    assert not verdict.projetable
+    # …et le motif porte le texte servi : on dit ce que le corpus a, pas seulement « non ».
+    assert "aucune condamnation" in verdict.rationale
+
+
+def test_la_clause_du_texte_recu_ajoutee_est_une_alteration():
+    """Le cas d'école de S17 : le Texte Reçu ajoute « qui ne marchent point selon la chair ».
+
+    Sans la clause, « aucune condamnation » est inconditionnel ; avec elle, c'est une condition
+    morale — **deux sermons opposés sur la même référence**. Une addition doit donc être vue
+    comme telle, jamais absorbée comme une variante de style."""
+    verdict = juger(
+        ROM_8_1[:-1] + ", qui ne marchent point selon la chair.",
+        ROM_8_1,
+    )
+    assert verdict.verdict == ALTERE
+
+
+def test_l_ellipse_autorise_plusieurs_fragments_dans_l_ordre():
+    verdict = juger("Il n'y a donc maintenant aucune condamnation … en Jésus-Christ.", ROM_8_1)
+    assert verdict.verdict == EXTRAIT
+
+
+def test_l_ellipse_n_autorise_pas_de_remonter_le_texte():
+    """Le couple du précédent — et il garde une propriété qu'on perdrait sans y penser.
+
+    Fragments dans l'**ordre** et **sans chevauchement** : sinon « … » deviendrait un jeu de
+    construction permettant de composer, avec les mots du corpus, une phrase que le texte ne
+    dit pas."""
+    verdict = juger("en Jésus-Christ … aucune condamnation", ROM_8_1)
+    assert verdict.verdict == ALTERE
+
+
+def test_l_accent_oublie_sur_une_tablette_n_est_pas_une_falsification():
+    """« Jesus-Christ » sans accent, tapé un vendredi soir. La comparaison porte sur des suites
+    de mots repliées — exiger la typographie serait refuser le terrain."""
+    saisi = ROM_8_1.replace("é", "e").replace("'", chr(0x2019))
+    assert juger(saisi, ROM_8_1).verdict == EXACT
+
+
+def test_sans_texte_servi_on_refuse_plutot_que_de_laisser_passer():
+    """Une référence dont le corpus ne rend rien ne peut pas être validée par défaut :
+    affirmer sans référence serait pire que se taire."""
+    assert juger("un texte quelconque", "").verdict == ALTERE
+
+
+def test_une_diapositive_vide_ne_passe_pas_pour_un_extrait():
+    assert juger("   ", ROM_8_1).verdict == ALTERE
+
+
+def test_la_normalisation_separe_les_mots_de_l_elision():
+    """`l'amour` doit valoir deux mots : c'est la granularité qui permet de voir qu'un mot a
+    changé. (Le normaliseur du moteur, lui, colle l'élision — il cherche une ressemblance, pas
+    une identité.)"""
+    assert mots("l'amour fraternel") == ("l", "amour", "fraternel")
+
+
+# ============================================================ 2. la frontière est un type
+
+
+def _champs(classe) -> set[str]:
+    return {f.name for f in fields(classe)}
+
+
+def test_le_deck_n_a_nulle_part_ou_mettre_une_mise_en_garde():
+    """**La propriété structurelle du module.**
+
+    Une mise en garde s'adresse au prédicateur, pas à l'assemblée. Ici ce n'est pas un filtre
+    qu'on peut oublier : le type n'a aucun champ pour la porter, et une implémentation pressée
+    *ne peut pas* en projeter une."""
+    interdits = {
+        "caveat", "caveats", "mises_en_garde", "rationale", "motif", "motifs",
+        "pesees", "bearings", "proof_text_risk", "risque", "faisabilites",
+        "signature", "corpus_snapshot", "ecartees",
+    }
+    assert _champs(Deck) & interdits == set()
+    assert _champs(Diapositive) & interdits == set()
+
+
+def test_la_note_les_porte_toutes():
+    """Le couple : ce que l'écran refuse, la note l'imprime — sinon la frontière ne
+    protégerait rien, elle supprimerait."""
+    attendus = {
+        "mises_en_garde", "pesees", "faisabilites", "resistances", "ecartees",
+        "signature", "corpus_snapshot", "original", "motif_unite",
+    }
+    assert attendus <= _champs(Note)
+
+
+# ============================================================ 3. « quelque chose de lui »
+
+
+def test_sans_point_central_il_n_y_a_pas_de_document():
+    """Le critère n'est pas « a-t-il modifié ? » — le vérifier exigerait de lui écrire d'abord
+    un brouillon, donc **le sermon à sa place**. C'est « y a-t-il quelque chose de lui ? »."""
+    assert not point_central_renseigne({})
+    assert not point_central_renseigne({POINT_CENTRAL: "   "})
+    # Un titre ne suffit pas : c'est une étiquette, pas ce qu'il va dire.
+    assert not point_central_renseigne({"titre": "L'ascension", "introduction": "…"})
+
+
+def test_une_seule_phrase_suffit_et_on_ne_la_juge_pas():
+    """Le couple. Aucune longueur minimale, aucune appréciation : une machine qui jugerait la
+    valeur du point central d'un prédicateur serait la machine à sermons sous un autre nom."""
+    assert point_central_renseigne({POINT_CENTRAL: "Christ tient."})
+    assert point_central_renseigne({POINT_CENTRAL: "L'ascension"})
+
+
+def test_le_point_central_fait_partie_des_dix():
+    """Garde-fou de cohérence : le verrou s'adosse à un code, et ce code doit être celui du
+    squelette — pas un onzième inventé ici."""
+    assert POINT_CENTRAL in ELEMENTS
+    assert len(ELEMENTS) == 10
