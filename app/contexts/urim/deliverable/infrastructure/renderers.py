@@ -54,6 +54,77 @@ _SECTIONS = {
     "temoignage": "Témoignage",
 }
 
+# ---------------------------------------------------------------- le vocabulaire, en clair
+#
+# ⚠️ **Une note de préparation n'est pas un article de revue.** « Locus », « proof-texting »,
+# « pneumatologie » sont le vocabulaire des biblistes ; le pasteur qui ouvre ce document un
+# vendredi soir n'a pas à le traduire pour se servir de son propre travail. Les codes du corpus
+# restent ce qu'ils sont **en base** — ils sont une clé, pas une phrase — et c'est ici, au seul
+# endroit qui parle à quelqu'un, qu'ils redeviennent du français.
+#
+# ⚠️ **Ce que cette table ne peut pas corriger** : les *motifs* de curation sont rédigés par le
+# modèle et sont eux aussi techniques (« tension entre le déjà et le pas encore »). Les rendre
+# lisibles est un travail d'**invite de curation**, pas de mise en page — les réécrire ici
+# reviendrait à faire dire à un relecteur ce qu'il n'a pas écrit.
+
+#: Les dix, tels qu'un prédicateur les nomme. Le libellé du corpus dit « Pneumatologie — le
+#: Saint-Esprit » ; on garde la moitié qui parle.
+_LOCI = {
+    "theologie_propre": "Dieu lui-même",
+    "christologie": "Jésus-Christ",
+    "pneumatologie": "le Saint-Esprit",
+    "anthropologie": "l'homme",
+    "hamartiologie": "le péché",
+    "soteriologie": "le salut",
+    "ecclesiologie": "l'Église",
+    "angelologie": "les anges",
+    "demonologie": "Satan et les démons",
+    "eschatologie": "les derniers temps",
+}
+
+#: Les quatre forces. `resiste` garde son avertissement : c'est celle qui protège.
+_FORCES = {
+    "dominant": "au cœur du texte",
+    "porte": "présent, en appui",
+    "resiste": "⚠ complique ce point",
+    "absent": "le texte n'en dit rien",
+}
+
+#: « proof-texting » ne se traduit pas, il s'explique : c'est faire dire au texte ce qu'on
+#: voulait déjà entendre.
+_RISQUES = {
+    "faible": "peu de risque de faire dire au texte plus qu'il ne dit",
+    "moyen": "attention à ne pas faire dire au texte plus qu'il ne dit",
+    "eleve": "⚠ risque réel de faire dire au texte ce qu'on voulait déjà entendre",
+}
+
+_PLANS = {
+    "thematique": "un plan par thème",
+    "expositif": "un plan verset par verset",
+    "textuel": "un plan collé au texte",
+}
+
+_MATIERES = {
+    "doctrinal": "une doctrine",
+    "ethique": "une conduite",
+    "biographique": "un personnage",
+    "historique": "un récit",
+    "typologique": "une figure",
+    "prophetique": "une annonce",
+}
+
+
+def _clair(valeur: str, table: dict[str, str]) -> str:
+    """Le mot du corpus, rendu en français — **et tel quel si on ne le connaît pas**.
+
+    Un code inconnu s'affiche plutôt que de disparaître : mieux vaut un mot technique qu'un
+    trou dans la note de quelqu'un."""
+    if valeur in table:
+        return table[valeur]
+    # Le corpus écrit parfois « Pneumatologie — le Saint-Esprit » : on garde la moitié droite.
+    return valeur.split("—")[-1].strip() if "—" in valeur else valeur
+
+
 #: Ce qu'un pied de page de note doit dire, et à qui elle est destinée. Voir l'en-tête.
 MENTION = (
     "Note de préparation — les mises en garde s'adressent au prédicateur, "
@@ -137,14 +208,12 @@ def rendre_note(note: Note) -> bytes:
     if note.plan:
         document.add_heading("Votre plan", level=1)
         for code, corps in note.plan:
-            paragraphe = document.add_paragraph(style="List Bullet")
-            # ⚠️ **Le code de section est une étiquette, pas une ligne.** Imprimé sous chaque
-            # point, `divisions` répété trois fois transformait son plan en sortie de
-            # débogage — vu sur le premier rendu réel.
-            etiquette = paragraphe.add_run(f"{_SECTIONS.get(code, code)} · ")
-            etiquette.italic = True
-            etiquette.font.size = Pt(9)
-            paragraphe.add_run(corps)
+            # ⚠️ **Chaque point est un TITRE, pas une puce.** En liste, les trois points d'un
+            # sermon tiennent en cinq lignes et le document n'offre nulle part où les
+            # développer — or c'est là que le travail se fait. Un titre ouvre la place ;
+            # une puce la ferme.
+            document.add_heading(corps, level=2)
+            _sous_texte(document, _SECTIONS.get(code, code))
 
     if note.versets:
         document.add_heading("Le texte", level=1)
@@ -152,52 +221,83 @@ def rendre_note(note: Note) -> bytes:
             document.add_paragraph(f"{reference} — {corps}")
 
     if note.pesees:
-        document.add_heading("Ce que le texte porte", level=1)
-        for axe, force, motif in note.pesees:
-            document.add_paragraph(f"{axe} · {force}", style="List Bullet")
+        document.add_heading("Ce dont ce texte parle", level=1)
+        # ⚠️ **Ce qui est au cœur d'abord, ce dont le texte se tait à la fin.** Les quatre
+        # `absent` portent chacun leur motif — c'est la distinction qui compte (*quelqu'un a
+        # regardé et le texte n'en dit rien* ≠ *personne n'a regardé*) — mais les laisser dans
+        # l'ordre du corpus repoussait en page 3 ce que le pasteur vient chercher.
+        rang = {"dominant": 0, "porte": 1, "resiste": 2, "absent": 3}
+        for axe, force, motif in sorted(note.pesees, key=lambda p: rang.get(p[1], 9)):
+            document.add_paragraph(
+                f"{_clair(axe, _LOCI)} — {_clair(force, _FORCES)}", style="List Bullet"
+            )
             _sous_texte(document, motif)
 
     if note.mises_en_garde:
-        document.add_heading("Ce que le texte ne dit pas", level=1)
+        document.add_heading("Ce que ce texte ne dit pas", level=1)
         for garde in note.mises_en_garde:
             document.add_paragraph(garde, style="List Bullet")
 
     if note.resistances:
-        document.add_heading("Ce qui résiste, ailleurs", level=1)
+        document.add_heading("Les textes qui compliquent votre propos", level=1)
         for reference, motif in note.resistances:
             document.add_paragraph(reference, style="List Bullet")
             _sous_texte(document, motif)
 
     if note.faisabilites:
-        document.add_heading("Plan et matière", level=1)
-        for couple, faisable, refus, risque in note.faisabilites:
-            verdict = "faisable" if faisable else f"refusé — {refus}"
-            document.add_paragraph(f"{couple} : {verdict}", style="List Bullet")
-            if risque:
-                _sous_texte(document, f"risque de proof-texting : {risque}")
+        document.add_heading("Quels plans tiennent sur ce texte", level=1)
+        # Les faisables d'abord : six refus d'affilée se lisent comme une liste de portes
+        # fermées, alors que l'information utile est **par où passer**.
+        for couple, faisable, refus, risque in sorted(
+            note.faisabilites, key=lambda f: not f[1]
+        ):
+            libelle = " sur ".join(
+                _clair(part.strip(), table)
+                for part, table in zip(couple.split(" x "), (_PLANS, _MATIERES), strict=False)
+            )
+            verdict = "tient" if faisable else f"ne tient pas — {refus}"
+            document.add_paragraph(f"{libelle} : {verdict}", style="List Bullet")
+            if risque and faisable:
+                _sous_texte(document, _clair(risque, _RISQUES))
 
     if note.appuis:
-        document.add_heading("Vos textes d'appui", level=1)
+        document.add_heading("Les textes que vous convoquez", level=1)
         for reference, corps, verdict in note.appuis:
             # ⚠️ **Une saisie illisible s'imprime avec son motif**, jamais en silence : la
             # perdre obligerait le pasteur à se souvenir de ce qu'il voulait citer.
             document.add_paragraph(f"{reference or verdict} — {corps}", style="List Bullet")
 
     if note.original:
-        document.add_heading("Les mots de l'original", level=1)
-        for surface, lemme, morphologie in note.original:
-            document.add_paragraph(f"{surface} ({lemme}) — {morphologie}", style="List Bullet")
+        document.add_heading("Les mots d'origine, et où ils reviennent", level=1)
+        # ⚠️ **Urim ne traduit pas, et le dit.** MorphGNT ne porte aucune traduction et les
+        # lexiques libres sont en anglais : une glose produite par un modèle aurait l'air d'une
+        # source, et personne ne relit une définition grecque avant de la redire en chaire.
+        # Ce qui la remplace est plus sûr et souvent plus parlant — les autres endroits où le
+        # mot paraît. La culture d'un mot s'enseigne par sa récurrence, pas par un synonyme.
+        _sous_texte(
+            document,
+            "Aucune traduction n'est proposée : elle serait inventée. À la place, les autres "
+            "passages où le même mot paraît — c'est le texte qui le définit.",
+        )
+        for reference, forme, lemme, nature, morphologie, ailleurs in note.original:
+            ligne = document.add_paragraph(style="List Bullet")
+            ligne.add_run(forme).bold = True
+            detail = f" ({lemme})" if lemme and lemme != forme else ""
+            grammaire = " · ".join(part for part in (nature, morphologie) if part)
+            ligne.add_run(f"{detail} — {reference}{' · ' + grammaire if grammaire else ''}")
+            if ailleurs:
+                _sous_texte(document, "revient en " + ", ".join(ailleurs))
 
     if note.ecartees:
-        document.add_heading("Ce que vous avez écarté", level=1)
+        document.add_heading("Ce que vous avez écarté en chemin", level=1)
         for option, motif in note.ecartees:
             document.add_paragraph(option, style="List Bullet")
             _sous_texte(document, motif)
 
     provenance = document.add_paragraph()
     trace = provenance.add_run(
-        f"Curation signée : {note.signature or 'non relue'} · "
-        f"corpus {note.corpus_snapshot or 'inconnu'}"
+        f"Relecture de ce passage : {note.signature or 'aucune'} · "
+        f"état du corpus {note.corpus_snapshot or 'inconnu'}"
     )
     trace.font.size = Pt(8)
 

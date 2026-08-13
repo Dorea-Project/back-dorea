@@ -141,8 +141,17 @@ class Note:
     resistances: tuple[tuple[str, str], ...]
     #: `(référence, texte, verdict)` — la chaîne d'appuis, **saisies illisibles comprises**.
     appuis: tuple[tuple[str, str, str], ...]
-    #: Les mots de l'original avec leur morphologie décodée.
-    original: tuple[tuple[str, str, str], ...]
+    #: Les mots de l'original : `(référence, forme, lemme, nature, morphologie, ailleurs)`.
+    #:
+    #: ⚠️ **Il n'y a pas de traduction, et ce n'est pas un oubli.** MorphGNT n'en porte aucune,
+    #: et les lexiques libres sont en anglais ; une glose produite par un modèle aurait l'air
+    #: d'une source, et personne ne relit une définition grecque avant de la redire en chaire.
+    #:
+    #: Ce qui la remplace : **la référence** (on sait donc *où* le mot est employé) et
+    #: **`ailleurs`**, les autres endroits où le même lemme paraît. C'est la concordance, et
+    #: c'est la seule façon de dire ce qu'un mot porte sans rien inventer — la culture
+    #: matérielle s'y enseigne par la récurrence.
+    original: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...]
     #: Ce qui a été **écarté**, avec son motif : la moitié du dialogue qu'on oublie d'imprimer.
     ecartees: tuple[tuple[str, str], ...]
     signature: str | None
