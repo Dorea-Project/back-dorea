@@ -373,6 +373,49 @@ class CorpusDoctrinalCaveatModel(Base):
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class CorpusExaminationModel(Base):
+    """**L'examen sans trouvaille** — « on a regardé, et il n'y avait rien à dire ».
+
+    🔴 Le lot des mises en garde a curé 4 396 unités ; 2 525 n'en appelaient aucune, ce qui est
+    la bonne réponse. Mais rien ne l'enregistrait : **une unité examinée sans trouvaille était
+    indiscernable d'une unité jamais examinée.** Trois conséquences, toutes découvertes après
+    coup — la couverture annonçait 41 % pour ~96 % de travail réel ; le lot n'était pas
+    reprenable, rattraper 106 unités sautées en aurait refait 2 631 ; et un second passage
+    aurait produit d'autres résultats sur des unités déjà jugées vides, sans qu'on sache
+    lesquelles croire.
+
+    C'est **exactement** la distinction que les pesées tiennent déjà avec `absent` (S38) —
+    *personne n'a regardé* contre *quelqu'un a regardé et le texte n'en dit rien*. Elle y vit
+    dans la table de contenu parce qu'`absent` est une information que le pasteur lit, locus par
+    locus. Ici elle n'en est pas une : « aucune mise en garde » se dit déjà par une liste vide.
+    C'est de la trace de curation, et elle a donc sa propre table.
+
+    Générique par dimension, parce que les notes de contexte — à 0,1 % elles aussi — poseront la
+    même question au lot suivant, et qu'une colonne par dimension sur la péricope se paierait
+    d'une migration à chaque fois.
+    """
+
+    __tablename__ = "urim_corpus_examination"
+
+    __table_args__ = (
+        CheckConstraint(
+            "dimension IN ('caveat','context_note')", name="examination_dimension_close"
+        ),
+        CheckConstraint("found >= 0", name="examination_found_positif"),
+    )
+
+    pericope_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_corpus_pericope.id"), primary_key=True
+    )
+    dimension: Mapped[str] = mapped_column(String, primary_key=True)
+    #: Ce que **cet** examen a produit — de l'histoire, pas un total vivant. Le compte courant
+    #: se lit dans la table de contenu ; celui-ci dit ce que le curateur avait trouvé ce jour-là,
+    #: et reste juste même si un relecteur ajoute une ligne demain.
+    found: Mapped[int] = mapped_column(Integer)
+    examined_by: Mapped[str] = mapped_column(String)
+    examined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class CorpusReviewModel(Base):
     """Le **registre de relecture** — ce qu'un humain a jugé, et qui ne se rejuge pas.
 
