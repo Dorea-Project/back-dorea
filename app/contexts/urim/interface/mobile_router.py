@@ -21,9 +21,13 @@ from fastapi import APIRouter, Query, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
-from app.contexts.urim.interface.dependencies import StudyServiceDep
+from app.contexts.urim.interface.dependencies import ArchiveServiceDep, StudyServiceDep
 from app.contexts.urim.interface.schemas import (
+    ArchiveEntryView,
+    ArchiveFromStudyBody,
+    ArchiveManualBody,
     ConcordanceView,
+    CoverageView,
     DecisionBody,
     ElementsBody,
     OpenStudyBody,
@@ -265,6 +269,110 @@ async def personal_concordance(
     """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
     dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
     return ConcordanceView.from_dto(dto)
+
+
+# ====================================================================== L'ARCHIVE
+#
+# `urim_preached` était **lue par l'étage du thème et écrite par personne** : la phrase
+# « vous avez déjà prêché cet axe récemment » n'a jamais atteint quiconque. Ces routes sont
+# l'écrivain qui manquait.
+#
+# L'archive est clée sur **l'auteur** : elle le suit s'il change d'église, et survit à la
+# résiliation. Aucune route ne la lit pour quelqu'un d'autre.
+
+
+@router.post(
+    "/studies/{study_id}/preached",
+    response_model=ArchiveEntryView,
+    status_code=status.HTTP_201_CREATED,
+    summary="J'ai prêché cette préparation — le geste, jamais une déduction",
+)
+async def archive_study(
+    study_id: UUID,
+    payload: ArchiveFromStudyBody,
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+) -> ArchiveEntryView:
+    """**Rien ne s'archive parce qu'une date est passée.**
+
+    Le Pasteur X a préparé autour de six passages proposés et prêché le Psaume 125, qui
+    n'était dans aucun des six. Une archive remplie par le calendrier aurait enregistré un
+    sermon qui n'a jamais eu lieu, sous un axe qu'il n'a pas prêché — et la couverture du
+    canon aurait menti dès la première semaine.
+
+    ⚠️ **L'archive est celle de qui archive.** Deux pasteurs d'une même église se relisent ;
+    si le second prêche à partir du travail du premier, c'est **sa** prédication. Rien ne peut
+    donc salir l'archive d'un autre."""
+    dto = await service.record_from_study(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        preached_on=payload.preached_on,
+        capture_kind=payload.capture_kind,
+    )
+    return ArchiveEntryView.from_dto(dto)
+
+
+@router.post(
+    "/preached",
+    response_model=ArchiveEntryView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Archiver un sermon sans préparation — prêché ailleurs, ou avant Dorea",
+)
+async def archive_manually(
+    payload: ArchiveManualBody,
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+) -> ArchiveEntryView:
+    """On peut prêcher sans avoir préparé, et l'archive doit l'accepter — sinon elle ne
+    mesure que ce qui est passé par l'outil, ce qui n'est pas la même chose que le ministère
+    de quelqu'un.
+
+    La référence est lue **dans la notation du pasteur** (`Hb 2v29`, `Jn14v28`) et vérifiée
+    contre le corpus : `Hb 2v29` est refusée parce qu'*« Hébreux 2 compte 18 versets »* —
+    on dit ce qui manque au corpus, jamais ce qui manque au pasteur."""
+    dto = await service.record_manually(
+        actor_account_id=actor.account_id,
+        reference=payload.reference,
+        preached_on=payload.preached_on,
+        church_id=payload.church_id,
+        axis_code=payload.axis_code,
+        theme=payload.theme,
+        capture_kind=payload.capture_kind,
+    )
+    return ArchiveEntryView.from_dto(dto)
+
+
+@router.get(
+    "/preached",
+    response_model=list[ArchiveEntryView],
+    summary="Mon archive — ce que j'ai prêché, et quand",
+)
+async def list_archive(
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+    limit: int = Query(default=300, ge=1, le=1000),
+) -> list[ArchiveEntryView]:
+    dtos = await service.list_mine(actor_account_id=actor.account_id, limit=limit)
+    return [ArchiveEntryView.from_dto(d) for d in dtos]
+
+
+@router.get(
+    "/preached/couverture",
+    response_model=CoverageView,
+    summary="Où je suis allé dans l'Écriture, et sous quels loci — des faits, aucune consigne",
+)
+async def coverage(actor: CurrentActor, service: ArchiveServiceDep) -> CoverageView:
+    """**L'archive informe, elle n'interdit rien** — et elle ne propose rien non plus.
+
+    Aucun « vous n'avez pas prêché l'eschatologie depuis quatorze mois, voici un texte » :
+    un moteur qui déduit d'un tableau ce qu'il faut prêcher dimanche décide de la chaire.
+    Aucun score, aucune série, aucun pourcentage de complétude — ce serait mesurer la
+    fidélité d'un homme et transformer une aide en performance à tenir.
+
+    Un pasteur qui lit « pneumatologie : aucun sermon rangé depuis dix-huit mois » comprend
+    seul. C'est la même économie que partout ailleurs : nommer suffit."""
+    dto = await service.coverage(actor_account_id=actor.account_id)
+    return CoverageView.from_dto(dto)
 
 
 @router.get(

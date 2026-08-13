@@ -43,6 +43,17 @@ class CurationInvalideError(UrimError):
     http_status = 422
 
 
+class ArchiveIllisibleError(UrimError):
+    """Ce qu'on demande d'archiver n'est pas lisible — et le motif vient **du corpus**.
+
+    *« Hébreux 2 compte 18 versets »*, jamais *« saisie invalide »* : on dit ce qui manque au
+    corpus, jamais ce qui manque au pasteur (S19). 422 — la forme est bonne, c'est le contenu
+    qui ne désigne rien."""
+
+    code = "URI_ARCHIVE_UNREADABLE"
+    http_status = 422
+
+
 class CorpusNonSemeError(UrimError):
     """Le corpus est vide — Urim n'a rien à lire.
 

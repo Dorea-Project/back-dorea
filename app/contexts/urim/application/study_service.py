@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
+from app.contexts.urim.application.access import ensure_may_prepare, ensure_may_read
 from app.contexts.urim.application.ports import (
     AssistedResolver,
     AucuneSortie,
@@ -1305,15 +1306,11 @@ class UrimStudyService:
 
         Sans église, il n'y a personne à qui demander : la garde ne s'applique pas à
         l'ouverture. Les appelants qui rouvrent une préparation existante passent par
-        `_ensure_owner_or_preacher`, qui referme le seul trou que ce `None` ouvrirait."""
-        if church_id is None:
-            return
-        # **Quelle** permission cela recouvre est décidé par l'adaptateur, pas ici. Le
-        # service pose une question de droit ; il n'a pas à connaître le vocabulaire des
-        # rôles d'un autre contexte.
-        await self.access.ensure_may_prepare(
-            account_id=actor_account_id, church_id=church_id
-        )
+        `_ensure_owner_or_preacher`, qui referme le seul trou que ce `None` ouvrirait.
+
+        La règle elle-même vit dans `application/access.py` depuis que l'archive en a eu
+        besoin : deux copies auraient été deux définitions de « mes préparations »."""
+        await ensure_may_prepare(self.access, actor_account_id, church_id)
 
     async def _ensure_owner_or_preacher(
         self, actor_account_id: UUID, record: PreparationRecord
@@ -1329,9 +1326,5 @@ class UrimStudyService:
         propriété. C'est ce qui a décidé qu'**une préparation ne se rattache jamais d'office**
         à l'église de son auteur : le rattachement la rendrait lisible par ses collègues, et
         ce n'est pas un effet de bord qu'on inflige sans que quelqu'un l'ait voulu."""
-        if record.church_id is None:
-            if record.author_id != actor_account_id:
-                raise PreparationIntrouvableError("Cette préparation n'existe pas.")
-            return
-        await self._ensure_preacher(actor_account_id, record.church_id)
+        await ensure_may_read(self.access, actor_account_id, record)
 

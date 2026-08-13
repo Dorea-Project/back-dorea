@@ -27,6 +27,7 @@ from app.contexts.tenant.infrastructure.persistence.ownership_repo import (
 )
 from app.contexts.urim.adapters.authorization import GroupAccessPreacherAuthorization
 from app.contexts.urim.adapters.mistral import build_verse_resolver
+from app.contexts.urim.application.archive_service import UrimArchiveService
 from app.contexts.urim.application.curation import UrimCuration
 from app.contexts.urim.application.study_service import UrimStudyService
 from app.contexts.urim.domain.errors import CorpusNonSemeError
@@ -34,6 +35,9 @@ from app.contexts.urim.infrastructure.corpus.index import (
     CorpusIndex,
     CorpusVideError,
     load_corpus_index,
+)
+from app.contexts.urim.infrastructure.persistence.archive_repository import (
+    SqlArchiveRepository,
 )
 from app.contexts.urim.infrastructure.persistence.curation_repository import (
     SqlCurationRepository,
@@ -92,6 +96,25 @@ def get_study_service(
 
 
 StudyServiceDep = Annotated[UrimStudyService, Depends(get_study_service)]
+
+
+def get_archive_service(
+    session: DbSession, index: Annotated[CorpusIndex, Depends(get_corpus_index)]
+) -> UrimArchiveService:
+    return UrimArchiveService(
+        archive=SqlArchiveRepository(session),
+        studies=SqlStudyRepository(session),
+        access=GroupAccessPreacherAuthorization(
+            GroupAccessPolicy(
+                SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+            )
+        ),
+        index=index,
+        clock=_now,
+    )
+
+
+ArchiveServiceDep = Annotated[UrimArchiveService, Depends(get_archive_service)]
 
 
 def get_curation(

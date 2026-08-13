@@ -294,9 +294,20 @@ class UrimPreachedModel(Base):
     preparation_id: Mapped[UUID | None] = mapped_column(
         Uuid, ForeignKey("urim_preparation.id"), nullable=True
     )  # NULL si importée
-    church_id: Mapped[UUID] = mapped_column(Uuid)
+    #: **NULL = aucune église**, comme sur la préparation. La colonne était `NOT NULL` alors
+    #: que `urim_preparation.church_id` est devenue nullable le 11/08 : **un pasteur sans
+    #: église pouvait préparer et pas archiver** — et c'est le cas d'entrée du produit.
+    #: `author_id` est le propriétaire réel ; l'église n'est qu'un lieu.
+    church_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     author_id: Mapped[UUID] = mapped_column(Uuid)
     preached_on: Mapped[date] = mapped_column(Date)
+    #: L'unité littéraire, si le passage en avait une — **colonne nue**, jamais de FK (§3.9).
+    #:
+    #: Sans elle, le rangement par loci devrait **re-résoudre** le passage à chaque affichage :
+    #: une curation qui bouge ferait alors changer un rangement passé sans que rien ne le dise.
+    #: L'unité est ce qui porte les pesées ; c'est donc elle qu'il faut retenir, pas seulement
+    #: les bornes.
+    pericope_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     book_id: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     start_ch: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     start_v: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)

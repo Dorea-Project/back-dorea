@@ -306,6 +306,106 @@ class StudyView(BaseModel):
         )
 
 
+class ArchiveFromStudyBody(BaseModel):
+    """« J'ai prêché cette préparation. »
+
+    ⚠️ **`preached_on` par défaut = aujourd'hui, jamais `service_date`.** Une préparation datée
+    du dimanche prochain n'a pas été prêchée pour autant."""
+
+    preached_on: date | None = None
+    capture_kind: str = Field(default="saisie", max_length=16)
+
+
+class ArchiveManualBody(BaseModel):
+    """Un sermon sans préparation — prêché ailleurs, ou avant Dorea."""
+
+    reference: str = Field(min_length=2, max_length=80, examples=["Actes 1:1-14"])
+    preached_on: date
+    church_id: UUID | None = None
+    axis_code: str | None = Field(default=None, max_length=40)
+    theme: str | None = Field(default=None, max_length=2000)
+    capture_kind: str = Field(default="import", max_length=16)
+
+
+class ArchiveEntryView(BaseModel):
+    id: UUID
+    preached_on: date
+    reference: str
+    pericope_label: str | None
+    #: NULL = **non rangé**, et c'est un état normal : hors unité curée, il n'y a aucun axe à
+    #: retenir. Le client doit le nommer plutôt que de masquer la ligne.
+    axis_code: str | None
+    theme: str | None
+    capture_kind: str | None
+    preparation_id: UUID | None
+    church_id: UUID | None
+
+    @classmethod
+    def from_dto(cls, dto) -> ArchiveEntryView:
+        r = dto.record
+        return cls(
+            id=r.id, preached_on=r.preached_on, reference=dto.reference,
+            pericope_label=dto.pericope_label, axis_code=r.axis_code, theme=r.theme,
+            capture_kind=r.capture_kind, preparation_id=r.preparation_id,
+            church_id=r.church_id,
+        )
+
+
+class BookCoverageView(BaseModel):
+    """⚠️ **Deux nombres, jamais additionnés.** `passages` compte des lieux distincts —
+    prêcher deux fois le même texte n'élargit pas un canon ; `preachings` compte des
+    événements, parce que deux assemblées ont entendu."""
+
+    book: str
+    passages: int
+    preachings: int
+    last_preached_on: date
+
+
+class AxisTallyView(BaseModel):
+    """Un rayon du rangement. `axis_code` à NULL = **non rangé** — il s'affiche."""
+
+    axis_code: str | None
+    preachings: int
+    last_preached_on: date
+
+
+class CoverageView(BaseModel):
+    """Le parcours d'un prédicateur — **des faits, aucune consigne**.
+
+    ⚠️ Cet écran ne propose jamais de sermon. Un rayon vide se montre, il ne se comble pas :
+    *le signal informe l'homme, l'homme commande la machine*. Aucun score, aucune série,
+    aucun pourcentage de complétude doctrinale — ce serait mesurer la fidélité d'un pasteur,
+    et transformer une aide en performance à tenir.
+
+    ⚠️ **`books_untouched` dit « aucun sermon rangé ici », pas « il n'a jamais prêché cela »**
+    (S38) : un texte peut avoir été prêché sous une autre unité, ou sans axe retenu."""
+
+    books: list[BookCoverageView]
+    axes: list[AxisTallyView]
+    books_untouched: int
+
+    @classmethod
+    def from_dto(cls, dto) -> CoverageView:
+        return cls(
+            books=[
+                BookCoverageView(
+                    book=libelle, passages=c.passages, preachings=c.preachings,
+                    last_preached_on=c.last_preached_on,
+                )
+                for libelle, c in dto.books
+            ],
+            axes=[
+                AxisTallyView(
+                    axis_code=a.axis_code, preachings=a.preachings,
+                    last_preached_on=a.last_preached_on,
+                )
+                for a in dto.axes
+            ],
+            books_untouched=dto.books_untouched,
+        )
+
+
 class OriginalWordView(BaseModel):
     """Un mot de l'original — **ce que sa forme fait**, pas ce qu'il signifie.
 
