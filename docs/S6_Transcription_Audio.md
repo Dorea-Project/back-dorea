@@ -525,6 +525,50 @@ elles mordent :
 
 ---
 
+## 5bis. Le choix de départ — **trois usages, trois technologies**
+
+Les §2 (le coût), §3 (le port), §5 (la langue) et **D17** (le décodeur) convergent ici. Ce qui
+suit n'est pas une conclusion technique isolée : c'est ce que ces quatre-là imposent ensemble.
+
+| Usage | Technologie | Pourquoi celle-là |
+| :-- | :-- | :-- |
+| **Dictée en préparation** | **la reconnaissance de l'appareil** (SpeechRecognizer · Speech · Web Speech) | zéro serveur, zéro euro, et `entry_origin=dictated` est câblé de bout en bout (**D1**). **Aucun modèle à choisir** |
+| **Transcription du culte** | **`omniASR-CTC-7B`**, poids ouverts Apache 2.0, auto-hébergé | le seul qui coche les trois cases à la fois |
+| **Digestion** (transcript → capsules) | **Mistral, inchangé** | S-1 est livré, 0,35 ¢ par sermon. **Rien à décider** |
+
+### La tension, qui ne se résout pas par un compromis
+
+**Aucune API ne sert les trois exigences ensemble**, et il vaut mieux l'écrire que le découvrir en
+comparant des grilles tarifaires :
+
+| Exigence | Ce qui la satisfait | Ce que ça coûte ailleurs |
+| :-- | :-- | :-- |
+| **Les langues locales** (§5.3) | Omnilingual, et lui seul | ⛔ **n'existe pas en API** — auto-hébergement obligatoire |
+| **L'échec visible** (**D17**) | un décodeur CTC | les API à portée de main sont **autorégressives** : elles inventent au lieu de se taire, et la confiance par segment ne les rattrape pas — *une hallucination arrive avec un score élevé* |
+| **Aucune exploitation** | une API | ⛔ s'effondre au pilote : voir **D20** |
+
+`Parakeet` est bien CTC **et** hébergé — et ne connaît ni le dioula ni le baoulé. Voxtral est à
+portée immédiate (la clé Mistral est déjà en configuration, aucun fournisseur ni secret nouveau)
+et il est autorégressif, français seulement.
+
+> **Deux exigences sur trois pointent vers l'auto-hébergement ; la troisième s'effondre à l'échelle
+> du pilote** (13 h d'audio par mois, §2.2ter). Il n'y a donc pas d'arbitrage à faire : le
+> compromis n'existait que tant qu'on croyait qu'une API évitait un travail d'exploitation qui, à
+> ce volume, n'existe pas.
+
+> ✅ **D21 — le point de départ est `omniASR-CTC-7B` auto-hébergé pour le culte, l'appareil pour la
+> dictée, Mistral inchangé pour la digestion.** C'est un **pari de départ**, pas un verdict :
+> **Q3 reste « ça se mesure »**, et le premier dimanche enregistré tranche.
+>
+> **Ce qui le renverserait**, nommé d'avance pour que la mesure ait quelque chose à réfuter :
+> - le taux d'erreur du **CTC** sur du français ivoirien réel décroche nettement face à un modèle
+>   autorégressif ⇒ l'argument de la panne visible perd contre l'exactitude brute ;
+> - ou l'écart CTC ↔ LLM par langue (⚠️ **§2.2ter**, la réserve sur les CER) impose la variante
+>   lente pour les langues locales ⇒ **six fois le coût GPU**, et le choix devient un panachage
+>   plutôt qu'un modèle.
+
+---
+
 ## 6. La relecture par le pasteur
 
 **Question posée : la transcription est-elle *toujours* affichée avant usage ? — Oui, toujours.
@@ -695,9 +739,9 @@ Cette note appelle du code. Elle le nomme, et elle s'arrête.
 
 ## 10. Questions ouvertes — à trancher par un humain
 
-### 10.0 Le tri — sur vingt-huit points, **un seul bloque aujourd'hui**
+### 10.0 Le tri — sur trente et un points, **un seul bloque aujourd'hui**
 
-Dix-neuf décisions et neuf questions font une liste intimidante, et c'est trompeur. Passées au
+Vingt-deux décisions et neuf questions font une liste intimidante, et c'est trompeur. Passées au
 crible, la plupart ne sont pas des arbitrages : ce sont des **conséquences** de choses déjà tranchées
 ailleurs dans le dépôt, ou des constatations que la vérification du code a confirmées. Le tri
 importe plus que la liste — **une fausse décision consomme la même attention qu'une vraie.**
@@ -705,10 +749,10 @@ importe plus que la liste — **une fausse décision consomme la même attention
 | Catégorie | Combien | Lesquelles | Qui décide |
 | :-- | --: | :-- | :-- |
 | **Déjà tranché ailleurs** — la note ne fait que le reporter | 10 | **D5** (`TranscriptionPort`, spec capture §4) · **D8** (précédent `media/video.py`) · **D9** (`language_hints`, §4) · **D10-D11** (couverture 30 %, *« partiel jamais un silence »*, §10.5) · **D12** (S36) · **D13** (pilier 2) · **D14** (M9-1) · **D15** (Plan_Urim_Producteur, 05/08) · **D2** (*« côté église, donc côté payant »*, commit `da4d2ef`) | ⛔ **personne** — c'est écrit |
-| **Conséquence ou constatation** — l'arithmétique ou le code tranche seul | 6 | **D1** (chaîne `entry_origin` vérifiée entière) · **D3** · **D7** (`sermon_max_bytes` existe) · **D8bis** (exigence, pas choix) · **D16** · **D18** | ⛔ **personne** |
-| **Décision d'ingénierie** — la mienne, contestable, tracée | 3 | **D4** (unité = la capture, pas la minute) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) | ✅ **prise** — **D17** sera confirmée ou refutée par la mesure |
+| **Conséquence ou constatation** — l'arithmétique ou le code tranche seul | 7 | **D1** (chaîne `entry_origin` vérifiée entière) · **D3** · **D7** (`sermon_max_bytes` existe) · **D8bis** (exigence, pas choix) · **D16** · **D18** · **D19** (découle de D18) | ⛔ **personne** |
+| **Décision d'ingénierie** — la mienne, contestable, tracée | 5 | **D4** (unité = la capture, pas la minute) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) · **D20** (pas de détour par une API) · **D21** (le point de départ, §5bis) | ✅ **prise** — **D17, D20, D21** seront confirmés ou réfutés par la mesure |
 | **Ne se décide pas — se mesure** | 2 | **Q3** (quel modèle) · **Q9** (les seuils) | 📏 **l'audio**, ligne 2 du §9 |
-| **Vraie décision humaine, différable** | 4 | **Q2** (qui paie) · **Q5** (rétention négociable) · **Q6** (quelles langues promettre) · **Q8** (qui a la capture) | ⏳ **après l'audio** |
+| **Vraie décision humaine, différable** | 5 | **Q1** (souveraineté → exploitation) · **Q2** (qui paie) · **Q5** (rétention négociable) · **Q6** (quelles langues promettre) · **Q8** (qui a la capture) | ⏳ **après l'audio** |
 | **Vraie décision humaine, à LANCER maintenant** | 1 | **Q4** (information de l'assemblée, 7 pays) | ⚠️ **délai externe non compressible** — la décision peut attendre, **l'instruction non** |
 | 🔴 **Bloquante aujourd'hui** | **1** | **Q7** | 🔴 **vous, cette semaine** |
 
@@ -726,11 +770,16 @@ importe plus que la liste — **une fausse décision consomme la même attention
    prend des semaines qu'aucune décision ne compresse — même remarque que le plan Finance fait sur
    le mobile money. La lancer maintenant ne coûte rien et ne présume de rien.
 
-> ⚠️ **Et le tri est lui-même un constat sur ce dépôt.** Vingt et un points sur vingt-huit étaient
-> déjà résolus avant que cette note les écrive. C'est bon signe — les specs tiennent, et une
-> question neuve trouve le plus souvent sa réponse dans une règle existante. C'est aussi **R1**, la
-> dispersion : une note qui dramatise en *décisions* ce que le dépôt avait déjà tranché fabrique du
-> travail de lecture, pas du travail. **Le tri appartient au livrable, pas au lecteur.**
+> ⚠️ **Et le tri est lui-même un constat sur ce dépôt.** **Dix-sept points sur trente et un** étaient
+> déjà résolus avant que cette note les écrive, et **cinq de plus** ne demandent qu'un ingénieur.
+> C'est bon signe — les specs tiennent, et une question neuve trouve le plus souvent sa réponse dans
+> une règle existante. C'est aussi **R1**, la dispersion : une note qui dramatise en *décisions* ce
+> que le dépôt avait déjà tranché fabrique du travail de lecture, pas du travail. **Le tri appartient
+> au livrable, pas au lecteur.**
+>
+> ⚠️ **Et il se périme à chaque ajout** : ce tableau a dû être recompté le jour même, quand **D20**
+> et **D21** sont arrivés. Un tri qu'on oublie de tenir à jour ment plus fort qu'une liste brute,
+> parce qu'on lui fait confiance. **Qui ajoute un `D` recompte ici**, ou retire le tableau.
 
 ### 10.1 Les questions, en clair
 
@@ -738,7 +787,7 @@ importe plus que la liste — **une fausse décision consomme la même attention
 | :-- | :-- | :-- |
 | **Q1** | **Souveraineté — et elle ne coûte plus rien à partir d'une certaine taille.** Accepte-t-on qu'un culte ivoirien complet, voix de l'assemblée comprises, transite par un serveur américain ou européen ? Et la dictée par les serveurs de Google (**D1**) ? | Ce n'était pas un arbitrage de prix, et ça l'est encore moins depuis §2.2bis : les poids ouverts sont en **Apache 2.0**, et au-delà de ~300 églises **le GPU souverain est le moins cher des deux**. La question qui reste est celle de l'**exploitation** — qui tient la machine, la nuit du dimanche |
 | **Q2** | **Qui paie, et combien de cultes.** Quelle offre de `Tenant_Subscription` ouvre l'audio du dimanche, et à quel `ceiling` mensuel (**D2, D4**) ? | L'abonnement d'église est une **note de design non implémentée**. Tant qu'elle l'est, **D3** (ouverture par configuration) tient lieu de réponse |
-| **Q3** | **Le modèle, et sa qualité réelle en français ivoirien.** *(point ouvert n° 1 de la spec de capture)* | Se mesure, ne se choisit pas — ligne **2** du §9. Le port (**D5**) existe pour que le choix reste réversible, et **D17** dit seulement par quelle famille de décodeur commencer |
+| **Q3** | **Le modèle, et sa qualité réelle en français ivoirien.** *(point ouvert n° 1 de la spec de capture)* | Se mesure, ne se choisit pas — ligne **2** du §9. **D21** (§5bis) donne le **point de départ** et nomme d'avance ce qui le renverserait ; le port (**D5**) existe pour que ce départ reste réversible. ⚠️ Un pari nommé n'est pas une réponse : c'est ce que la mesure doit avoir à réfuter |
 | **Q4** | **L'information de l'assemblée.** Faut-il prévenir les fidèles qu'un culte est enregistré, et est-ce une obligation légale dans les 7 pays ? *(point ouvert n° 5 de la spec de capture)* | Question de droit, à instruire pays par pays. ⚠️ La rétention J+7 et la purge datée sont une **atténuation**, pas une réponse |
 | **Q5** | **La rétention J+7 est-elle négociable ?** Un pasteur peut-il demander à garder son audio plus longtemps, et en porter la responsabilité ? | Arbitrage entre son usage (retranscrire un jour mieux) et les voix de la salle, qui n'ont rien demandé |
 | **Q6** | **Les langues locales — jusqu'où va la promesse, langue par langue ?** (**§5.3, D19**) La question a changé de nature le 13/08 : ce n'est plus *« accepte-t-on de dire non ? »* mais *« à partir de quel taux d'erreur mesuré dit-on oui, et pour laquelle ? »* | Le dioula (93 h d'entraînement) et le baoulé (**8 h**) ne se décident pas ensemble. ⚠️ Et une décision de plus, qui n'est pas technique : **est-il acceptable de proposer une transcription médiocre dans la langue de quelqu'un**, ou vaut-il mieux ne rien proposer que mal ? |
@@ -748,7 +797,7 @@ importe plus que la liste — **une fausse décision consomme la même attention
 
 ---
 
-*Note de conception — fait foi sur les décisions **D1 à D20**. `Dorea_Urim_Architecture_Transcription.md`
+*Note de conception — fait foi sur les décisions **D1 à D21**. `Dorea_Urim_Architecture_Transcription.md`
 et `Dorea_Urim_Capture_et_Retour.md` font foi sur la capture ; `Plan_Urim_Producteur.md` sur le
 retrait de `sermon` et sur l'ordre des chantiers ; `Sermon_Companion.md` sur l'état d'avant ce
 retrait. **Aucun code n'a été écrit.***
