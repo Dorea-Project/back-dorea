@@ -165,6 +165,13 @@ déclarant qu'il vient d'un micro — et l'étage 0 fait déjà tout ce qu'il fa
 (S36). **La dictée de préparation ne demande aucun octet d'audio sur le serveur** : la reconnaissance
 du clavier Android / iOS / Web Speech la produit sur l'appareil, gratuitement.
 
+⚠️ **Vérifié le 13/08, et c'est plus complet que « le champ existe »** : la chaîne est entière,
+route → service → base → rejeu. `mobile_router.py:54` et `:249` passent `payload.entry_origin` au
+service, qui le **persiste** (`study_service.py:336`) et le **relit** à la reprise (`:978`, défaut
+`TYPED`). Une préparation ouverte à la voix rouvre donc à la voix, et la confirmation S36 se
+redéclenche à l'identique — **la provenance survit au rejeu**, ce qui est exactement ce qu'un moteur
+déterministe exige d'elle. Côté serveur, il n'y a **rien à écrire**.
+
 | Voie | Coût par dictée de 30 s | 10 000 pasteurs × 10 dictées/mois | Effet sur la facture texte (92 €) |
 | :-- | --: | --: | :-- |
 | **Sur l'appareil** (clavier du système) | **0 ¢** | **0 €** | aucun |
@@ -204,7 +211,11 @@ Il ne se dégrade pas aujourd'hui, et c'est ce qu'il faut dire :
 
 > ✅ **D4 — le plafond a déjà sa table, et elle a déjà été braquée sur la mauvaise ressource.**
 > `urim_usage_window` (mutualisé par église, `metered_units < ceiling` atomique) **est lu et n'a
-> jamais été écrit** — c'est écrit dans le modèle. Sa cible réelle est ici. **L'unité est la
+> jamais été écrit** — ⚠️ vérifié le 13/08 : le seul usage dans tout le code est un `select`
+> (`study_repository.py:484`), **aucun `INSERT`, aucun `UPDATE`**. Il n'y a donc jamais de ligne, et
+> le chemin réellement emprunté est le repli — `row is None → ceiling_reached=False`, commenté
+> *« l'absence de configuration ne doit jamais dégrader le service »*. **Le plafond d'église n'est
+> pas mal réglé : il n'existe pas.** Sa cible réelle est ici. **L'unité est la
 > capture, pas la minute** : le pasteur comprend « quatre cultes par mois », pas « 240 minutes ».
 > Et la règle de la spec de capture ne bouge pas — **plafond atteint, l'enregistrement a lieu
 > quand même, la transcription est différée** (`transcription_deferred`), *« ce qui n'est pas
@@ -263,10 +274,30 @@ Le contexte `media` fournit exactement ce qu'il faut : `MediaStore.put(content, 
 multipart, et le contrôle des **octets contre le type déclaré** (`_MAGIC`, DOREA-024).
 
 > ✅ **D7 — S-6 réutilise le port `MediaStore` et **pas** `validate_upload`.** Les bornes de `media`
-> sont celles d'une image d'annonce : 5 Mo, `media_allowed_types`. Un culte de 60 min pèse 6,5 Mo
-> en Opus 20 kbit/s (spec capture §2.2) mais **57 Mo** en AAC 128 kbit/s — ce que produit un
-> téléphone qu'on n'a pas configuré. L'audio a ses propres bornes, son propre plafond, sa propre
-> liste de types.
+> sont celles d'une image d'annonce : 5 Mo, `media_allowed_types`. L'audio a ses propres bornes, son
+> propre plafond, sa propre liste de types.
+
+⚠️ **Vérifié dans le code le 13/08 — et le dépôt en sait plus que ce paragraphe ne supposait.**
+Le chemin de dépôt d'un fichier de sermon **existe déjà et a déjà son plafond** :
+
+```python
+# sermon/interface/mobile_router.py:81
+data = await read_body_capped(request, max_bytes=settings.sermon_max_bytes)   # 15 Mo
+```
+
+Deux conséquences, et la seconde est un trou :
+
+1. **15 Mo est déjà la bonne borne — mais seulement pour de l'audio bien encodé.** Un culte de
+   60 min pèse **6,5 Mo** en Opus 20 kbit/s (spec capture §2.2) et passe largement ; le même culte
+   en AAC 128 kbit/s — ce que produit un téléphone qu'on n'a pas configuré — pèse **≈ 57 Mo** et
+   sera **refusé**. Ce n'est pas un bug : c'est une contrainte qui pousse à l'encodage que la spec
+   de capture prescrit déjà. **Mais elle doit être dite au client**, sinon le pasteur voit son
+   dépôt échouer sans savoir pourquoi ;
+2. 🔴 **ce chemin ne valide ni le type déclaré ni les octets.** Contrairement à `media`, il n'appelle
+   ni `validate_upload` ni `_looks_like` : il borne la taille et passe les octets à l'extracteur,
+   qui aiguille sur le `kind` **déclaré en query**. Pour PDF/PPTX c'est tolérable — `pypdf` et
+   `python-pptx` échouent d'eux-mêmes sur du n'importe quoi, et l'échec est gratuit. **Pour l'audio,
+   il ne l'est plus** : voir **D8**.
 
 ### 4.2 **La durée est la facture** — et c'est ce qui décide de la liste des formats
 
@@ -282,9 +313,22 @@ Le même raisonnement mord ici **beaucoup plus fort**, parce que ce n'est plus u
 
 > ✅ **D8 — formats acceptés = ceux dont on sait lire la durée.** `m4a`/`mp4` d'abord, et c'est
 > gratuit : un `.m4a` **est** un conteneur ISO-BMFF, `mp4_duration_seconds` y trouve son `mvhd`
-> sans une ligne nouvelle. Tout autre conteneur (ogg/opus, mp3) s'ajoute **le jour où son lecteur
-> de durée est écrit**, jamais avant. Durée illisible ⇒ refus, comme `VideoTooLongError` traite
-> déjà *« je ne sais pas »* à l'égal de *« trop longue »*.
+> sans une ligne nouvelle — vérifié, le scan de boîtes ne présume aucune marque, et le contrôle
+> d'octets de `media` teste `content[4:8] == b"ftyp"`, donc agnostique lui aussi. Tout autre
+> conteneur (ogg/opus, mp3) s'ajoute **le jour où son lecteur de durée est écrit**, jamais avant.
+> Durée illisible ⇒ refus, comme `VideoTooLongError` traite déjà *« je ne sais pas »* à l'égal de
+> *« trop longue »*.
+
+> 🔴 **D8bis — et sur le chemin de dépôt, ce contrôle est le SEUL qui existe.** Le point 2 de
+> **D7** le montre : rien ne vérifie aujourd'hui que les octets sont ce que le `kind` prétend. Tant
+> que l'extracteur ne sert que PDF et PPTX, une déclaration fausse coûte une exception. **Le jour
+> où `kind=audio` appelle un service facturé à la minute, elle coûte de l'argent** — et le chemin
+> le plus court pour vider un solde est d'envoyer n'importe quoi en déclarant que c'est un sermon.
+>
+> **Lire la durée n'est donc pas seulement savoir ce qu'on va payer : c'est la porte.** Un fichier
+> dont on ne lit pas une durée plausible ne part pas à la transcription — refus avant appel, avant
+> stockage, avant tout. C'est le même raisonnement que `_looks_like` côté `media` (DOREA-024,
+> *« ce que le fichier est, pas ce qu'il prétend être »*), appliqué là où l'erreur se facture.
 
 ### 4.3 Combien de temps on garde — **deux régimes, et ils sont opposés**
 
