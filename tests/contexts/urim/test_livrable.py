@@ -22,6 +22,7 @@ from app.contexts.urim.deliverable.domain.citation import (
     EXACT,
     EXTRAIT,
     juger,
+    juger_parmi,
     mots,
 )
 from app.contexts.urim.deliverable.domain.documents import (
@@ -142,6 +143,58 @@ def test_la_normalisation_separe_les_mots_de_l_elision():
     changé. (Le normaliseur du moteur, lui, colle l'élision — il cherche une ressemblance, pas
     une identité.)"""
     assert mots("l'amour fraternel") == ("l", "amour", "fraternel")
+
+
+# ============================================================ 1 bis. toutes les versions (Q9)
+
+#: Ce que le Texte Reçu ajoute à Romains 8:1, **qu'Ostervald porte et que la LSG omet**. Le cas
+#: d'école du dépôt (S17) : sans la clause, « aucune condamnation » est inconditionnel ; avec
+#: elle, c'est une condition morale. Deux sermons opposés sur la même référence.
+CLAUSE = ", qui ne marchent point selon la chair, mais selon l'esprit"
+ROM_8_1_OSTERVALD = ROM_8_1[:-1] + CLAUSE + "."
+
+
+def test_un_texte_fidele_a_une_autre_version_detenue_n_est_pas_une_falsification():
+    """**La correction de Q9**, et elle change la nature du refus.
+
+    Jugé contre la seule LSG, ce texte rend `altere` — une accusation portée contre un pasteur
+    qui cite fidèlement l'Ostervald, la version que les assemblées lisent. Jugé contre les
+    versions détenues, il est reconnu, **et la version est nommée**."""
+    servis = [("LSG", ROM_8_1), ("Ostervald", ROM_8_1_OSTERVALD)]
+    verdict = juger_parmi(ROM_8_1_OSTERVALD, servis)
+    assert verdict.verdict == EXACT
+    assert verdict.version == "Ostervald"
+
+
+def test_la_version_reconnue_n_est_pas_une_information_cosmetique():
+    """S17 : sur ce verset, **la version détectée change la doctrine du sermon**. Le verdict la
+    porte donc, et c'est elle que `citation_check.version_id` attend depuis sa déclaration."""
+    servis = [("LSG", ROM_8_1), ("Ostervald", ROM_8_1_OSTERVALD)]
+    assert juger_parmi(ROM_8_1, servis).version == "LSG"
+
+
+def test_un_texte_qu_aucune_version_ne_porte_reste_refuse_et_les_nomme():
+    """Le couple — sinon « une autre version » deviendrait la porte de sortie de n'importe quoi.
+
+    Et le motif dit ce qui manque **au corpus** (S19) : les versions consultées, et le texte
+    servi. Jamais « vous avez falsifié »."""
+    servis = [("LSG", ROM_8_1), ("Ostervald", ROM_8_1_OSTERVALD)]
+    verdict = juger_parmi("Il n'y a donc aucune accusation pour les croyants.", servis)
+    assert verdict.verdict == ALTERE
+    assert "LSG, Ostervald" in verdict.rationale
+    assert verdict.version == ""
+
+
+def test_exact_l_emporte_sur_extrait_quel_que_soit_l_ordre():
+    """L'ordre est une préférence (la version de la préparation d'abord), pas une priorité
+    absolue : mieux vaut nommer la version qui porte le texte **entier** que celle où il ne
+    serait qu'un extrait."""
+    servis = [("Ostervald", ROM_8_1_OSTERVALD), ("LSG", ROM_8_1)]
+    assert juger_parmi(ROM_8_1, servis).version == "LSG"
+
+
+def test_sans_aucune_version_servie_on_refuse():
+    assert juger_parmi(ROM_8_1, []).verdict == ALTERE
 
 
 # ============================================================ 2. la frontière est un type

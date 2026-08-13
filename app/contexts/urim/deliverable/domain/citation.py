@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 #: Ce que le pasteur tape pour dire « je saute un morceau ». Les trois formes réelles : le
@@ -82,10 +83,17 @@ EXACT, EXTRAIT, ALTERE = "exact", "extrait", "altere"
 
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """Le jugement d'une diapositive. `rationale` n'est jamais vide — comme partout ici."""
+    """Le jugement d'une diapositive. `rationale` n'est jamais vide — comme partout ici.
+
+    `version` dit **contre laquelle** le texte a été reconnu, et ce n'est pas cosmétique : sur
+    Romains 8:1, reconnaître Ostervald plutôt que la LSG change la doctrine du verset projeté
+    (S17 — sans la clause, « aucune condamnation » est inconditionnel ; avec elle, c'est une
+    condition morale). C'est cette valeur que `citation_check.version_id` attend depuis qu'elle
+    a été déclarée."""
 
     verdict: str
     rationale: str
+    version: str = ""
 
     @property
     def projetable(self) -> bool:
@@ -134,6 +142,44 @@ def juger(projete: str, servi: str) -> Verdict:
         EXTRAIT,
         f"Le texte projeté est {coupe} du verset, sans altération — "
         "couper pour l'écran est légitime.",
+    )
+
+
+def juger_parmi(projete: str, servis: Sequence[tuple[str, str]]) -> Verdict:
+    """Juger contre **toutes les versions détenues**, et nommer celle qui reconnaît le texte.
+
+    ⚠️ **C'est la correction de Q9, et elle change la nature du refus.** Un pasteur cite la
+    Bible qu'il a. Jugé contre une seule version, un texte parfaitement fidèle à une autre rend
+    `altere` — c'est-à-dire une **accusation**, là où la vérité est *« je ne détiens pas votre
+    Bible »*. Le cas est réel et documenté dans ce dépôt : la clause de Romains 8:1 que le Texte
+    Reçu ajoute, qu'**Ostervald porte** et que la LSG omet.
+
+    C'est S19 appliqué au livrable — *on dit ce qui manque au corpus, jamais ce qui manque au
+    pasteur* — et le motif du refus nomme donc les versions consultées.
+
+    **L'ordre de `servis` est un ordre de préférence** (la version de la préparation d'abord),
+    mais `exact` l'emporte sur `extrait` quel que soit le rang : mieux vaut nommer la version
+    qui porte le texte entier que celle où il ne serait qu'un extrait."""
+    if not servis:
+        return Verdict(ALTERE, "Aucune version du corpus ne sert ce passage.")
+
+    verdicts = [(label, juger(projete, servi)) for label, servi in servis]
+    for attendu in (EXACT, EXTRAIT):
+        for label, verdict in verdicts:
+            if verdict.verdict == attendu:
+                return Verdict(
+                    verdict.verdict,
+                    f"{verdict.rationale} (version reconnue : {label})",
+                    version=label,
+                )
+
+    consultees = ", ".join(label for label, _ in servis)
+    _, premier = servis[0]
+    return Verdict(
+        ALTERE,
+        f"Ce texte ne correspond à aucune des {len(servis)} versions détenues "
+        f"({consultees}). Vient-il d'une autre version ? Le texte servi est : "
+        f"« {premier.strip()} »",
     )
 
 
