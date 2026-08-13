@@ -10,9 +10,9 @@ couple homilétique impossible ne sont pas des erreurs HTTP : ce sont des issues
 4xx ferait disparaître exactement ce que le produit veut montrer — c'est la raison d'être
 du champ `outcome`.
 
-Le livrable (diapositives, contrôle de citation) n'est **pas** exposé : les étapes 2 à 4
-du chantier restent verrouillées (§11), et une route qui rendrait un fichier non contrôlé
-irait contre la règle qui veut qu'une citation projetée soit vérifiée.
+Le livrable est exposé depuis le 2026-08-13, **et dans le bon ordre** : la soumission se fait
+juger avant qu'un fichier existe. La route de rendu viendra avec les écrivains `.pptx`/`.docx`,
+et ne servira que ce qui porte déjà `conforme` — un fichier produit est un fichier qui circule.
 """
 
 from uuid import UUID
@@ -21,7 +21,12 @@ from fastapi import APIRouter, Query, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
-from app.contexts.urim.interface.dependencies import ArchiveServiceDep, StudyServiceDep
+from app.contexts.urim.deliverable.application.ports import DiapositiveSoumise
+from app.contexts.urim.interface.dependencies import (
+    ArchiveServiceDep,
+    DeliverableServiceDep,
+    StudyServiceDep,
+)
 from app.contexts.urim.interface.schemas import (
     ArchiveEntryView,
     ArchiveFromStudyBody,
@@ -29,6 +34,8 @@ from app.contexts.urim.interface.schemas import (
     ConcordanceView,
     CoverageView,
     DecisionBody,
+    DeliverableBody,
+    DeliverableView,
     ElementsBody,
     OpenStudyBody,
     PassageDetailView,
@@ -269,6 +276,68 @@ async def personal_concordance(
     """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
     dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
     return ConcordanceView.from_dto(dto)
+
+
+# ====================================================================== LE LIVRABLE
+#
+# ⚠️ **Le contrôle est en amont du fichier, et il n'existe qu'une route pour l'instant.**
+# Aucun octet n'est produit ici : un fichier produit est un fichier qui circule, et un contrôle
+# d'après coup protège la base de données, pas l'assemblée. La route de rendu viendra avec les
+# écrivains `.pptx`/`.docx`, et ne servira que ce qui porte déjà `conforme`.
+
+
+@router.post(
+    "/studies/{study_id}/deliverable",
+    response_model=DeliverableView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Soumettre ce qui sortira — et le faire juger avant qu'un fichier existe",
+)
+async def submit_deliverable(
+    study_id: UUID,
+    payload: DeliverableBody,
+    actor: CurrentActor,
+    service: DeliverableServiceDep,
+) -> DeliverableView:
+    """**Une citation altérée n'est pas une erreur HTTP.**
+
+    La réponse revient en 201 avec `validation: "rejete"` et, diapositive par diapositive, ce
+    qu'il a écrit et ce que le corpus porte. Un 422 ferait disparaître le seul écran où un
+    verset abîmé se voit avant le dimanche — même raison que les issues du moteur.
+
+    Le texte projeté est jugé contre **toutes les versions détenues**, et le verdict nomme celle
+    qui le reconnaît : un pasteur cite la Bible qu'il a, et sur Romains 8:1 l'Ostervald porte
+    une clause que la LSG omet. Le refuser reviendrait à l'accuser de falsifier un verset qu'il
+    cite mot pour mot.
+
+    Sans une division de son plan, rien n'est produit : le document met en page ce qu'il a
+    écrit, il ne l'écrit pas à sa place."""
+    dto = await service.soumettre(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        kind=payload.kind,
+        diapositives=[
+            DiapositiveSoumise(d.titre, d.reference, d.texte_projete)
+            for d in payload.diapositives
+        ],
+    )
+    return DeliverableView.from_dto(dto)
+
+
+@router.get(
+    "/deliverables/{deliverable_id}",
+    response_model=DeliverableView,
+    summary="Relire un dossier de validation — ce qui est monté à l'écran, et sous quelle version",
+)
+async def get_deliverable(
+    deliverable_id: UUID, actor: CurrentActor, service: DeliverableServiceDep
+) -> DeliverableView:
+    """C'est cette lecture qui dispense de conserver le fichier : `citation_check` garde, par
+    diapositive, la référence et le texte projeté. On sait exactement ce qui a été montré sans
+    garder un octet de binaire."""
+    dto = await service.relire(
+        actor_account_id=actor.account_id, deliverable_id=deliverable_id
+    )
+    return DeliverableView.from_dto(dto)
 
 
 # ====================================================================== L'ARCHIVE

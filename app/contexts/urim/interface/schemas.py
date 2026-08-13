@@ -8,7 +8,7 @@ pour décider s'il est d'accord.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -303,6 +303,69 @@ class StudyView(BaseModel):
             ],
             corpus_snapshot=r.corpus_snapshot,
             corpus_drifted=dto.corpus_drifted,
+        )
+
+
+class DiapositiveBody(BaseModel):
+    """Une diapositive composée par le pasteur. `texte_projete` est **le sien** — il coupe, il
+    abrège, il glose entre crochets — et c'est ce que le serveur juge contre le corpus."""
+
+    titre: str = Field(default="", max_length=200)
+    reference: str = Field(min_length=2, max_length=80, examples=["Romains 8:1"])
+    texte_projete: str = Field(default="", max_length=4000)
+
+
+class DeliverableBody(BaseModel):
+    """⚠️ **Aucune case « introduction proposée ».** Le modèle n'a pas de canal de sortie en
+    prose, et un gabarit de document est exactement l'endroit où ce canal se rouvrirait."""
+
+    kind: str = Field(default="deck", pattern="^(deck|note)$")
+    diapositives: list[DiapositiveBody] = Field(default_factory=list, max_length=120)
+
+
+class ControleView(BaseModel):
+    """Le verdict d'une diapositive — **ce que le produit veut montrer**, pas une erreur.
+
+    `version` nomme celle qui reconnaît le texte, et ce n'est pas cosmétique : sur Romains 8:1,
+    reconnaître Ostervald plutôt que la LSG change la doctrine du verset projeté."""
+
+    slide_no: int
+    reference: str
+    projected_text: str
+    verdict: str
+    rationale: str
+    version_id: UUID | None
+
+
+class DeliverableView(BaseModel):
+    """Le dossier de validation. **Aucun fichier n'existe encore** : le contrôle est en amont,
+    parce qu'un fichier produit est un fichier qui circule."""
+
+    id: UUID
+    kind: str
+    format: str
+    validation: str
+    validated_by: UUID | None
+    generated_at: datetime
+    corpus_snapshot: str | None
+    content_fingerprint: str | None
+    controles: list[ControleView]
+
+    @classmethod
+    def from_dto(cls, dto) -> DeliverableView:
+        r = dto.record
+        return cls(
+            id=r.id, kind=r.kind, format=r.format, validation=r.validation,
+            validated_by=r.validated_by, generated_at=r.generated_at,
+            corpus_snapshot=r.corpus_snapshot, content_fingerprint=r.content_fingerprint,
+            controles=[
+                ControleView(
+                    slide_no=c.slide_no, reference=c.reference,
+                    projected_text=c.projected_text, verdict=c.verdict,
+                    rationale=c.rationale, version_id=c.version_id,
+                )
+                for c in dto.controles
+            ],
         )
 
 

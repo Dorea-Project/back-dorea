@@ -30,6 +30,7 @@ from app.contexts.urim.adapters.mistral import build_verse_resolver
 from app.contexts.urim.application.archive_service import UrimArchiveService
 from app.contexts.urim.application.curation import UrimCuration
 from app.contexts.urim.application.study_service import UrimStudyService
+from app.contexts.urim.deliverable.application.service import UrimDeliverableService
 from app.contexts.urim.domain.errors import CorpusNonSemeError
 from app.contexts.urim.infrastructure.corpus.index import (
     CorpusIndex,
@@ -41,6 +42,10 @@ from app.contexts.urim.infrastructure.persistence.archive_repository import (
 )
 from app.contexts.urim.infrastructure.persistence.curation_repository import (
     SqlCurationRepository,
+)
+from app.contexts.urim.infrastructure.persistence.deliverable_repository import (
+    SqlDeliverableRepository,
+    SqlVerseTextReader,
 )
 from app.contexts.urim.infrastructure.persistence.study_repository import (
     SqlReservationRepository,
@@ -115,6 +120,30 @@ def get_archive_service(
 
 
 ArchiveServiceDep = Annotated[UrimArchiveService, Depends(get_archive_service)]
+
+
+def get_deliverable_service(
+    session: DbSession, index: Annotated[CorpusIndex, Depends(get_corpus_index)]
+) -> UrimDeliverableService:
+    return UrimDeliverableService(
+        studies=SqlStudyRepository(session),
+        livrables=SqlDeliverableRepository(session),
+        # ⚠️ Le texte des **autres versions** ne vient pas de l'index : il n'en charge qu'une
+        # (celle de repli). Q9 exige de juger contre toutes celles qu'on détient.
+        versets=SqlVerseTextReader(session),
+        access=GroupAccessPreacherAuthorization(
+            GroupAccessPolicy(
+                SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+            )
+        ),
+        index=index,
+        clock=_now,
+    )
+
+
+DeliverableServiceDep = Annotated[
+    UrimDeliverableService, Depends(get_deliverable_service)
+]
 
 
 def get_curation(

@@ -43,6 +43,19 @@ class CurationInvalideError(UrimError):
     http_status = 422
 
 
+class LivrableSansPlanError(UrimError):
+    """**Le refus qui porte la règle centrale du livrable.**
+
+    Le document met en page ce que le pasteur a écrit ; il ne l'écrit pas à sa place. Sans une
+    division de son plan, il n'y a littéralement rien à imprimer — la page est vide par
+    arithmétique, pas par politique.
+
+    Le motif **oriente** : un refus qui n'oriente pas est une porte fermée (S2)."""
+
+    code = "URI_DELIVERABLE_NO_PLAN"
+    http_status = 422
+
+
 class ArchiveIllisibleError(UrimError):
     """Ce qu'on demande d'archiver n'est pas lisible — et le motif vient **du corpus**.
 

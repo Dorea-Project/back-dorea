@@ -325,20 +325,58 @@ class UrimPreachedModel(Base):
 
 
 class UrimDeliverableModel(Base):
+    """Le livrable — **le document et son encodage sont deux questions**.
+
+    `kind IN ('pptx','pdf')` les mélangeait. Avec deux documents (ce que l'assemblée voit, la
+    note du prédicateur) et trois formats, une colonne unique ne peut plus dire *lequel* est
+    sorti — or c'est la frontière que ce module existe pour tenir, et ce que la trace doit
+    savoir. Un PDF de la note et un PDF du deck ne circulent pas dans les mêmes mains.
+
+    **`validated_by` n'est pas décoratif.** Un livrable `conforme` que personne n'a signé serait
+    une validation que personne n'a faite : la contrainte le refuse, comme
+    `synthese_validee_signee` côté Retour et `reviewed_by NOT NULL` côté corpus.
+
+    **`content_fingerprint`** — *une décision ne vaut que sur l'objet qu'elle a regardé*. Deux
+    documents de la même préparation à deux semaines d'écart ne sont pas le même document ; sans
+    empreinte, on ne peut ni le dire ni le prouver."""
+
     __tablename__ = "urim_deliverable"
 
     __table_args__ = (
-        CheckConstraint("kind IN ('pptx','pdf')", name="deliverable_kind"),
+        CheckConstraint("kind IN ('deck','note')", name="deliverable_kind"),
+        CheckConstraint("format IN ('pptx','docx','pdf')", name="deliverable_format"),
+        # Les deux couples que la frontière écran/note rend impossibles — en base, parce
+        # qu'une garde applicative tombe au premier second chemin d'écriture.
+        CheckConstraint(
+            "(kind = 'deck' AND format IN ('pptx','pdf'))"
+            " OR (kind = 'note' AND format IN ('docx','pdf'))",
+            name="deliverable_document_format",
+        ),
         CheckConstraint(
             "validation IN ('conforme','rejete')", name="deliverable_validation"
+        ),
+        CheckConstraint(
+            "validation IS DISTINCT FROM 'conforme'"
+            " OR (validated_by IS NOT NULL AND validated_at IS NOT NULL)",
+            name="deliverable_validation_signee",
         ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     preparation_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("urim_preparation.id"))
     kind: Mapped[str] = mapped_column(String)
+    format: Mapped[str] = mapped_column(String)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     validation: Mapped[str | None] = mapped_column(String, nullable=True)
+    validated_by: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: L'état du corpus **au moment de la génération**. La préparation porte le sien ; s'ils
+    #: divergent, le document a été produit contre un autre corpus que celui où le raisonnement
+    #: a été mené.
+    corpus_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class UrimCitationCheckModel(Base):
