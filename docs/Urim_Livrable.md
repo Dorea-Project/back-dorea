@@ -174,7 +174,73 @@ leur verdict), `resisting_elsewhere`, `pericope_label`, `curation_reviewed_by`, 
 
 ---
 
-## 3. Deux documents, deux publics — et la frontière entre eux
+## 2 ter. La structure réelle d'une prédication — **mesurée sur trois, pas supposée**
+
+> Trois notes de prédication fournies le 2026-08-13 : `docs/temoins/Predication_Signes_Des_Temps.txt`
+> (1 Ch 12:32), `Predication_Saint_Esprit.txt` (Jn 7:37-39), `Predication_Ascension.txt` (Ac 1:1-14).
+> Elles ne confirment pas la conception : **elles en corrigent deux morceaux**.
+
+### 2 ter.1 Le squelette observé
+
+| Section | Signes | Saint-Esprit | Ascension |
+| :-- | :--: | :--: | :--: |
+| **Thème** — souvent « Aujourd'hui nous allons parler de… » | ✅ | ✅ | ✅ |
+| **Objectif** — l'intention déclarée | — | ✅ | — |
+| **Passage** + son texte recopié en entier | ✅ | ✅ | référence seule |
+| **Introduction** = contexte du livre (datation, auteur, visée) puis contexte culturel | ✅ | ✅ | ✅ |
+| **NB** — l'application immédiate, posée *avant* le plan | ✅ | — | — |
+| **Définitions** des termes du thème | ✅ | — | — |
+| **Phrase de transition** annonçant la division (« … en trois points ») | — | ✅ | — |
+| **Divisions numérotées**, avec sous-points `a-` `b-` | 3 | 3 | 4 |
+| Chaque division : une affirmation · **un ou plusieurs textes** · un commentaire · une application | ✅ | ✅ | ✅ |
+| **Illustrations** de la vie courante (la CAN, les télénovelas) | ✅ | — | — |
+| **Témoignage personnel** (« Mon Témoignage ») | ✅ | — | — |
+| **Conclusion** | — | ✅ | ✅ |
+
+**Ce que ça confirme** : le sermon convoque une **chaîne** (huit à douze textes), l'introduction
+est massivement **contextuelle** (datation, destinataires, visée du livre — exactement la matière
+de `context_note`), et le pasteur cherche le **sens des mots** (« signe », « prière », « soif »)
+— ce que la concordance sert déjà.
+
+### 2 ter.2 ⚠️ Le verrou du §1.3 refusait les trois
+
+**Aucune des trois ne contient de `proposition`.** Le seuil s'y adossait ; il aurait donc refusé
+son document aux trois pasteurs pour qui il est écrit. C'est le défaut de la chaîne de textes,
+répété : *une garantie qui ne lit pas la notation de celui qu'elle protège ne protège personne.*
+
+**Et le thème ne peut pas le remplacer** : `propose_theme` le remplit d'office, par gabarit fermé.
+*Un verrou que le moteur satisfait lui-même n'est pas un verrou.*
+
+> ✅ **Corrigé — le seuil est une division.** Un point du plan, écrit par lui. Les trois témoins
+> en portent trois, trois et quatre ; le moteur n'en écrit jamais aucun.
+
+Le seuil lui-même est inchangé (Q7 : *un seul élément suffit*) — seul l'élément qui le porte a
+changé, parce que la donnée réelle a désigné le bon.
+
+### 2 ter.3 ⚠️ Le contrôle de citation accusait un pasteur qui faisait l'inverse
+
+Le témoin du 06/06 cite Jean 7:37-39 dans une version **amplifiée** :
+
+> *« Jésus, se tenant debout, s'écria **[à haute voix]** : … Celui qui croit **[qui adhère,
+> compte, et se confie]** en moi »*
+
+Chaque insertion casse la contiguïté : verdict `altere`, fichier bloqué, et un pasteur qui
+s'entend dire qu'il a falsifié l'Écriture **alors que le crochet dit lui-même ce qu'il ajoute**.
+
+> ✅ **Corrigé — le contenu entre crochets est retiré de la comparaison, jamais du document.**
+> À l'écran les crochets restent visibles : l'assemblée voit, elle aussi, où finit le texte et
+> où commence l'explication. Et ce qui est **hors** crochets reste jugé mot pour mot — sinon il
+> suffirait d'en poser autour d'un mot changé.
+
+### 2 ter.4 🔴 Ce qui reste ouvert — **la version que le corpus ne détient pas**
+
+La règle des crochets sauve ce témoin-là. Elle ne règle pas le cas général : **un pasteur cite la
+Bible qu'il a**, et le corpus n'en détient que quelques-unes. Un texte projeté depuis une version
+absente rendra `altere` — c'est-à-dire une accusation, là où la vérité est *« je ne détiens pas
+votre Bible »*.
+
+C'est exactement la règle S19 appliquée au livrable : **on dit ce qui manque au corpus, jamais ce
+qui manque au pasteur.** La conception ne tranche pas seule ce point — voir `Q9`.
 
 > **Deux documents, trois formats.** Le `.pdf` est gardé (Q3, tranché) — mais c'est un **encodage**
 > de l'un des deux, jamais un troisième contenu. Voir §3.2, où la décision coûte plus qu'un
@@ -558,8 +624,10 @@ dernière chose produite avant le dimanche, l'archive est la première après.
 | **Q7** | ~~Le seuil de « quelque chose de lui » : combien d'éléments Braga ?~~ | ✅ **Tranché le 2026-08-13 : le point central seul suffit** — un élément, la `proposition`, jamais jugée sur son contenu (§1.3 bis). **Ouvre un delta hors livrable** : fermer la liste des dix codes (§9.4) |
 | **Q8** | ~~Un plan dicté puis confirmé satisfait-il V1 ?~~ | ✅ **Oui, sous confirmation explicite** (§10) — ce qui a été entendu est rendu tel quel avant d'entrer dans un document. Sans cette confirmation, V1 serait satisfaite par un moteur de transcription, ce qui est exactement son contraire |
 
-> **Toutes tranchées le 2026-08-13, et la construction est ouverte sur demande explicite de
-> l'auteur** — comme le socle du chantier 0 l'avait été le 03/08. Le §11 d'`Architecture v2` n'est
+| **Q9** | 🔴 **Le texte projeté vient d'une version que le corpus ne détient pas.** Le verdict rend alors `altere` — une accusation, là où la vérité est *« je ne détiens pas votre Bible »*. Trois issues possibles : **(a)** juger contre **toutes** les versions détenues avant de conclure, **(b)** ajouter un quatrième verdict *invérifiable* — honnête, mais il devient la porte de sortie de quiconque veut projeter n'importe quoi, **(c)** exiger que la diapositive déclare sa version, et ne juger que celles qu'on détient | Le `CHECK` de `citation_check`, et la frontière entre « ce texte est faux » et « ce texte, je ne peux pas le vérifier ». **La recommandation est (a) d'abord — elle ne coûte rien et referme la plupart des cas** ; (b) et (c) ne se décident qu'après avoir mesuré ce qui reste |
+
+> **Toutes tranchées le 2026-08-13** — sauf **Q9**, ouverte le même jour par trois prédications
+> réelles (§2 ter). **Et la construction est ouverte sur demande explicite de l'auteur** — comme le socle du chantier 0 l'avait été le 03/08. Le §11 d'`Architecture v2` n'est
 > pas *levé* pour autant : le dimanche réel n'a pas eu lieu, et R1 (dispersion) reste le risque
 > dominant. C'est une décision de l'auteur, prise en connaissance de cause, pas une condition
 > devenue vraie.

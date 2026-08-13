@@ -43,6 +43,19 @@ from dataclasses import dataclass
 #: caractère typographique, trois points, et deux points suivis d'un espace hésitant.
 _ELLIPSE = re.compile(r"…|\.\.\.")
 
+#: **Les crochets sont une glose, pas le texte** — et c'est une prédication réelle qui l'a appris.
+#:
+#: Le témoin du 06/06 cite Jean 7:37-39 ainsi : *« Jésus, se tenant debout, s'écria [à haute
+#: voix] : Si quelqu'un a soif… Celui qui croit [qui adhère, compte, et se confie] en moi »*.
+#: C'est une version amplifiée, où le crochet **signale lui-même** qu'il ajoute. Sans cette
+#: règle, chacune de ces insertions casse la contiguïté et le verdict tombe à `altere` : le
+#: pasteur s'entendrait dire qu'il falsifie l'Écriture alors qu'il fait exactement l'inverse —
+#: il montre où finit le texte et où commence l'explication.
+#:
+#: ⚠️ **La glose n'est pas effacée du document**, seulement de la comparaison. À l'écran, les
+#: crochets restent visibles : l'assemblée voit, elle aussi, ce qui est ajouté.
+_GLOSE = re.compile(r"\[[^\]]*\]")
+
 #: Les cinq apostrophes, **par leur point de code** — comme le normaliseur du moteur les écrit
 #: en échappement, et pour la même raison : sur un clavier ces glyphes sont indiscernables, et
 #: une relecture ne verrait pas qu'il en manque un. Ici on va plus loin en les nommant, parce
@@ -81,8 +94,10 @@ class Verdict:
 
 
 def mots(texte: str) -> tuple[str, ...]:
-    """La suite de mots normalisée — casse, accents, apostrophes, ponctuation repliés."""
-    plie = unicodedata.normalize("NFD", _APOSTROPHES.sub(" ", texte.casefold()))
+    """La suite de mots normalisée — gloses retirées, casse, accents, apostrophes, ponctuation
+    repliées."""
+    sans_glose = _GLOSE.sub(" ", texte)
+    plie = unicodedata.normalize("NFD", _APOSTROPHES.sub(" ", sans_glose.casefold()))
     sans_accent = "".join(c for c in plie if unicodedata.category(c) != "Mn")
     return tuple(mot for mot in _NON_MOT.sub(" ", sans_accent).split() if mot)
 

@@ -17,32 +17,47 @@ l'écran sans que personne l'ait décidé.
 projeter un — c'est la même parade que `TopicCount` côté veille, dont le type n'a aucun champ
 d'identité pour que la fuite soit inconstructible plutôt qu'interdite.
 
-## Le squelette Braga, et le seul élément qui ouvre le livrable
+## Le seuil — **corrigé le 2026-08-13 par trois prédications réelles**
 
-Les dix éléments sont **tous facultatifs** : le moteur n'en remplit aucun, parce qu'*un plan qui
-arrive complet n'est pas un plan que quelqu'un a préparé*. Un seul est exigé pour produire un
-document, et c'est **la proposition** — le sermon en une phrase.
+Le seuil est *« le point central seul suffit »*, et il ne bouge pas. Ce qui a bougé, c'est
+**l'élément qui le porte**.
 
-Ce n'est pas un seuil d'avancement, c'est une question binaire : *y a-t-il un homme derrière ce
-document ?* Le titre est une étiquette, les divisions se déduisent d'un plan, les illustrations
-viennent d'ailleurs ; la proposition est l'endroit où le pasteur dit ce qu'il va dire — et chez
-Braga, c'est elle qui gouverne les divisions.
+La première rédaction s'adossait à la `proposition` de Braga — le sermon en une phrase. Trois
+prédications réelles (`docs/temoins/`) ont montré que **pas une seule n'en contient**. Aucune ne
+formule de proposition ; toutes ont un **thème** et des **divisions numérotées**. Le verrou aurait
+donc refusé son document à exactement les trois pasteurs pour qui il est écrit — le même défaut
+que la chaîne de textes, qui « n'avait aucune surface où s'exercer » parce que personne ne
+soumettait ses appuis.
+
+**Le thème ne peut pas non plus tenir ce rôle**, et c'est décisif : `propose_theme` le remplit
+d'office (gabarit fermé, `axis + plan x matière`). Un verrou que le moteur satisfait lui-même
+n'est pas un verrou.
+
+> **Le seuil est donc une division** — un point du plan, écrit par lui.
+
+Les trois témoins en portent respectivement trois, trois et quatre ; c'est la colonne vertébrale
+observable d'une prédication. Et le moteur n'en écrit jamais aucune : *un plan qui arrive complet
+n'est pas un plan que quelqu'un a préparé*.
 
 ⚠️ **On ne juge jamais son contenu.** Non vide après normalisation, un point. Aucune longueur
-minimale, aucun modèle consulté : une machine qui apprécierait la valeur du point central d'un
-prédicateur serait la machine à sermons sous un autre nom, et cette fois avec une note.
+minimale, aucun décompte de divisions, aucun modèle consulté : une machine qui apprécierait la
+valeur du plan d'un prédicateur serait la machine à sermons sous un autre nom, et cette fois avec
+une note.
+
+## Les codes, et pourquoi la liste reste ouverte en base
+
+Les trois témoins portent des sections que Braga ne nomme pas — **objectif**, **définitions**,
+**contexte du livre**, **NB**, **témoignage personnel** — et les nomment chacun à leur façon. La
+colonne `preparation_element.element_code` reste donc **libre** : fermer la liste refuserait à un
+pasteur la section qu'il tient depuis vingt ans. Seul le **code de la division** est connu du
+livrable, parce que c'est lui que le verrou interroge.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: Les dix éléments du squelette (Braga), dans leur ordre canonique. La liste est **fermée**
-#: ici alors que `preparation_element.element_code` est encore un texte libre en base : le
-#: livrable s'adosse à `proposition`, et une liste ouverte rendrait le verrou contournable par
-#: une majuscule — pire, refuserait son document à un pasteur qui avait bien écrit son point
-#: central. Fermer la colonne elle-même touche `PUT /elements`, déjà en service : à faire après
-#: vérification du client, pas au détour de ce module.
+#: Les dix éléments du squelette (Braga) — l'ordre que la spec fixe, et que l'écran propose.
 ELEMENTS = (
     "titre",
     "introduction",
@@ -56,8 +71,20 @@ ELEMENTS = (
     "conclusion",
 )
 
-#: Celui sans lequel il n'y a pas de document. Voir l'en-tête.
-POINT_CENTRAL = "proposition"
+#: Ce que les prédications réelles portent **en plus**, et que Braga ne nomme pas
+#: (`docs/temoins/`). Elles ne ferment rien : la colonne reste libre. Elles existent pour que
+#: l'écran les **propose**, plutôt que de laisser un pasteur inventer un code par section.
+ELEMENTS_OBSERVES = (
+    "objectif",       # « Objectif : favorisant un retour aux fondamentaux » (Saint-Esprit)
+    "contexte",       # datation, auteur, visée du livre — systématique en introduction
+    "definitions",    # « Définition : A- un signe dans la Bible · B- la prière » (Signes)
+    "nb",             # l'application immédiate, posée avant le plan (Signes)
+    "temoignage",     # « Mon Témoignage » (Signes)
+)
+
+#: **Le seuil du livrable** — un point du plan, écrit par lui. Voir l'en-tête : ce n'est pas la
+#: `proposition` (aucun témoin n'en contient) ni le `theme` (le moteur le remplit d'office).
+POINT_CENTRAL = "divisions"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,5 +155,9 @@ def point_central_renseigne(plan: dict[str, str | None]) -> bool:
     Ce n'est pas « a-t-il modifié ? ». Pour le vérifier il faudrait d'abord lui avoir donné un
     brouillon à modifier — donc **écrire le sermon à sa place pour constater qu'il l'a
     corrigé**, ce que ce produit refuse de faire. Et une espace en fin de ligne suffirait à
-    passer n'importe quelle comparaison."""
+    passer n'importe quelle comparaison.
+
+    ⚠️ **Le plan arrive en plusieurs lignes de même code** (`divisions` x ordinal 1, 2, 3) : le
+    dictionnaire attendu ici est donc *déjà replié*, une entrée par code. Replier en gardant la
+    première non vide suffit — on cherche l'existence, jamais le nombre."""
     return bool((plan.get(POINT_CENTRAL) or "").strip())

@@ -26,6 +26,7 @@ from app.contexts.urim.deliverable.domain.citation import (
 )
 from app.contexts.urim.deliverable.domain.documents import (
     ELEMENTS,
+    ELEMENTS_OBSERVES,
     POINT_CENTRAL,
     Deck,
     Diapositive,
@@ -105,6 +106,27 @@ def test_l_accent_oublie_sur_une_tablette_n_est_pas_une_falsification():
     assert juger(saisi, ROM_8_1).verdict == EXACT
 
 
+def test_la_glose_entre_crochets_ne_falsifie_pas_le_texte():
+    """**Le témoin du 06/06 cite une version amplifiée** : « Jésus, se tenant debout, s'écria
+    [à haute voix] : Si quelqu'un a soif ».
+
+    Sans règle, chaque insertion casse la contiguïté et le verdict tombe à `altere` — le pasteur
+    s'entendrait accuser de falsifier l'Écriture alors qu'il fait l'inverse : le crochet **dit
+    lui-même** où finit le texte et où commence l'explication. À l'écran il reste visible ;
+    seule la comparaison l'ignore."""
+    servi = "Si quelqu'un a soif, qu'il vienne à moi, et qu'il boive."
+    projete = "Si quelqu'un a soif [un besoin spirituel], qu'il vienne à moi, et qu'il boive."
+    assert juger(projete, servi).verdict == EXACT
+
+
+def test_la_glose_ne_couvre_pas_une_alteration_du_texte():
+    """Le couple — sinon les crochets deviendraient une porte : il suffirait d'en poser autour
+    d'un mot changé. Ce qui est **hors** crochets reste jugé mot pour mot."""
+    servi = "Si quelqu'un a soif, qu'il vienne à moi, et qu'il boive."
+    projete = "Si quelqu'un a faim [un besoin spirituel], qu'il vienne à moi, et qu'il boive."
+    assert juger(projete, servi).verdict == ALTERE
+
+
 def test_sans_texte_servi_on_refuse_plutot_que_de_laisser_passer():
     """Une référence dont le corpus ne rend rien ne peut pas être validée par défaut :
     affirmer sans référence serait pire que se taire."""
@@ -166,15 +188,46 @@ def test_sans_point_central_il_n_y_a_pas_de_document():
     assert not point_central_renseigne({"titre": "L'ascension", "introduction": "…"})
 
 
-def test_une_seule_phrase_suffit_et_on_ne_la_juge_pas():
-    """Le couple. Aucune longueur minimale, aucune appréciation : une machine qui jugerait la
-    valeur du point central d'un prédicateur serait la machine à sermons sous un autre nom."""
-    assert point_central_renseigne({POINT_CENTRAL: "Christ tient."})
-    assert point_central_renseigne({POINT_CENTRAL: "L'ascension"})
+def test_une_seule_division_suffit_et_on_ne_la_juge_pas():
+    """Le couple. Aucune longueur minimale, aucun décompte : une machine qui jugerait la valeur
+    du plan d'un prédicateur serait la machine à sermons sous un autre nom."""
+    assert point_central_renseigne({POINT_CENTRAL: "1- La fin de l'œuvre de Christ sur terre."})
+    assert point_central_renseigne({POINT_CENTRAL: "Les pleurs"})
+
+
+def test_le_theme_ne_peut_pas_tenir_lieu_de_plan():
+    """⚠️ **La raison pour laquelle le seuil n'est pas le thème** : `propose_theme` le remplit
+    d'office, par gabarit fermé. Un verrou que le moteur satisfait lui-même n'en est pas un."""
+    assert not point_central_renseigne({"theme": "soteriologie, en thematique doctrine"})
+
+
+def test_le_seuil_accepte_les_trois_predications_reelles():
+    """Les trois témoins de `docs/temoins/` — **et la première rédaction les refusait toutes**.
+
+    Elle exigeait la `proposition` de Braga : aucune des trois n'en contient. Un verrou qui
+    refuse son document aux trois pasteurs pour qui il est écrit ne protège personne — c'est le
+    défaut de la chaîne de textes, qui n'avait « aucune surface où s'exercer »."""
+    ascension = {"theme": "l'ascension", POINT_CENTRAL: "1- La fin de l'œuvre de Christ"}
+    saint_esprit = {
+        "objectif": "un retour aux fondamentaux",
+        POINT_CENTRAL: "1- Si quelqu'un a soif…",
+    }
+    signes = {"definitions": "un signe dans la Bible", POINT_CENTRAL: "Les pleurs"}
+    assert all(
+        point_central_renseigne(temoin)
+        for temoin in (ascension, saint_esprit, signes)
+    )
 
 
 def test_le_point_central_fait_partie_des_dix():
-    """Garde-fou de cohérence : le verrou s'adosse à un code, et ce code doit être celui du
-    squelette — pas un onzième inventé ici."""
+    """Garde-fou de cohérence : le verrou s'adosse à un code du squelette, pas à un onzième
+    inventé ici."""
     assert POINT_CENTRAL in ELEMENTS
     assert len(ELEMENTS) == 10
+
+
+def test_les_sections_observees_ne_ferment_rien():
+    """Les témoins portent des sections que Braga ne nomme pas. Elles sont **proposées**, jamais
+    imposées : fermer la liste refuserait à un pasteur la section qu'il tient depuis vingt ans."""
+    assert set(ELEMENTS_OBSERVES).isdisjoint(ELEMENTS)
+    assert "temoignage" in ELEMENTS_OBSERVES  # « Mon Témoignage », témoin du 09/08
