@@ -23,6 +23,17 @@ part de leurs mots pleins ; deux versets différents beaucoup moins. Pour chaque
 candidat, on mesure l'accord lexical moyen sur tout le chapitre, et on retient celui qui gagne
 franchement. La méthode est vérifiable — le score s'imprime, et il se relit.
 
+## Un chapitre juste au début et faux à la fin
+
+Les deux premiers passages raisonnent par chapitre : ils l'expliquent en entier, ou pas du tout.
+Exode 7 leur échappait donc doublement — vingt-cinq versets parfaitement numérotés, quatre qui
+débordent dans le chapitre suivant, et un décalage 0 qui gagne franchement. Classé « bien
+numéroté », il n'écrivait rien, et « Exode 7:26 » n'affichait rien non plus.
+
+Le troisième passage part donc du **verset** et non du chapitre : tout verset de la Segond sans
+cible ni correspondance est cherché en tête du chapitre suivant. Ce sont 193 références sur les
+trois traductions, dont Nombres 16:36-50 et 1 Rois 4:21-34.
+
 ## Ce que le script refuse de faire
 
 **Il n'écrit rien qu'il n'ait pu confirmer.** Un chapitre dont aucun décalage ne convainc — un
@@ -77,6 +88,26 @@ PART_DE_L_ETALON = 0.8
 #: chapitre où deux décalages se valent est un chapitre qu'on n'a pas compris.
 AVANCE_MINIMUM = 0.10
 
+#: 🔴 **Le débordement ne se juge pas comme un alignement, et il faut dire pourquoi.**
+#:
+#: Partout ailleurs, le texte *choisit* : plusieurs décalages sont possibles, plusieurs positions
+#: dans le livre sont possibles, et l'accord lexical départage. Il doit donc être exigeant.
+#:
+#: Un débordement, lui, n'a rien à départager. On exige que les versets sans cible soient la
+#: **queue** de leur chapitre, et qu'ils remplissent **exactement** la tête libre du chapitre
+#: suivant — même compte, contiguë, ancrée au premier verset. Quand ces trois conditions
+#: tiennent, il n'existe aucune autre place où les mettre : la structure a déjà décidé, et
+#: l'accord n'est plus le juge mais le **garde-fou** — il ne sert qu'à refuser d'accoler la fin
+#: d'un chapitre à un texte sans rapport.
+#:
+#: Le prix de l'ancienne exigence était réel : Lévitique 5:20-26 accorde à 0,49 pour un seuil à
+#: 0,51, et c'est pourtant mot pour mot le même passage (« L'Éternel parla aussi à Moïse »).
+#: Deux traductions françaises séparées de deux siècles partagent peu de mots pleins sur une
+#: page de droit sacrificiel — c'est une propriété de la paire, pas un doute sur la place.
+#:
+#: Le plancher reste loin du bruit : deux versets sans rapport accordent autour de 0,10.
+PART_DE_L_ETALON_DEBORDEMENT = 0.55
+
 
 @dataclass
 class Alignement:
@@ -104,6 +135,29 @@ class Glissement:
     Aucune fenêtre de ±2 ne pouvait le voir, et l'élargir n'aurait pas suffi : il fallait
     accepter que la cible change de chapitre. On cherche donc, pour tout chapitre que le
     décalage simple n'explique pas, **où sa suite de versets se retrouve dans le livre**."""
+
+    livre: int
+    chapitre: int
+    accord: float
+    #: `(verset source) → (chapitre cible, verset cible)`
+    renvois: dict[int, tuple[int, int]]
+
+
+@dataclass
+class Debordement:
+    """La queue d'un chapitre que l'autre traduction a poussée dans le chapitre **suivant**.
+
+    🔴 Le trou que le rapport au chapitre a rendu visible. Exode 7 compte 29 versets dans la
+    Segond et 25 dans Ostervald : le décalage 0 gagne — il est juste pour les 25 premiers — et
+    le chapitre part donc dans « bien numérotés malgré le compte », qui n'écrit rien. Les quatre
+    versets qui débordent n'avaient aucune correspondance, et « Exode 7:26 » n'affichait rien.
+
+    Rien n'y était faux, et c'est pour cela que ça a tenu si longtemps : la panne était du bon
+    côté. Mais 193 références sur les trois traductions étaient simplement inatteignables,
+    dont Nombres 16:36-50 et 1 Rois 4:21-34 — quinze et quatorze versets d'un coup.
+
+    On ne les déduit pas de l'arithmétique, même règle que tout le reste : on va lire en tête du
+    chapitre suivant, et on n'écrit que si le texte est d'accord."""
 
     livre: int
     chapitre: int
@@ -178,6 +232,50 @@ def _chercher_dans_le_livre(
     }
 
 
+def _deborder(
+    orphelins: list[int],
+    reference: dict[int, str],
+    suivant: dict[int, str],
+    promis: set[int],
+    chapitre_suivant: int,
+    seuil: float,
+) -> tuple[float, dict[int, tuple[int, int]]] | None:
+    """Les versets sans cible, cherchés en tête du chapitre suivant.
+
+    Deux exigences de forme, avant même de regarder le texte. **En queue** : un débordement est
+    la fin d'un chapitre, pas un verset pris au milieu. **Pile la tête libre du suivant** : même
+    compte, contiguë, ancrée au premier verset du chapitre.
+
+    C'est la seconde qui fait tout le travail, et c'est elle qui distingue une frontière déplacée
+    d'un verset fondu. Luc 10:42 n'a pas de cible et Luc 11 est libre en entier : cinquante-quatre
+    places pour un verset, donc aucune raison de choisir la première — le verset est en réalité
+    fondu dans Luc 10:41, et il est refusé. Lévitique 5:20-26 déborde sur sept places libres,
+    exactement sept : il n'y a pas d'autre réponse à donner."""
+    fin = max(reference)
+    if orphelins != list(range(fin - len(orphelins) + 1, fin + 1)):
+        return None
+
+    # ⚠️ `libres` ENTIER, pas ses premiers éléments : s'il reste de la place après le
+    # débordement, c'est qu'on avait le choix — et dès qu'on a le choix, ce n'est plus ici que
+    # ça se décide.
+    tete = sorted(v for v in suivant if v not in promis)
+    debut = min(suivant)
+    if tete != list(range(debut, debut + len(orphelins))):
+        return None
+
+    paires = [
+        (reference[source], suivant[cible])
+        for source, cible in zip(orphelins, tete, strict=True)
+    ]
+    accord = sum(_accord(a, b) for a, b in paires) / len(paires)
+    if accord < seuil:
+        return None
+    return accord, {
+        source: (chapitre_suivant, cible)
+        for source, cible in zip(orphelins, tete, strict=True)
+    }
+
+
 async def cartographier(code: str, ecrire: bool) -> None:
     par_rang = {rang: label for rang, _osis, _t, label, _a in BOOKS}
 
@@ -212,8 +310,9 @@ async def cartographier(code: str, ecrire: bool) -> None:
     ]
     etalon = sum(accords_surs) / len(accords_surs) if accords_surs else 0.5
     seuil = etalon * PART_DE_L_ETALON
+    seuil_debordement = etalon * PART_DE_L_ETALON_DEBORDEMENT
     print(f"  etalon {REFERENCE}↔{code} : accord {etalon:.2f} sur {len(surs)} chapitres surs")
-    print(f"  seuil retenu : {seuil:.2f}\n")
+    print(f"  seuil retenu : {seuil:.2f}   (debordement : {seuil_debordement:.2f})\n")
 
     #: On ne regarde que les chapitres qui **diffèrent en compte** : ailleurs, la numérotation
     #: est la même et une correspondance identité n'apprendrait rien à personne.
@@ -270,11 +369,56 @@ async def cartographier(code: str, ecrire: bool) -> None:
             glissements.append(Glissement(livre, chapitre, accord, renvois))
     douteux = restants
 
+    # Troisième passage : les versets qu'aucune correspondance ne couvre. Les deux premiers
+    # raisonnent par CHAPITRE — ils cartographient un chapitre entier ou rien. Un chapitre juste
+    # sur ses vingt-cinq premiers versets et débordant sur les quatre derniers leur échappait
+    # tout entier, parce qu'il n'avait pas l'air d'un problème.
+    couvert: set[tuple[int, int, int]] = set()
+    promis: dict[tuple[int, int], set[int]] = {}
+    for a in etablis:
+        for verset in textes[REFERENCE][(a.livre, a.chapitre)]:
+            if (verset - a.decalage) in textes[code][(a.livre, a.chapitre)]:
+                couvert.add((a.livre, a.chapitre, verset))
+                promis.setdefault((a.livre, a.chapitre), set()).add(verset - a.decalage)
+    for g in glissements:
+        for source, (cible_ch, cible_v) in g.renvois.items():
+            couvert.add((g.livre, g.chapitre, source))
+            # Une cible déjà promise ne peut pas être réclamée deux fois : deux références qui
+            # rendent le même verset, c'est la faute que la table est censée empêcher.
+            promis.setdefault((g.livre, cible_ch), set()).add(cible_v)
+
+    debordements: list[Debordement] = []
+    orphelins: list[tuple[int, int, list[int]]] = []
+    for (livre, chapitre), versets in sorted(textes[REFERENCE].items()):
+        sans_cible = sorted(
+            v for v in versets
+            if v not in textes[code].get((livre, chapitre), {})
+            and (livre, chapitre, v) not in couvert
+        )
+        if not sans_cible:
+            continue
+        suivant = textes[code].get((livre, chapitre + 1))
+        trouve = _deborder(
+            sans_cible, versets, suivant,
+            promis.get((livre, chapitre + 1), set()), chapitre + 1, seuil_debordement,
+        ) if suivant else None
+        if trouve is None:
+            orphelins.append((livre, chapitre, sans_cible))
+        else:
+            debordements.append(Debordement(livre, chapitre, trouve[0], trouve[1]))
+
     print(f"  {len(suspects)} chapitres au compte different entre {REFERENCE} et {code}")
     print(f"  {len(etablis)} decalages a cartographier")
     print(f"  {len(glissements)} chapitres GLISSES (retrouves ailleurs dans le livre)")
+    print(f"  {len(debordements)} chapitres qui DEBORDENT sur le suivant")
     print(f"  {len(locaux)} bien numerotes malgre le compte (un verset fondu ou scinde)")
     print(f"  {len(douteux)} a la main\n")
+
+    for d in sorted(debordements, key=lambda x: (x.livre, x.chapitre)):
+        premier = min(d.renvois)
+        cible = d.renvois[premier]
+        print(f"    {par_rang[d.livre]:<16} ch. {d.chapitre}:{premier} → {cible[0]}:{cible[1]}"
+              f"   accord {d.accord:.2f}   {len(d.renvois)} versets")
 
     for g in sorted(glissements, key=lambda x: (x.livre, x.chapitre)):
         premier = min(g.renvois)
@@ -300,6 +444,19 @@ async def cartographier(code: str, ecrire: bool) -> None:
         if len(douteux) > 10:
             print(f"    … et {len(douteux) - 10} autres")
 
+    if orphelins:
+        n = sum(len(versets) for _l, _c, versets in orphelins)
+        print(f"\n  ⚠️ {n} versets restent sans cible — ni a leur propre reference, ni en tete")
+        print("     du chapitre suivant. Un verset fondu dans son voisin, le plus souvent :")
+        print("     rien ne s'affichera pour eux, et c'est la panne du bon cote.\n")
+        for livre, chapitre, versets in orphelins[:10]:
+            etendue = (
+                f"{min(versets)}-{max(versets)}" if len(versets) > 1 else f"{versets[0]}"
+            )
+            print(f"    {par_rang[livre]:<16} {chapitre}:{etendue}")
+        if len(orphelins) > 10:
+            print(f"    … et {len(orphelins) - 10} autres chapitres")
+
     if not ecrire:
         print("\n  rapport seul — relancer avec --ecrire pour remplir la table.")
         return
@@ -313,11 +470,11 @@ async def cartographier(code: str, ecrire: bool) -> None:
                     "from_ch": a.chapitre, "from_v": verset,
                     "to_ch": a.chapitre, "to_v": verset - a.decalage,
                 })
-    for g in glissements:
-        for source, (cible_ch, cible_v) in g.renvois.items():
+    for renvoyeur in (*glissements, *debordements):
+        for source, (cible_ch, cible_v) in renvoyeur.renvois.items():
             lignes.append({
-                "from_scheme": REFERENCE, "to_scheme": code, "book_id": g.livre,
-                "from_ch": g.chapitre, "from_v": source,
+                "from_scheme": REFERENCE, "to_scheme": code, "book_id": renvoyeur.livre,
+                "from_ch": renvoyeur.chapitre, "from_v": source,
                 "to_ch": cible_ch, "to_v": cible_v,
             })
 
