@@ -118,6 +118,55 @@ un GPU (400 à 1 100 €/mois)  vs  API bon marché (0,055 €/h) →  7 300 à 
 de 30 s. Le lot améliore, un GPU moins cher dégrade. **À remesurer sur la machine retenue**, comme
 les tarifs.
 
+### 2.2ter — Le chiffrage du modèle retenu (13/08/2026)
+
+Le §2.2 raisonnait « un GPU » sans dire lequel ni combien de temps. Repris sur le modèle que
+**D17** retient, `omniASR-CTC-7B` : **≈ 15 GiB de VRAM** (une carte 24 Go — L4, A10G, 4090 — pas
+besoin d'A100) et **21 secondes de calcul par heure d'audio**.
+
+| | Audio / mois | GPU / mois | Coût GPU | Par église |
+| :-- | --: | --: | --: | --: |
+| **Pilote (3 églises)** | 13 h | **≈ 5 min** | **< 5 €** | ~1,5 € |
+| **10 000 églises** | 43 300 h | 260 h — **36 % d'un seul GPU** | **190 à 370 €** | **0,02 à 0,04 €** |
+
+À l'échelle, c'est **40 à 75 fois moins cher** que l'API chère et 6 fois moins que la bon marché.
+Au pilote, treize heures d'audio coûtent ≈ 4 € sur l'API et ≈ 1 € de GPU à la demande : **les deux
+sont du bruit** — et c'est ce qui règle la question du détour.
+
+> ✅ **D20 — pas de détour par une API.** L'argument « commencer sur une API pour éviter
+> l'exploitation » ne tient que si le volume la justifie, et **au pilote il ne la justifie pas** :
+> treize heures d'audio par mois, ce n'est pas un GPU en continu, c'est une heure de calcul par
+> semaine en traitement de nuit. On part donc directement sur ce qu'on veut garder.
+>
+> ⚠️ Cela **ne rend pas le port inutile** (**D5**) — il reste ce qui permet de changer de modèle
+> après la mesure — mais cela le rend **moins urgent** qu'annoncé au §3.
+
+**Trois coûts que le §2.2 ne comptait pas, et qui ne sont pas nuls :**
+
+1. **25 Go de poids à charger.** Une fois sur une machine persistante ; sur du spot ou de
+   l'éphémère, c'est quelques minutes de démarrage à froid **à chaque réveil** — ce qui pousse vers
+   la machine allumée, donc vers les 370 € plutôt que les 190 € ;
+2. **le stockage de l'audio jusqu'à J+7** (**§4.3**) : à 10 000 églises, ≈ 280 Go écrits par mois,
+   ≈ 65 Go en rotation. **Moins de 2 €/mois** sur S3/MinIO. Négligeable — mais ce n'était pas zéro,
+   et une note qui chiffre doit le dire ;
+3. **l'exploitation** — le seul coût réel, et il n'est pas en euros. Tenir la machine, surveiller la
+   file, encaisser un OOM, redéployer. C'est **Q1**, et elle ne se chiffre pas ici.
+
+> 🔴 **Et une réserve sur mes propres chiffres de qualité, qui vaut plus que le chiffrage.**
+> Les CER du §5.3 — dioula 6,5 %, baoulé 10,7 % — sont ceux de la variante **`LLM-7B`**, la lente.
+> Les variantes **CTC sont documentées comme moins exactes**, et leur table par langue n'a pas été
+> relevée. **D17 retient le CTC sur un argument d'architecture et de débit ; les chiffres de qualité
+> cités viennent de son cousin.**
+>
+> La couverture ne change pas (même jeu d'entraînement), mais **le baoulé — déjà à 10,7 % avec le
+> meilleur modèle et huit heures d'entraînement — sera pire avec celui qu'on retient.** La mesure
+> de la ligne 2 du §9 doit donc comparer **les deux variantes sur le même audio**, et pas seulement
+> le CTC contre une API.
+>
+> **Issue possible à garder en tête** : CTC pour le français, `LLM` pour un passage en langue
+> locale. Le coût GPU serait alors celui de la variante lente — **six fois supérieur**, soit
+> ≈ 6 GPU à 10 000 églises. Ça reste sous l'API bon marché, et très loin sous la chère.
+
 ### 2.2bis — Ce que les poids ouverts changent (relevé le 13/08/2026)
 
 Trois faits, et le troisième est le plus important pour Dorea :
@@ -426,7 +475,11 @@ maintenant, et la réponse a changé.
 **`Omnilingual ASR` couvre 1 237 langues, Apache 2.0, et les nôtres sont dedans** — vérifié dans
 `lang_ids.py` du dépôt Meta, pas déduit d'une annonce :
 
-| Langue | Code | Heures d'entraînement | **CER** (7B, variante LLM) |
+⚠️ **Lire la colonne CER avec le §2.2ter à côté** : ces chiffres sont ceux de la variante
+**`LLM-7B`**, alors que **D17 retient la variante `CTC`**, documentée comme moins exacte. Ils
+disent ce que la famille sait faire, pas ce que le modèle retenu fera.
+
+| Langue | Code | Heures d'entraînement | **CER** (7B, variante **LLM**, ≠ celle retenue) |
 | :-- | :-- | --: | --: |
 | Français | `fra_Latn` | 4 615 h | **2,2 %** |
 | Bambara | `bam_Latn` | 15 h | 1,0 % |
@@ -618,7 +671,7 @@ Cette note appelle du code. Elle le nomme, et elle s'arrête.
 | # | À construire | Où | Dépend de |
 | :-- | :-- | :-- | :-- |
 | **1** | **Le client pose `entry_origin=dictated`** — dictée sur l'appareil, zéro octet serveur (**D1**) | mobile / PWA | **rien.** Le contrat serveur existe et est testé |
-| **2** | Un **banc de mesure du taux d'erreur, PAR LANGUE**, sur trois cultes réels — à la discipline de `scripts/urim_mesure_cout.py` (paramètres en dur et datés, entrées réelles). Compare au minimum `omniASR-CTC` auto-hébergé et une API, sur le **même** audio | `scripts/` | de l'audio réel · **Q3, Q6** |
+| **2** | Un **banc de mesure du taux d'erreur, PAR LANGUE**, sur trois cultes réels — à la discipline de `scripts/urim_mesure_cout.py` (paramètres en dur et datés, entrées réelles). Compare **trois** candidats sur le **même** audio : `omniASR-CTC-7B`, `omniASR-LLM-7B` (§2.2ter — les CER connus sont les siens, pas ceux du CTC) et une API | `scripts/` | de l'audio réel · **Q3, Q6** |
 | **2bis** | Un **essai d'auto-hébergement** : un GPU, `omniASR-CTC-7B`, mesurer le RTF réel sur la machine retenue plutôt que sur l'A100 de la fiche | hors dépôt | **Q1** |
 | 3 | Port `Transcriber` + `TranscriptResult` (segments, confiance, `provider`, `model_ref`) — c'est le `TranscriptionPort` de la spec de capture §4 | `urim/capture/` | le dégel du chantier 10 |
 | 4 | `NullTranscriber` + adaptateur réel + `build_transcriber(settings)` | `urim/capture/` | 3 · **Q1** (quel fournisseur) |
@@ -695,7 +748,7 @@ importe plus que la liste — **une fausse décision consomme la même attention
 
 ---
 
-*Note de conception — fait foi sur les décisions **D1 à D19**. `Dorea_Urim_Architecture_Transcription.md`
+*Note de conception — fait foi sur les décisions **D1 à D20**. `Dorea_Urim_Architecture_Transcription.md`
 et `Dorea_Urim_Capture_et_Retour.md` font foi sur la capture ; `Plan_Urim_Producteur.md` sur le
 retrait de `sermon` et sur l'ordre des chantiers ; `Sermon_Companion.md` sur l'état d'avant ce
 retrait. **Aucun code n'a été écrit.***
