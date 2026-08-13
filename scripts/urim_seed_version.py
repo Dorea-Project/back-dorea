@@ -47,6 +47,11 @@ Il ne les corrige pas, et il ne les explique pas non plus : `urim_versification.
 le texte, distingue le décalage du glissement, et remplit `urim_corpus_versification_map`.
 Ici on **compte**, et le seul travail est de compter à la bonne maille.
 
+**La découpe des versets.** Une source peut avoir raté une séparation et servir deux versets sous
+un seul numéro. `_recoudre` rend la coupure quand la source a laissé le numéro dans le texte, et
+imprime chaque recousure des deux côtés — ne pas donner à relire un texte biblique qu'on vient de
+couper serait le geste que ce dépôt refuse.
+
 ⚠️ **Aucun appel de modèle.** Le texte biblique ne vient jamais d'une machine — il vient des
 traducteurs. C'est la garantie que le produit tient partout ailleurs : le modèle nomme des
 références, la Bible donne le texte.
@@ -57,6 +62,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 import urllib.request
 from dataclasses import dataclass
@@ -181,6 +187,98 @@ def _lire_osis(cache: Path) -> dict:
 LECTEURS = {"getbible": _lire_getbible, "osis": _lire_osis}
 
 
+def _marqueur(numero: int) -> re.Pattern[str]:
+    """Un numéro de verset resté dans le texte : entre une fin de phrase et une majuscule."""
+    return re.compile(rf"(?<=[.!?:;»])\s?{numero}\s+(?=[A-ZÉÈÀÎÔÇ])")
+
+
+def _prochaine_couture(versets: dict[int, str]) -> tuple[int, re.Match[str]] | None:
+    """Le premier verset qui porte, dans son texte, le numéro d'un verset qui n'existe pas."""
+    for numero in sorted(versets):
+        if numero + 1 in versets:
+            continue
+        coupe = _marqueur(numero + 1).search(versets[numero])
+        if coupe is not None:
+            return numero + 1, coupe
+    return None
+
+
+def _recoudre(donnees: dict) -> None:
+    """Rendre à un verset fondu dans son voisin le numéro que la source lui a mangé.
+
+    🔴 Martin porte quatorze chapitres où un numéro de verset manque. Ce n'est pas une convention
+    de numérotation — c'est une découpe qui n'a pas eu lieu en amont : le numéro du verset suivant
+    est resté **dans** le texte du précédent, et les deux versets sont servis comme un seul.
+
+        2 Rois 7:2   …tu n'en mangeras point.3 Or il y avait a l'entree de la porte quatre
+                     hommes lepreux, et ils dirent l'un a l'autre…
+
+    Ce qui autorise à écrire la règle plutôt qu'à la deviner : dans les onze cas où le marqueur
+    existe, **il tombe entre les caractères 244 et 252**. La découpe amont a lâché autour de 250
+    caractères, toujours au même endroit. Un chiffre à cette place, précédé d'une fin de phrase et
+    suivi d'une majuscule, est un numéro de verset et rien d'autre.
+
+    ⚠️ **Aucun mot n'est écrit, ajouté ni réécrit.** On rend une séparation que la source a
+    perdue ; le texte reste celui du traducteur, au caractère près. C'est la seule raison pour
+    laquelle ce geste a le droit d'exister dans un dépôt où le texte biblique ne vient jamais
+    d'une machine.
+
+    Et **on n'invente pas de césure** : sans marqueur, on ne coupe pas. Nombres 26:52 est
+    visiblement fondu dans le 51 — la coupure se lit à l'œil, à « Et l'Eternel parla à Moïse ».
+    La lire à l'œil est précisément ce qui appartient à un humain, pas à ce script.
+
+    ⚠️ **On part du marqueur, jamais du trou.** Chercher les numéros manquants d'un chapitre
+    rate exactement les versets avalés en **fin** de chapitre : la numérotation y reste 1…N sans
+    aucun trou, le chapitre est seulement plus court, et rien ici ne sait qu'il devrait l'être
+    moins. Esther 7:10 et Osée 1:11 sont dans ce cas, et leur numéro resté dans le texte est la
+    seule chose qui les trahisse. C'est aussi pourquoi le trou ne sert plus qu'au **rapport** :
+    ce qu'on n'a pas su recoudre doit se lire, mais il ne commande pas la recherche.
+    """
+    recousus: list[tuple[str, int, int, str, str]] = []
+    laisses: list[tuple[str, int, int]] = []
+
+    for livre in donnees["books"]:
+        for chapitre in livre["chapters"]:
+            versets = {int(v["verse"]): v["text"] for v in chapitre["verses"]}
+            touche = False
+            # Un verset a pu en avaler plus d'un : on recoupe tant qu'un marqueur se présente,
+            # et chaque passage crée le numéro qu'il cherchait — la boucle s'arrête donc.
+            while (trouve := _prochaine_couture(versets)) is not None:
+                numero, coupe = trouve
+                entier = versets[numero - 1]
+                tete = entier[: coupe.start()].rstrip()
+                queue = entier[coupe.end() :].lstrip()
+                versets[numero - 1], versets[numero] = tete, queue
+                recousus.append(
+                    (livre["name"], int(chapitre["chapter"]), numero, tete, queue)
+                )
+                touche = True
+
+            laisses.extend(
+                (livre["name"], int(chapitre["chapter"]), n)
+                for n in sorted(set(range(1, max(versets) + 1)) - set(versets))
+            )
+            if touche:
+                chapitre["verses"] = [
+                    {"verse": n, "text": versets[n]} for n in sorted(versets)
+                ]
+
+    if not recousus and not laisses:
+        return
+
+    print(f"  {len(recousus) + len(laisses)} numeros de verset manquent dans la source :\n")
+    # Le contrôle est imprimé VERSET PAR VERSET, des deux côtés de la coupure. Recoudre du texte
+    # biblique sans le donner à relire serait exactement le geste que ce dépôt refuse.
+    for nom, ch, numero, tete, queue in recousus:
+        print(f"    {nom} {ch}:{numero}  RECOUSU")
+        print(f"      {numero - 1} ← …{tete[-72:]}")
+        print(f"      {numero} → {queue[:72]}…")
+    for nom, ch, numero in laisses:
+        print(f"    {nom} {ch}:{numero}  laisse tel quel — aucun marqueur, la cesure est une "
+              f"decision")
+    print()
+
+
 def _telecharger(version: Version) -> dict:
     """~6 à 10 Mo par version, mis en cache : resemer ne retélécharge pas."""
     cache = Path("data") / version.brut
@@ -281,6 +379,7 @@ async def rapport(s, code: str) -> None:
 
 async def semer(version: Version, purge: bool) -> None:
     donnees = _telecharger(version)
+    _recoudre(donnees)
     connus = {label for _, _, _, label, _ in BOOKS}
     rangs = {label: rang for rang, _osis, _t, label, _a in BOOKS}
 
