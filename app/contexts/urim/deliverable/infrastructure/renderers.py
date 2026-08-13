@@ -229,16 +229,7 @@ def rendre_note(note: Note) -> bytes:
 
     if note.pesees:
         document.add_heading("Ce dont ce texte parle", level=1)
-        # ⚠️ **Ce qui est au cœur d'abord, ce dont le texte se tait à la fin.** Les quatre
-        # `absent` portent chacun leur motif — c'est la distinction qui compte (*quelqu'un a
-        # regardé et le texte n'en dit rien* ≠ *personne n'a regardé*) — mais les laisser dans
-        # l'ordre du corpus repoussait en page 3 ce que le pasteur vient chercher.
-        rang = {"dominant": 0, "porte": 1, "resiste": 2, "absent": 3}
-        for axe, force, motif in sorted(note.pesees, key=lambda p: rang.get(p[1], 9)):
-            document.add_paragraph(
-                f"{_clair(axe, _LOCI)} — {_clair(force, _FORCES)}", style="List Bullet"
-            )
-            _sous_texte(document, motif)
+        _pesees(document, note)
 
     if note.mises_en_garde:
         document.add_heading("Ce que ce texte ne dit pas", level=1)
@@ -314,6 +305,72 @@ def rendre_note(note: Note) -> bytes:
     flux = BytesIO()
     document.save(flux)
     return flux.getvalue()
+
+
+def _nom_de_locus(axe: str) -> str:
+    """**Le nom savant ET ce qu'il désigne** — « Christologie — Jésus-Christ ».
+
+    ⚠️ Le remplacer par sa seule glose lui fait perdre ce qu'il est : les dix loci sont un
+    vocabulaire fixe, celui dans lequel un pasteur a été formé et dans lequel il retrouvera son
+    travail d'une semaine à l'autre. Traduire seul efface la clé ; laisser seul le terme
+    technique exclut celui qui ne l'a pas appris. Les deux, donc — le savant d'abord, parce
+    que c'est lui qui nomme."""
+    clair = _clair(axe, _LOCI)
+    savant = axe.split("—")[0].strip().replace("_", " ").capitalize()
+    return f"{savant} — {clair}" if clair.lower() != savant.lower() else savant
+
+
+def _pesees(document, note: Note) -> None:
+    """Ce que le texte porte — **et qui le dit**.
+
+    Trois régimes, parce que ces lignes n'ont pas le même statut :
+
+    - **son choix** et **le dominant** sont développés : ce sont eux qui décident du sermon,
+      et ils **ne coïncident pas toujours**. Nommer les deux côte à côte est l'information
+      la plus utile de la page ;
+    - ce qui **porte** ou **résiste** est nommé avec son motif, sans être mis en avant ;
+    - ce dont le texte **ne dit rien** tient en une ligne, à la fin. La distinction reste
+      (*quelqu'un a regardé* ≠ *personne n'a regardé*), mais quatre paragraphes pour dire
+      « rien ici » repoussaient en page 3 ce que le pasteur vient chercher.
+    """
+    from docx.shared import Pt
+
+    retenu = [p for p in note.pesees if note.axe_retenu and p[0] == note.axe_retenu]
+    dominants = [p for p in note.pesees if p[1] == "dominant" and p not in retenu]
+    autres = [
+        p for p in note.pesees
+        if p not in retenu and p not in dominants and p[1] != "absent"
+    ]
+    muets = [p for p in note.pesees if p[1] == "absent" and p not in retenu]
+
+    for pesees, etiquette in ((retenu, "votre choix"), (dominants, "le dominant du texte")):
+        for axe, force, motif in pesees:
+            titre = document.add_paragraph()
+            titre.add_run(_nom_de_locus(axe)).bold = True
+            marque = titre.add_run(f"  ({etiquette})")
+            marque.italic = True
+            marque.font.size = Pt(9)
+            if etiquette == "votre choix" and force != "dominant":
+                # Le désaccord se dit, il ne se corrige pas : il a peut-être raison, et c'est
+                # lui qui prêche.
+                _sous_texte(
+                    document,
+                    f"Le corpus le classe « {_clair(force, _FORCES)} » sur cette unité.",
+                )
+            document.add_paragraph(motif)
+
+    for axe, force, motif in autres:
+        ligne = document.add_paragraph(style="List Bullet")
+        ligne.add_run(f"{_nom_de_locus(axe)} — {_clair(force, _FORCES)}")
+        _sous_texte(document, motif)
+
+    if muets:
+        _sous_texte(
+            document,
+            "Relus et sans objet ici : "
+            + ", ".join(_clair(axe, _LOCI) for axe, _f, _m in muets)
+            + ". (Relus, pas oubliés : le texte n'en dit rien.)",
+        )
 
 
 def _sous_texte(document, texte: str) -> None:

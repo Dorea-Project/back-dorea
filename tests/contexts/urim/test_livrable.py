@@ -219,6 +219,18 @@ def test_le_deck_n_a_nulle_part_ou_mettre_une_mise_en_garde():
     assert _champs(Diapositive) & interdits == set()
 
 
+def test_la_note_distingue_le_choix_du_pasteur_du_dominant_du_corpus():
+    """**Les deux ne coïncident pas toujours, et c'est l'information la plus utile.**
+
+    Sur Actes 1:1-14, le corpus trouve la pneumatologie dominante ; le pasteur a prêché la
+    christologie — et son plan entier lui donne raison. Les fondre dans une seule liste ferait
+    disparaître le désaccord, or c'est là qu'il a quelque chose à décider.
+
+    Le reste du dépôt tient déjà la distinction : l'archive range sous l'axe **retenu**, jamais
+    sous le dominant calculé."""
+    assert "axe_retenu" in _champs(Note)
+
+
 def test_la_note_les_porte_toutes():
     """Le couple : ce que l'écran refuse, la note l'imprime — sinon la frontière ne
     protégerait rien, elle supprimerait."""

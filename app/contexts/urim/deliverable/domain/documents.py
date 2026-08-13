@@ -143,6 +143,15 @@ class Note:
     versets: tuple[tuple[str, str], ...]
     #: `(axe, force, motif)` — les dix, `absent` compris.
     pesees: tuple[tuple[str, str, str], ...]
+    #: **L'axe que le pasteur a retenu** — sa décision, pas le calcul du corpus.
+    #:
+    #: Les deux ne coïncident pas toujours, et c'est l'information la plus utile de la
+    #: section : *« Christologie — votre choix »* à côté de *« Pneumatologie — ce que le corpus
+    #: trouve dominant »*. Les fondre en une seule liste ferait disparaître le désaccord, or
+    #: c'est précisément là que le pasteur a quelque chose à décider. Le reste du dépôt tient
+    #: déjà la distinction — l'archive range sous **l'axe retenu**, jamais sous le dominant
+    #: calculé, et l'étage du thème dérive du retenu.
+    axe_retenu: str | None
     #: Ce que le texte **ne dit pas**.
     mises_en_garde: tuple[str, ...]
     #: `(plan x matiere, faisable, motif de refus, risque de proof-texting)`.

@@ -327,6 +327,7 @@ def _note_depuis(etude) -> Note:
             (pesee.label or pesee.axis_code, pesee.strength, pesee.rationale)
             for pesee in etude.bearings
         ),
+        axe_retenu=etude.record.axis_code,
         mises_en_garde=tuple(etude.caveats),
         faisabilites=tuple(
             (
