@@ -642,6 +642,45 @@ Cette note appelle du code. Elle le nomme, et elle s'arrête.
 
 ## 10. Questions ouvertes — à trancher par un humain
 
+### 10.0 Le tri — sur vingt-huit points, **un seul bloque aujourd'hui**
+
+Dix-neuf décisions et neuf questions font une liste intimidante, et c'est trompeur. Passées au
+crible, la plupart ne sont pas des arbitrages : ce sont des **conséquences** de choses déjà tranchées
+ailleurs dans le dépôt, ou des constatations que la vérification du code a confirmées. Le tri
+importe plus que la liste — **une fausse décision consomme la même attention qu'une vraie.**
+
+| Catégorie | Combien | Lesquelles | Qui décide |
+| :-- | --: | :-- | :-- |
+| **Déjà tranché ailleurs** — la note ne fait que le reporter | 10 | **D5** (`TranscriptionPort`, spec capture §4) · **D8** (précédent `media/video.py`) · **D9** (`language_hints`, §4) · **D10-D11** (couverture 30 %, *« partiel jamais un silence »*, §10.5) · **D12** (S36) · **D13** (pilier 2) · **D14** (M9-1) · **D15** (Plan_Urim_Producteur, 05/08) · **D2** (*« côté église, donc côté payant »*, commit `da4d2ef`) | ⛔ **personne** — c'est écrit |
+| **Conséquence ou constatation** — l'arithmétique ou le code tranche seul | 6 | **D1** (chaîne `entry_origin` vérifiée entière) · **D3** · **D7** (`sermon_max_bytes` existe) · **D8bis** (exigence, pas choix) · **D16** · **D18** | ⛔ **personne** |
+| **Décision d'ingénierie** — la mienne, contestable, tracée | 3 | **D4** (unité = la capture, pas la minute) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) | ✅ **prise** — **D17** sera confirmée ou refutée par la mesure |
+| **Ne se décide pas — se mesure** | 2 | **Q3** (quel modèle) · **Q9** (les seuils) | 📏 **l'audio**, ligne 2 du §9 |
+| **Vraie décision humaine, différable** | 4 | **Q2** (qui paie) · **Q5** (rétention négociable) · **Q6** (quelles langues promettre) · **Q8** (qui a la capture) | ⏳ **après l'audio** |
+| **Vraie décision humaine, à LANCER maintenant** | 1 | **Q4** (information de l'assemblée, 7 pays) | ⚠️ **délai externe non compressible** — la décision peut attendre, **l'instruction non** |
+| 🔴 **Bloquante aujourd'hui** | **1** | **Q7** | 🔴 **vous, cette semaine** |
+
+**Trois choses que ce tri fait apparaître :**
+
+1. **Q7 est le seul verrou de la semaine.** Tant qu'elle n'est pas tranchée, on ne sait pas si
+   `sermon` se démolit (R0→R4, du travail disponible tout de suite) ou se prolonge. Tout le reste
+   attend soit l'audio, soit rien ;
+2. **Q1 a changé de nature le 13/08.** Ce n'était pas une décision d'argent — et depuis les poids
+   ouverts, elle ne l'est plus du tout : au-delà de ~300 églises le GPU souverain est **le moins
+   cher des deux**. Ce qui reste à décider n'est pas *« peut-on se le permettre ? »* mais
+   *« qui tient la machine la nuit du dimanche ? »*. **C'est une question d'exploitation, et elle
+   n'a pas le même destinataire** ;
+3. **Q4 est la seule dont l'horloge tourne déjà.** Instruire une obligation légale dans sept pays
+   prend des semaines qu'aucune décision ne compresse — même remarque que le plan Finance fait sur
+   le mobile money. La lancer maintenant ne coûte rien et ne présume de rien.
+
+> ⚠️ **Et le tri est lui-même un constat sur ce dépôt.** Vingt et un points sur vingt-huit étaient
+> déjà résolus avant que cette note les écrive. C'est bon signe — les specs tiennent, et une
+> question neuve trouve le plus souvent sa réponse dans une règle existante. C'est aussi **R1**, la
+> dispersion : une note qui dramatise en *décisions* ce que le dépôt avait déjà tranché fabrique du
+> travail de lecture, pas du travail. **Le tri appartient au livrable, pas au lecteur.**
+
+### 10.1 Les questions, en clair
+
 | # | Question | Pourquoi elle ne se tranche pas dans cette note |
 | :-- | :-- | :-- |
 | **Q1** | **Souveraineté — et elle ne coûte plus rien à partir d'une certaine taille.** Accepte-t-on qu'un culte ivoirien complet, voix de l'assemblée comprises, transite par un serveur américain ou européen ? Et la dictée par les serveurs de Google (**D1**) ? | Ce n'était pas un arbitrage de prix, et ça l'est encore moins depuis §2.2bis : les poids ouverts sont en **Apache 2.0**, et au-delà de ~300 églises **le GPU souverain est le moins cher des deux**. La question qui reste est celle de l'**exploitation** — qui tient la machine, la nuit du dimanche |
