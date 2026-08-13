@@ -491,6 +491,90 @@ async def test_la_note_porte_ce_que_l_ecran_refuse():
     assert etude.lectures == [prep.id]  # le dossier a été rejoué, pas reconstruit
 
 
+async def test_le_pdf_est_une_conversion_du_fichier_rendu():
+    """**Jamais une seconde mise en page.** Deux moteurs pour le même document dérivent, et ils
+    dérivent en silence : le jour où le PDF oublie une mise en garde que le `.docx` porte
+    encore, personne ne le voit.
+
+    Ce que le test tient : la conversion reçoit **les octets déjà rendus** et leur extension."""
+    import app.contexts.urim.deliverable.application.service as service_module
+
+    prep = _preparation()
+    service = _service(prep, elements=_PLAN)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR,
+        study_id=prep.id,
+        diapositives=[DiapositiveSoumise("Le texte", "Hébreux 13:1", HB_13_1)],
+    )
+
+    recus: list[tuple[bytes, str]] = []
+
+    async def _fausse_conversion(octets, *, extension):
+        recus.append((octets, extension))
+        return b"%PDF-1.7 (converti)"
+
+    origine = service_module.convertir_en_pdf
+    service_module.convertir_en_pdf = _fausse_conversion
+    try:
+        format_, octets = await service.rendre(
+            actor_account_id=AUTEUR, deliverable_id=dossier.record.id, format="pdf"
+        )
+    finally:
+        service_module.convertir_en_pdf = origine
+
+    assert format_ == "pdf"
+    assert octets.startswith(b"%PDF")
+    (recu, extension) = recus[0]
+    assert extension == "pptx"
+    assert recu.startswith(b"PK")  # c'est bien le deck rendu qui est converti
+
+
+async def test_une_conversion_qui_echoue_rend_le_format_natif():
+    """**Aucun mur un vendredi soir.** Le pasteur repart avec son fichier ; il lui manque une
+    commodité, pas son travail. Et le client lit le `Content-Type`, pas sa demande."""
+    import app.contexts.urim.deliverable.application.service as service_module
+
+    prep = _preparation()
+    service = _service(prep, elements=_PLAN)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR,
+        study_id=prep.id,
+        diapositives=[DiapositiveSoumise("Le texte", "Hébreux 13:1", HB_13_1)],
+    )
+
+    async def _pas_de_libreoffice(octets, *, extension):
+        raise service_module.ConversionIndisponibleError("LibreOffice n'est pas installé.")
+
+    origine = service_module.convertir_en_pdf
+    service_module.convertir_en_pdf = _pas_de_libreoffice
+    try:
+        format_, octets = await service.rendre(
+            actor_account_id=AUTEUR, deliverable_id=dossier.record.id, format="pdf"
+        )
+    finally:
+        service_module.convertir_en_pdf = origine
+
+    assert format_ == "pptx"
+    assert octets.startswith(b"PK")
+
+
+async def test_un_livrable_rejete_ne_se_convertit_pas_davantage():
+    """Le verrou est **avant** la conversion : demander le PDF d'un document refusé, c'est
+    demander deux fois ce que le contrôle existe pour ne pas produire."""
+    prep = _preparation()
+    service = _service(prep, elements=_PLAN)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR,
+        study_id=prep.id,
+        diapositives=[DiapositiveSoumise("Le texte", "Hébreux 13:1", HB_13_1_ALTERE)],
+    )
+
+    with pytest.raises(LivrableNonValideError):
+        await service.rendre(
+            actor_account_id=AUTEUR, deliverable_id=dossier.record.id, format="pdf"
+        )
+
+
 async def test_le_service_du_livrable_n_a_aucun_port_de_reservation():
     """**Générer ne peut rien consommer**, et ce n'est pas une intention : le service n'a aucun
     moyen de compter quoi que ce soit. Un port absent ne s'appelle pas par accident."""

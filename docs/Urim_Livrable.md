@@ -587,8 +587,21 @@ Vérification faite contre le code, pas contre l'intention :
 4. **La section « mots de l'original » reste vide** : `StudyDTO` ne les rend pas (ils vivent dans
    la vue « en savoir plus sur un passage »). Vide **et nommée**, plutôt qu'inventée.
 
-**Ce qui reste** : le **PDF** (§3.2) — LibreOffice dans le `Dockerfile`, conversion bornée — et
-la fermeture des dix codes Braga (§9.4), qui touche une route déjà en service.
+✅ **Le PDF est livré** (2026-08-13) — `deliverable/infrastructure/pdf.py`, `?format=pdf` sur la
+route de fichier, LibreOffice (Writer + Impress seulement) dans le `Dockerfile`. Trois gardes
+que le dépôt n'avait jamais eu à écrire : **délai de 30 s**, **répertoire temporaire effacé**
+(un document de préparation est privé), **une conversion à la fois** (`soffice` tient mal la
+concurrence, et une file non bornée est une panne mémoire un dimanche matin). Plus un profil
+jetable par appel, sans quoi deux conversions se disputent le profil du conteneur.
+
+⚠️ **Non éprouvé de bout en bout** : LibreOffice n'est pas sur la machine de développement.
+Ce qui **est** vérifié : la conversion reçoit les octets déjà rendus et leur extension, un
+échec rend le **format natif** avec son vrai `Content-Type` (*aucun mur un vendredi soir*), et
+un livrable rejeté ne se convertit pas davantage. Le chemin réel se vérifie au premier
+`docker build`.
+
+**Ce qui reste** : la fermeture des dix codes Braga (§9.4), qui touche une route déjà en
+service, et les décisions du lexique ([`Urim_Lexique_Strong.md`](Urim_Lexique_Strong.md)).
 
 ⚠️ **`uv` n'étant pas dans le `PATH`, `python-docx` a été installé par `pip` et déclaré dans
 `pyproject.toml` ; `uv.lock` reste en retard** (il ignore déjà `python-pptx` et `pypdf`). Le

@@ -54,6 +54,10 @@ from app.contexts.urim.deliverable.domain.documents import (
     Note,
     point_central_renseigne,
 )
+from app.contexts.urim.deliverable.infrastructure.pdf import (
+    ConversionIndisponibleError,
+    convertir_en_pdf,
+)
 from app.contexts.urim.deliverable.infrastructure.renderers import (
     rendre_deck,
     rendre_note,
@@ -65,8 +69,15 @@ from app.contexts.urim.domain.errors import (
 )
 from app.contexts.urim.infrastructure.corpus.index import CorpusIndex, verses_between
 from app.contexts.urim.infrastructure.corpus.readers import IndexedCorpusReader
+from app.core.logging import get_logger
+
+_logger = get_logger("urim.livrable")
 
 DECK, NOTE = "deck", "note"
+
+#: Le troisième encodage — demandé **à la lecture**, jamais stocké comme un document de
+#: plus : `deliverable.format` garde le natif, et le PDF s'en déduit.
+PDF = "pdf"
 
 #: Le format natif de chaque document. Le PDF est une **conversion** demandée à la lecture, pas
 #: un troisième document : il n'apparaît donc pas ici.
@@ -144,7 +155,7 @@ class UrimDeliverableService:
         return LivrableDTO(record=livrable, controles=controles)
 
     async def rendre(
-        self, *, actor_account_id: UUID, deliverable_id: UUID
+        self, *, actor_account_id: UUID, deliverable_id: UUID, format: str = ""
     ) -> tuple[str, bytes]:
         """Les octets — **et seulement pour ce qui porte déjà `conforme`**.
 
@@ -170,9 +181,32 @@ class UrimDeliverableService:
                 actor_account_id=actor_account_id,
                 study_id=dossier.record.preparation_id,
             )
-            note = _note_depuis(etude)
-            return FORMAT_NATIF[NOTE], rendre_note(self._developper(note))
-        return FORMAT_NATIF[DECK], rendre_deck(_deck_depuis(dossier))
+            natif, octets = FORMAT_NATIF[NOTE], rendre_note(
+                self._developper(_note_depuis(etude))
+            )
+        else:
+            natif, octets = FORMAT_NATIF[DECK], rendre_deck(_deck_depuis(dossier))
+
+        if format != PDF:
+            return natif, octets
+        return await self._en_pdf(natif, octets)
+
+    async def _en_pdf(self, natif: str, octets: bytes) -> tuple[str, bytes]:
+        """Le PDF est une **conversion du fichier déjà rendu**, jamais une seconde mise en page.
+
+        Deux moteurs pour le même document dériveraient, et ils dériveraient en silence : le
+        jour où le PDF oublie une mise en garde que le `.docx` porte encore, personne ne le
+        voit. En convertissant, la propriété est acquise — *le PDF ne peut pas dire autre chose
+        que le fichier dont il sort*.
+
+        ⚠️ **Un échec rend le format natif**, jamais une erreur. C'est la règle du moteur
+        appliquée ici : *aucun mur un vendredi soir*. Le pasteur repart avec son fichier ; il
+        lui manque une commodité, pas son travail."""
+        try:
+            return PDF, await convertir_en_pdf(octets, extension=natif)
+        except ConversionIndisponibleError as motif:
+            _logger.info("urim_pdf_repli", format=natif, motif=str(motif))
+            return natif, octets
 
     async def relire(
         self, *, actor_account_id: UUID, deliverable_id: UUID

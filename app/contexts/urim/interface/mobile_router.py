@@ -384,6 +384,7 @@ async def get_deliverable(
 _TYPES = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
 }
 
 
@@ -394,7 +395,10 @@ _TYPES = {
     responses={200: {"content": {t: {} for t in _TYPES.values()}}},
 )
 async def download_deliverable(
-    deliverable_id: UUID, actor: CurrentActor, service: DeliverableServiceDep
+    deliverable_id: UUID,
+    actor: CurrentActor,
+    service: DeliverableServiceDep,
+    format: str = Query(default="", pattern="^(pdf)?$"),
 ) -> Response:
     """**La première route du dépôt qui ne rend pas du JSON**, et la dernière porte du verrou.
 
@@ -403,12 +407,20 @@ async def download_deliverable(
     que le produit veut montrer. Réclamer les octets de ce qui a été rejeté est autre chose —
     c'est demander précisément ce que le contrôle existe pour ne pas produire.
 
+    **`?format=pdf`** convertit le fichier déjà rendu — jamais une seconde mise en page :
+    deux moteurs pour le même document dérivent, et ils dérivent en silence. Si la
+    conversion échoue ou que LibreOffice manque, **le format natif est servi** avec son
+    type réel : *aucun mur un vendredi soir*. Le client lit le `Content-Type`, pas sa
+    demande.
+
     ⚠️ **Rien n'est stocké.** Le fichier est produit à la demande et rendu dans la réponse :
     ranger les préparations privées de tous les prédicateurs derrière une URL publique
     contredirait la seule garde qui les protège. Ce que le serveur garde, c'est ce qui est monté
     à l'écran (`citation_check`), pas le binaire."""
     format_, octets = await service.rendre(
-        actor_account_id=actor.account_id, deliverable_id=deliverable_id
+        actor_account_id=actor.account_id,
+        deliverable_id=deliverable_id,
+        format=format,
     )
     return Response(
         content=octets,

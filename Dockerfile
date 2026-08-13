@@ -10,6 +10,16 @@ ENV PYTHONUNBUFFERED=1 \
 # uv : installateur/gestionnaire de dépendances
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# ⚠️ **LibreOffice, et rien de plus.** Le PDF du livrable Urim est une CONVERSION du
+# fichier déjà validé — jamais une seconde mise en page, qui dériverait en silence.
+# `--no-install-recommends` et les deux seuls composants utiles (Writer pour la note,
+# Impress pour les diapositives) : la suite complète triplerait l'image pour un tableur
+# et une base de données dont personne n'a besoin ici.
+#
+# C'est le premier paquet système de cette image, et le premier processus externe du
+# backend. Si un jour le PDF est abandonné, ces lignes partent avec lui.
+RUN apt-get update \n    && apt-get install -y --no-install-recommends libreoffice-writer libreoffice-impress \n    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Couche dépendances (cache tant que pyproject/lock ne changent pas)
