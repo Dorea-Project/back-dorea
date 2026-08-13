@@ -58,16 +58,24 @@ from app.contexts.urim.application.curation import (
     PORTEE_ENSEMBLE,
     SIGNATAIRE_IA,
     empreinte_de_curation,
+    verifier_forme_machine,
 )
+from app.contexts.urim.domain.errors import CurationInvalideError
 from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusDoctrinalBearingModel,
     CorpusDoctrinalCaveatModel,
     CorpusPericopeModel,
     CorpusReviewModel,
     CorpusVerseModel,
+    CorpusVersionModel,
 )
 from app.core.database import async_session_factory
 from scripts.urim_seed_books import BOOKS
+
+#: La version **contre laquelle la curation a été écrite**. Toute vérification doit la nommer :
+#: le corpus porte désormais trois traductions, et comparer une citation à la mauvaise revient
+#: à accuser d'invention un verset recopié mot pour mot.
+VERSION_DE_CURATION = "LSG"
 
 #: Une formule qui revient sur au moins tant d'unités n'est plus une lecture, c'est un moule.
 #:
@@ -93,28 +101,21 @@ _EMPREINTE = 6
 #: Au-delà, l'unité « porte » presque tous les loci — le modèle a voulu être serviable.
 _LOCI_PORTANTS_MAX = 7
 
-#: ⚠️ **Ce sont les règles de la MACHINE, pas celles du corpus.**
+#: ⚠️ **Ce que D3 signale ENCORE, une fois les règles certaines parties au validateur.**
 #:
-#: 🔴 Le premier passage a signalé Romains 8:1-11 — l'une des six mises en garde posées **à la
-#: main**, celle qui cite le Texte Reçu et la variante du v. 1. Elle est juste : un humain peut
-#: consulter un apparat critique et en répondre. Le modèle, non — il inventera la variante et
-#: personne ne le verra.
+#: `manuscrit` et `autorité` ne sont plus ici : `curation.py` les refuse à l'écriture, aux deux
+#: endroits qui écrivent du corpus. Les garder en double aurait produit deux définitions qui
+#: divergent le jour où l'une est corrigée. Le détecteur les importe pour continuer à mesurer
+#: ce qui serait entré **avant** le validateur.
 #:
-#: Ces détecteurs ne s'appliquent donc qu'aux lignes signées par l'IA. Les appliquer à tout
-#: aurait mis en tête de file la seule ligne du corpus dont on est sûr.
+#: 🔴 La *négation de doctrine* reste ici, et j'allais la déplacer avec les autres. Les neuf
+#: lignes prises, lues en entier, l'ont interdit : **huit étaient justes** — la rétribution de
+#: Bildad n'est pas une doctrine, « ne pardonne pas leur iniquité » est une supplication et non
+#: un énoncé sur le pardon divin, le cantique d'Ézéchias guéri n'est pas une promesse générale.
+#: La neuvième restreignait Jean 14:2-3 aux disciples du premier siècle, et aucune expression
+#: régulière ne l'aurait distinguée : la différence est théologique. **Un refus aurait payé
+#: cette prise de huit bonnes lignes.**
 _FORMES_INTERDITES = (
-    ("manuscrit", r"manuscrit|apparat|codex|texte re[çc]u|le[çc]on variante"),
-    # 🔴 Deux faux positifs successifs sur ce seul motif, et ils disent la même chose : une
-    # règle qui devine se trompe. « confession de foi » décrit ce qu'un passage EST
-    # (Deutéronome 26 en est une) ; exiger une majuscule après « de » a ensuite attrapé
-    # « confession de Jésus », qui est du français théologique ordinaire.
-    #
-    # Une confession citée est un **document**, et il y en a une poignée. On les nomme —
-    # comme les loci, comme les intentions, comme les traditions. Une liste fermée ne devine
-    # rien.
-    ("autorité", r"selon (saint |la tradition|les p[èe]res)|commentateur|concile de |NA28|"
-                 r"Nestle|Augsbourg|La Rochelle|Westminster|Helv[ée]tique|Belgica|"
-                 r"cat[ée]chisme de "),
     # Resserré après le premier passage : « n'est pas un » attrapait du français ordinaire —
     # *« ce passage n'est pas un traité »* est une lecture, pas une négation de doctrine. Seule
     # la portée universelle est visée, parce que c'est là qu'un caveat borne un texte en
@@ -141,6 +142,12 @@ class Ecart:
     detecteur: str
     gravite: int
     detail: str
+    #: ⚠️ **La ligne entière, parce qu'un fragment de regex ne se juge pas.**
+    #:
+    #: 🔴 D3 signalait « …ne constitue pas une doctrine… » sur Jérémie 14 et Job 16 — impossible
+    #: de dire, sur ce bout, si la règle attrapait une faute ou la meilleure mise en garde du
+    #: corpus. Un détecteur dont on ne peut pas relire les prises fait arbitrer sur sa parole.
+    corps: str = ""
 
 
 @dataclass
@@ -195,12 +202,27 @@ async def _charger() -> dict[UUID, Unite]:
             p.id: (p.book_id, p.start_ch, p.start_v, p.end_v)
             for p in (await s.execute(select(CorpusPericopeModel))).scalars()
         }
+        # 🔴 **Le filtre de version, dont l'absence a produit treize fausses accusations.**
+        #
+        # Ce dictionnaire est indexé sur (livre, chapitre, verset) sans la version. Tant qu'il
+        # n'y avait que la Segond, c'était juste. Le jour où Darby et Martin sont entrées en
+        # base, chaque clé s'est mise à porter le texte de la dernière version chargée — et D5
+        # a comparé des citations de la Segond au français de 1744.
+        #
+        # Genèse 40:8 cite « N'est-ce pas à Dieu qu'appartiennent les explications ? », qui est
+        # le verset **mot pour mot**. Le détecteur l'a déclaré inventé.
+        #
+        # ⚠️ La leçon dépasse cette ligne : **ajouter une donnée au corpus a cassé un instrument
+        # de qualité, en silence.** La curation est écrite contre la Segond ; tout ce qui la
+        # vérifie doit le dire explicitement.
         versets: dict[tuple[int, int, int], str] = {}
         for rang, chapitre, verset, corps in await s.execute(
             select(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter,
                 CorpusVerseModel.verse, CorpusVerseModel.body,
             )
+            .join(CorpusVersionModel, CorpusVersionModel.id == CorpusVerseModel.version_id)
+            .where(CorpusVersionModel.code == VERSION_DE_CURATION)
         ):
             versets[(rang, chapitre, verset)] = corps
         for unite_id, (livre, chapitre, debut, fin) in bornes.items():
@@ -327,12 +349,22 @@ def _d3_forme(unites: dict[UUID, Unite]) -> list[Ecart]:
         for ligne in u.lignes:
             if not ligne.signee_ia:
                 continue  # un humain peut citer un apparat et en répondre
+            # Ce que le validateur refuse désormais à l'écriture — mesuré ici parce que le
+            # corpus contient des lignes écrites avant lui.
+            try:
+                verifier_forme_machine(ligne.corps, SIGNATAIRE_IA)
+            except CurationInvalideError as refus:
+                trouves.append(Ecart(
+                    cle, u.reference, "D3 forme interdite (antérieure au validateur)", 3,
+                    str(refus)[:90], ligne.corps,
+                ))
+                continue
             for nom, motif in _FORMES_INTERDITES:
                 touche = re.search(motif, ligne.corps, re.I)
                 if touche:
                     trouves.append(Ecart(
                         cle, u.reference, f"D3 forme interdite ({nom})", 3,
-                        f"{ligne.couche} : « …{touche.group(0)}… »",
+                        f"{ligne.couche} : « …{touche.group(0)}… »", ligne.corps,
                     ))
                     break
     return trouves
@@ -346,12 +378,22 @@ def _d4_aberration(unites: dict[UUID, Unite]) -> list[Ecart]:
                 cle, u.reference, "D4 aberration", 2,
                 f"{u.loci_portants} loci portants sur 10 — le modele a voulu aider",
             ))
-        if u.caveats >= 3:
-            trouves.append(Ecart(
-                cle, u.reference, "D4 aberration", 1,
-                f"{u.caveats} mises en garde — le plafond, sur un texte quelconque",
-            ))
     return trouves
+
+
+# 🔴 **La règle qui comptait les mises en garde a été retirée, et c'était une règle circulaire.**
+#
+# Elle signalait `caveats >= 3`, c'est-à-dire le plafond de l'invite. Elle a donc signalé
+# 1 083 unités — un quart du corpus — pour dire une seule chose : que le plafond était à trois.
+# Un maximum atteint souvent n'est pas une aberration, c'est un maximum mal choisi.
+#
+# Le bon instrument est la **distribution**, pas un drapeau par unité : sur 4 449 unités,
+# 48 % à zéro, 12 unités à une, 27 % à deux, 25 % à trois — un trou à un qui trahissait un
+# quota rempli, et qu'aucun signalement unitaire ne pouvait montrer. Le plafond est passé à
+# deux, réglé sur les six mises en garde faites à la main.
+#
+# Si une règle de comptage revient ici, elle devra tirer son seuil de la distribution observée,
+# jamais d'un chiffre écrit dans une invite.
 
 
 def _d5_citation_fantome(unites: dict[UUID, Unite]) -> list[Ecart]:
@@ -374,7 +416,7 @@ def _d5_citation_fantome(unites: dict[UUID, Unite]) -> list[Ecart]:
                 if not all(m in u.texte for m in mots):
                     trouves.append(Ecart(
                         cle, u.reference, "D5 citation fantome", 3,
-                        f"{ligne.couche} cite « {citee} » — absent du passage",
+                        f"{ligne.couche} cite « {citee} » — absent du passage", ligne.corps,
                     ))
     return trouves
 
@@ -426,6 +468,7 @@ def _rapport(unites: dict[UUID, Unite], ecarts: list[Ecart], detail: int, file: 
 async def main() -> None:
     analyseur = argparse.ArgumentParser(description=__doc__)
     analyseur.add_argument("--detail", type=int, default=0, help="montrer les N plus douteuses")
+    analyseur.add_argument("--corps", help="lire en entier les lignes prises par un detecteur")
     analyseur.add_argument("--file", action="store_true", help="ecrire la file du relecteur")
     arguments = analyseur.parse_args()
 
@@ -441,6 +484,19 @@ async def main() -> None:
     relues = sum(1 for u in unites.values() if u.verdicts.get(PORTEE_ENSEMBLE))
     print(f"  {relues} unites relues en entier par un humain, "
           f"{juges} signalements deja tranches\n")
+
+    if arguments.corps:
+        pris = [
+            e for e in ecarts
+            if e.detecteur.upper().startswith(arguments.corps.upper()) and e.corps
+        ]
+        print("=" * 74)
+        print(f"  LES {len(pris)} LIGNES PRISES PAR {arguments.corps.upper()}, EN ENTIER")
+        print("=" * 74)
+        for e in pris:
+            print(f"\n  {e.reference}   [{e.detecteur}]")
+            print(f"    {e.corps}")
+        return
 
     _rapport(unites, ecarts, arguments.detail, arguments.file)
 

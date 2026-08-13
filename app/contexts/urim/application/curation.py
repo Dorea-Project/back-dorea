@@ -27,6 +27,7 @@ par défiance, mais parce que le geste n'a pas la bonne portée.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -85,6 +86,54 @@ def empreinte_de_curation(lignes: Iterable[tuple[str, str, str]]) -> str:
     même raison : *une décision ne vaut que sur l'objet qu'elle a regardé.*"""
     empilees = "\n".join(sorted(f"{couche}|{axe}|{corps}" for couche, axe, corps in lignes))
     return hashlib.sha256(empilees.encode()).hexdigest()[:32]
+
+
+#: ⚠️ **Les deux seules formes qu'une machine n'a jamais le droit d'écrire.**
+#:
+#: Elles sont ici, et non dans un script, parce qu'elles doivent valoir aux deux endroits qui
+#: écrivent du corpus : les lots de curation et la route Plateforme. Recopiées, elles auraient
+#: divergé — et le détecteur d'écarts les importe d'ici pour la même raison.
+#:
+#: **Ce sont des règles de la MACHINE, pas du corpus.** Un relecteur humain qui cite l'apparat
+#: de NA28 sur Romains 8:1 fait exactement son travail : il peut consulter l'apparat et en
+#: répondre. Le modèle, non — il inventera la variante, et personne ne le verra. Le détecteur a
+#: mis cette mise en garde-là en tête de sa file le premier jour, faute de ce distinguo.
+_FORMES_REFUSEES_A_LA_MACHINE = (
+    (
+        "manuscrit",
+        r"manuscrit|apparat|codex|texte re[çc]u|le[çc]on variante",
+        "Les variantes textuelles ont leur table, alimentée par un apparat critique. Un "
+        "modèle qui en parle les invente.",
+    ),
+    (
+        "autorité",
+        r"selon (saint |la tradition|les p[èe]res)|commentateur|concile de |NA28|Nestle|"
+        r"Augsbourg|La Rochelle|Westminster|Helv[ée]tique|Belgica|cat[ée]chisme de ",
+        "Le seul appui d'une ligne générée est le passage lui-même — une autorité extérieure "
+        "ne peut pas être vérifiée par celui qui la lit.",
+    ),
+)
+
+
+def verifier_forme_machine(corps: str, signataire: str) -> None:
+    """Ce qu'une ligne **générée** n'a pas le droit de dire.
+
+    🔴 Ces deux règles seules, et pas la troisième. Le détecteur signalait aussi la *négation de
+    doctrine* — « ne constitue pas une doctrine générale du salut » — et j'allais la déplacer
+    ici avec les autres. La lecture des neuf lignes prises l'a démenti : **huit étaient justes**,
+    et parmi les meilleures du corpus. Avertir que la rétribution de Bildad n'est pas une
+    doctrine, ou que « ne pardonne pas leur iniquité » est une supplication et non un énoncé sur
+    le pardon divin, est précisément ce que ce produit doit dire à un prédicateur.
+
+    La neuvième était fausse — Jean 14:2-3 restreint aux disciples du premier siècle — et aucune
+    expression régulière ne l'aurait distinguée des huit autres : la différence est théologique.
+    Elle reste donc un signal de relecture. **Un refus l'aurait payée de huit bonnes lignes.**
+    """
+    if signataire != SIGNATAIRE_IA:
+        return
+    for nom, motif, pourquoi in _FORMES_REFUSEES_A_LA_MACHINE:
+        if re.search(motif, corps, re.I):
+            raise CurationInvalideError(f"Forme refusée à une ligne générée ({nom}). {pourquoi}")
 
 
 def verifier_verdict(verdict: str, portee: str, relu_par: str) -> None:
@@ -310,6 +359,7 @@ class UrimCuration:
         self, pericope_id: UUID, draft: CaveatDraft, reviewed_by: str
     ) -> UUID:
         self._verifier_signature(reviewed_by)
+        verifier_forme_machine(draft.body, reviewed_by)
         await self._exiger_pericope(pericope_id)
         if draft.caveat_kind == "confessionnel" and not draft.tradition_scope:
             # La base l'interdit aussi (`confessionnel_borne`) — ici le message dit quoi faire.
@@ -325,6 +375,9 @@ class UrimCuration:
         self, pericope_id: UUID, draft: ContextDraft, reviewed_by: str
     ) -> UUID:
         self._verifier_signature(reviewed_by)
+        # Le lot des notes de contexte vient ensuite, et posera la même question : une realia
+        # « selon les Pères » générée par le modèle est une source qui n'en est pas une.
+        verifier_forme_machine(draft.body, reviewed_by)
         await self._exiger_pericope(pericope_id)
         if not draft.source_ref.strip():
             raise CurationInvalideError(
