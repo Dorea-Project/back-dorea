@@ -40,3 +40,10 @@ data/morphhb/
 # La file du relecteur se recalcule à chaque passage du détecteur — la versionner figerait
 # une photo que le prochain lot de curation démentirait.
 data/urim_file_relecture.txt
+# La copie de sauvegarde avant régénération d'un lot : un intermédiaire qui sert à comparer
+# deux régimes de curation, puis ne sert plus. La base fait foi.
+data/urim_caveats_ancienne_invite.json
+# Les téléchargements bruts des traductions — ~10 Mo chacun, remis en cache par
+# `urim_seed_version.py` et déjà dépliés en base. Même règle que la LSG brute.
+data/*_raw.json
+data/*_raw.xml
