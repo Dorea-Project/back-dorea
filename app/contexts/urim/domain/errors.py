@@ -56,6 +56,18 @@ class LivrableSansPlanError(UrimError):
     http_status = 422
 
 
+class LivrableNonValideError(UrimError):
+    """On demande le fichier d'un livrable qui porte une citation altérée.
+
+    **Le seul endroit où le verrou du produit devient un refus HTTP.** Le dossier de
+    validation, lui, revient en 201 avec ses verdicts — c'est ce que le produit veut
+    montrer. Demander les octets de ce qui a été rejeté est autre chose : c'est réclamer
+    précisément ce que le contrôle existe pour ne pas produire."""
+
+    code = "URI_DELIVERABLE_NOT_VALIDATED"
+    http_status = 409
+
+
 class ArchiveIllisibleError(UrimError):
     """Ce qu'on demande d'archiver n'est pas lisible — et le motif vient **du corpus**.
 

@@ -31,7 +31,10 @@ from app.contexts.urim.deliverable.application.ports import (
 from app.contexts.urim.deliverable.application.service import UrimDeliverableService
 from app.contexts.urim.deliverable.domain.citation import ALTERE, EXACT
 from app.contexts.urim.deliverable.domain.documents import POINT_CENTRAL
-from app.contexts.urim.domain.errors import LivrableSansPlanError
+from app.contexts.urim.domain.errors import (
+    LivrableNonValideError,
+    LivrableSansPlanError,
+)
 
 from .test_study_service import AUTEUR, EGLISE, MAINTENANT, UNITE, _Acces, _index
 
@@ -104,9 +107,56 @@ def _preparation(**kw) -> PreparationRecord:
     )
 
 
-def _service(record, *, elements=(), livrables=None, versets=None):
+class _Etude:
+    """Le dossier rejoué. Il **note qu'on l'a lu** — le rendu de la note en dépend."""
+
+    def __init__(self, dto=None) -> None:
+        self.dto = dto
+        self.lectures: list = []
+
+    async def get(self, *, actor_account_id, study_id):
+        self.lectures.append(study_id)
+        return self.dto
+
+
+def _dossier_d_etude(prep: PreparationRecord):
+    """Un `StudyDTO` minimal — **avec ce que la note doit imprimer et le deck refuser**."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        record=prep,
+        resolved_label="Hébreux 13:1-2",
+        pericope_label="Exhortations",
+        pericope_reviewed_by="ia-mistral",
+        trace=[("bound_pericope", "L'unité tient du v. 1 au v. 2.")],
+        elements=[ElementRecord(POINT_CENTRAL, 1, "1- L'amour fraternel demeure")],
+        verses=[SimpleNamespace(reference="Hébreux 13:1", text=HB_13_1)],
+        bearings=[
+            SimpleNamespace(
+                axis_code="ecclesiologie", label="ecclésiologie",
+                strength="dominant", rationale="le texte exhorte l'assemblée",
+            )
+        ],
+        caveats=["Le texte ne dit pas quand l'Esprit est donné."],
+        couples=[
+            SimpleNamespace(
+                plan_source="thematique", subject_matter="doctrine",
+                feasible=False, refusal_reason="aucun personnage",
+                proof_text_risk="eleve",
+            )
+        ],
+        resisting_elsewhere=[
+            SimpleNamespace(label="2 Co 12:7-10", rationale="Dieu dit non trois fois")
+        ],
+        supports=[("Hb 13v1", "Hébreux 13:1", HB_13_1, "exact")],
+        options=[("opt-2", "La péricope entière", "écartée le 12/08", "curation", True)],
+    )
+
+
+def _service(record, *, elements=(), livrables=None, versets=None, etude=None):
     return UrimDeliverableService(
         studies=_Studies(record, elements),
+        etude=etude or _Etude(),
         livrables=livrables or _Livrables(),
         versets=versets or _Versets(),
         access=_Acces(),
@@ -295,6 +345,116 @@ async def test_relire_rend_le_dossier_et_garde_la_meme_garde():
 
     assert relu.record.id == ecrit.record.id
     assert len(relu.controles) == 1
+
+
+# ============================================================ 6. les octets
+
+
+def _texte_du_pptx(octets: bytes) -> str:
+    from io import BytesIO
+
+    from pptx import Presentation
+
+    deck = Presentation(BytesIO(octets))
+    return "\n".join(
+        forme.text_frame.text
+        for page in deck.slides
+        for forme in page.shapes
+        if forme.has_text_frame
+    )
+
+
+def _texte_du_docx(octets: bytes) -> str:
+    from io import BytesIO
+
+    from docx import Document
+
+    document = Document(BytesIO(octets))
+    corps = "\n".join(p.text for p in document.paragraphs)
+    pieds = "\n".join(
+        p.text for section in document.sections for p in section.footer.paragraphs
+    )
+    return corps + "\n" + pieds
+
+
+async def test_le_deck_produit_porte_le_texte_juge_et_rien_d_autre():
+    """**La frontière, vérifiée sur le fichier lui-même** — pas sur le gabarit.
+
+    Le type `Deck` ne peut pas porter une mise en garde ; ce test le prouve à l'autre bout de
+    la chaîne, dans les octets qu'un vidéoprojecteur affichera."""
+    prep = _preparation()
+    service = _service(prep, elements=_PLAN)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR,
+        study_id=prep.id,
+        diapositives=[DiapositiveSoumise("Le texte", "Hébreux 13:1", HB_13_1)],
+    )
+
+    format_, octets = await service.rendre(
+        actor_account_id=AUTEUR, deliverable_id=dossier.record.id
+    )
+
+    assert format_ == "pptx"
+    assert octets[:2] == b"PK"  # un .pptx est un ZIP
+    contenu = _texte_du_pptx(octets)
+    assert HB_13_1 in contenu
+    assert "Hébreux 13:1" in contenu
+    # Rien du dossier de préparation ne monte à l'écran.
+    for interdit in ("proof-texting", "ia-mistral", "ne dit pas", "résiste"):
+        assert interdit not in contenu
+
+
+async def test_un_livrable_rejete_ne_rend_aucun_octet():
+    """**La dernière porte du verrou.** Le dossier de validation revient en 201 avec ses
+    verdicts — c'est ce qu'on veut montrer. Réclamer les octets de ce qui a été rejeté est
+    autre chose : c'est demander ce que le contrôle existe pour ne pas produire."""
+    prep = _preparation()
+    service = _service(prep, elements=_PLAN)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR,
+        study_id=prep.id,
+        diapositives=[DiapositiveSoumise("Le texte", "Hébreux 13:1", HB_13_1_ALTERE)],
+    )
+
+    with pytest.raises(LivrableNonValideError):
+        await service.rendre(
+            actor_account_id=AUTEUR, deliverable_id=dossier.record.id
+        )
+
+
+async def test_la_note_porte_ce_que_l_ecran_refuse():
+    """Le couple du test précédent, de l'autre côté de la frontière : ce que le deck ne peut
+    pas montrer, la note l'imprime — sinon la frontière ne protégerait rien, elle supprimerait.
+
+    Et la mention de destination est **en pied de page**, donc sur chaque page : une page de
+    garde ne survivrait ni à une capture d'écran ni à une impression recto."""
+    prep = _preparation()
+    etude = _Etude(_dossier_d_etude(prep))
+    service = _service(prep, elements=_PLAN, etude=etude)
+    dossier = await service.soumettre(
+        actor_account_id=AUTEUR, study_id=prep.id, kind="note"
+    )
+
+    format_, octets = await service.rendre(
+        actor_account_id=AUTEUR, deliverable_id=dossier.record.id
+    )
+
+    assert format_ == "docx"
+    contenu = _texte_du_docx(octets)
+    assert "Le texte ne dit pas quand l'Esprit est donné." in contenu
+    assert "ia-mistral" in contenu  # la signature de la curation remonte jusqu'au papier
+    assert "s'adressent au prédicateur" in contenu
+    assert etude.lectures == [prep.id]  # le dossier a été rejoué, pas reconstruit
+
+
+async def test_le_service_du_livrable_n_a_aucun_port_de_reservation():
+    """**Générer ne peut rien consommer**, et ce n'est pas une intention : le service n'a aucun
+    moyen de compter quoi que ce soit. Un port absent ne s'appelle pas par accident."""
+    from dataclasses import fields
+
+    champs = {f.name for f in fields(UrimDeliverableService)}
+    assert "reservations" not in champs
+    assert "resolver" not in champs  # ni modèle : un document n'appelle personne
 
 
 async def test_l_horloge_du_service_date_le_livrable():

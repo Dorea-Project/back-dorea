@@ -562,6 +562,40 @@ Vérification faite contre le code, pas contre l'intention :
 
 ---
 
+## 8 bis. ✅ **Livré le 2026-08-13** — la validation, les deux rendus, quatre routes
+
+| Lot | Pièces |
+| :-- | :-- |
+| **Le cœur pur** | `deliverable/domain/citation.py` (trois verdicts, gloses, toutes les versions) · `documents.py` (la frontière **portée par les types**) |
+| **La validation** | migration `f4a5b6c7d8e9` (`kind` × `format`, signature, empreinte) · `deliverable/application/service.py` · `persistence/deliverable_repository.py` |
+| **Les rendus** | `deliverable/infrastructure/renderers.py` — **les deux seuls fichiers qui importent `pptx` et `docx`**, en import paresseux |
+| **Les routes** | `POST /studies/{id}/deliverable` · `GET /deliverables/{id}` · `GET /deliverables/{id}/fichier` · (+ archive) |
+
+**Ce que l'écriture a appris, et qui n'était pas dans la conception :**
+
+1. **`load_corpus_index` ne charge le texte que de la version de repli.** Quatre versions sont
+   semées ; l'index n'en sert qu'une. Q9 aurait donc jugé contre une seule sans que rien ne le
+   signale. Le contrôle lit les autres **en base** — c'est un geste rare, et charger quatre
+   versions dans l'index ferait payer à chaque résolution le prix d'un contrôle hebdomadaire.
+2. **Le motif d'un contrôle ne se stocke pas**, il se recalcule. Le corpus peut apprendre une
+   version qu'il ignorait ; une phrase figée continuerait d'accuser un texte désormais reconnu.
+3. **La note se bâtit sur le dossier rejoué** (`UrimStudyService.get`), passé en port : les
+   pesées, les mises en garde et les motifs ne sont nulle part en base sous forme lisible — le
+   moteur rejoue au lieu de stocker sa trace. Et ce rejeu ne persiste rien, **donc ne consomme
+   rien** : le service du livrable n'a ni port de réservation ni résolveur, et un test tient
+   cette absence.
+4. **La section « mots de l'original » reste vide** : `StudyDTO` ne les rend pas (ils vivent dans
+   la vue « en savoir plus sur un passage »). Vide **et nommée**, plutôt qu'inventée.
+
+**Ce qui reste** : le **PDF** (§3.2) — LibreOffice dans le `Dockerfile`, conversion bornée — et
+la fermeture des dix codes Braga (§9.4), qui touche une route déjà en service.
+
+⚠️ **`uv` n'étant pas dans le `PATH`, `python-docx` a été installé par `pip` et déclaré dans
+`pyproject.toml` ; `uv.lock` reste en retard** (il ignore déjà `python-pptx` et `pypdf`). Le
+prochain `uv sync` les y fera entrer tous les trois d'un coup.
+
+---
+
 ## 9. Ce que cette note appelle comme code — et où elle s'arrête
 
 Elle s'arrête ici. Voici ce qu'il faudra écrire, pour que personne ne le découvre en cours de route.

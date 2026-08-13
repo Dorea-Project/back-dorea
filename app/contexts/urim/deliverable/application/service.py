@@ -43,12 +43,23 @@ from app.contexts.urim.deliverable.application.ports import (
     ControleRecord,
     DeliverableRepository,
     DiapositiveSoumise,
+    EtudeReader,
     LivrableRecord,
     VerseTextReader,
 )
 from app.contexts.urim.deliverable.domain.citation import ALTERE, juger_parmi
-from app.contexts.urim.deliverable.domain.documents import point_central_renseigne
+from app.contexts.urim.deliverable.domain.documents import (
+    Deck,
+    Diapositive,
+    Note,
+    point_central_renseigne,
+)
+from app.contexts.urim.deliverable.infrastructure.renderers import (
+    rendre_deck,
+    rendre_note,
+)
 from app.contexts.urim.domain.errors import (
+    LivrableNonValideError,
     LivrableSansPlanError,
     PreparationIntrouvableError,
 )
@@ -75,6 +86,10 @@ class LivrableDTO:
 @dataclass(slots=True)
 class UrimDeliverableService:
     studies: StudyRepository
+    #: Le dossier complet d'une préparation — la seule source qui porte les pesées, les
+    #: mises en garde et les motifs. C'est `UrimStudyService.get`, passé en port pour que
+    #: la note n'ait pas à refaire un rejeu qui existe déjà.
+    etude: EtudeReader
     livrables: DeliverableRepository
     versets: VerseTextReader
     access: PreacherAuthorization
@@ -127,6 +142,36 @@ class UrimDeliverableService:
         )
         await self.livrables.add(livrable, controles)
         return LivrableDTO(record=livrable, controles=controles)
+
+    async def rendre(
+        self, *, actor_account_id: UUID, deliverable_id: UUID
+    ) -> tuple[str, bytes]:
+        """Les octets — **et seulement pour ce qui porte déjà `conforme`**.
+
+        C'est ici que le verrou du produit devient un `if` d'une ligne, et il ne doit jamais en
+        devenir un de deux : un chemin qui rendrait un fichier sans repasser par cette garde
+        serait la porte dérobée que tout ce module existe pour fermer.
+
+        ⚠️ **Générer ne consomme rien.** La note relit la préparation par `get`, qui rejoue le
+        pipeline **sans persister** — et tout ce qui compte (`mark_assisted`, la re-clé, la
+        trace de résolution) vit derrière `if persist:`. Un test tient cette propriété, parce
+        qu'elle mourrait à la première refonte du rejeu."""
+        dossier = await self.relire(
+            actor_account_id=actor_account_id, deliverable_id=deliverable_id
+        )
+        if not dossier.conforme:
+            raise LivrableNonValideError(
+                "Ce livrable porte une citation qui n'est pas celle du corpus. "
+                "Corrigez la diapositive, puis soumettez-la de nouveau."
+            )
+
+        if dossier.record.kind == NOTE:
+            etude = await self.etude.get(
+                actor_account_id=actor_account_id,
+                study_id=dossier.record.preparation_id,
+            )
+            return FORMAT_NATIF[NOTE], rendre_note(_note_depuis(etude))
+        return FORMAT_NATIF[DECK], rendre_deck(_deck_depuis(dossier))
 
     async def relire(
         self, *, actor_account_id: UUID, deliverable_id: UUID
@@ -206,6 +251,75 @@ class UrimDeliverableService:
         if self._lecteur is None:
             self._lecteur = IndexedCorpusReader(self.index)
         return self._lecteur
+
+
+def _deck_depuis(dossier: LivrableDTO) -> Deck:
+    """Le deck se rebâtit depuis les **contrôles**, pas depuis une saisie neuve.
+
+    C'est ce qui garantit que le fichier porte exactement ce qui a été jugé : redemander les
+    diapositives au moment du rendu ouvrirait une seconde entrée, non contrôlée."""
+    return Deck(
+        titre=dossier.controles[0].reference if dossier.controles else "",
+        diapositives=tuple(
+            Diapositive(
+                titre="", reference=c.reference, texte_projete=c.projected_text
+            )
+            for c in dossier.controles
+        ),
+    )
+
+
+def _note_depuis(etude) -> Note:
+    """La note se bâtit depuis le **dossier d'étude rejoué** — la seule source qui porte tout.
+
+    ⚠️ Les mots de l'original n'y sont pas (`StudyDTO` ne les rend pas ; ils vivent dans la vue
+    « en savoir plus sur un passage »). La section reste donc **vide et nommée** plutôt
+    qu'inventée : une section muette se lit comme « ce passage n'a rien à montrer », ce qui est
+    faux."""
+    return Note(
+        titre=etude.record.theme or "",
+        reference=etude.resolved_label or "",
+        unite=etude.pericope_label or "",
+        motif_unite=next(
+            (motif for code, motif in etude.trace if code == "bound_pericope"), ""
+        ),
+        plan=tuple(
+            (element.element_code, element.body or "")
+            for element in etude.elements
+            if (element.body or "").strip()
+        ),
+        versets=tuple((verset.reference, verset.text) for verset in etude.verses),
+        pesees=tuple(
+            (pesee.label or pesee.axis_code, pesee.strength, pesee.rationale)
+            for pesee in etude.bearings
+        ),
+        mises_en_garde=tuple(etude.caveats),
+        faisabilites=tuple(
+            (
+                f"{couple.plan_source} x {couple.subject_matter}",
+                couple.feasible,
+                couple.refusal_reason,
+                couple.proof_text_risk,
+            )
+            for couple in etude.couples
+        ),
+        resistances=tuple(
+            (resistant.label, resistant.rationale)
+            for resistant in etude.resisting_elsewhere
+        ),
+        appuis=tuple(
+            (reference, texte, verdict)
+            for _brut, reference, texte, verdict in etude.supports
+        ),
+        original=(),
+        ecartees=tuple(
+            (libelle, motif)
+            for _code, libelle, motif, _origine, ecartee in etude.options
+            if ecartee
+        ),
+        signature=etude.pericope_reviewed_by,
+        corpus_snapshot=etude.record.corpus_snapshot,
+    )
 
 
 def _empreinte(plan: dict[str, str | None], controles: list[ControleRecord]) -> str:

@@ -17,7 +17,7 @@ et ne servira que ce qui porte déjà `conforme` — un fichier produit est un f
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
@@ -338,6 +338,47 @@ async def get_deliverable(
         actor_account_id=actor.account_id, deliverable_id=deliverable_id
     )
     return DeliverableView.from_dto(dto)
+
+
+#: Ce qu'un client doit recevoir comme type — les deux formats bureautiques, tels quels.
+_TYPES = {
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+@router.get(
+    "/deliverables/{deliverable_id}/fichier",
+    response_class=Response,
+    summary="Les octets — et seulement pour ce qui porte déjà « conforme »",
+    responses={200: {"content": {t: {} for t in _TYPES.values()}}},
+)
+async def download_deliverable(
+    deliverable_id: UUID, actor: CurrentActor, service: DeliverableServiceDep
+) -> Response:
+    """**La première route du dépôt qui ne rend pas du JSON**, et la dernière porte du verrou.
+
+    Un livrable rejeté rend **409**, et c'est le seul endroit où le contrôle devient un refus
+    HTTP : le dossier de validation, lui, revient en 201 avec ses verdicts, parce que c'est ce
+    que le produit veut montrer. Réclamer les octets de ce qui a été rejeté est autre chose —
+    c'est demander précisément ce que le contrôle existe pour ne pas produire.
+
+    ⚠️ **Rien n'est stocké.** Le fichier est produit à la demande et rendu dans la réponse :
+    ranger les préparations privées de tous les prédicateurs derrière une URL publique
+    contredirait la seule garde qui les protège. Ce que le serveur garde, c'est ce qui est monté
+    à l'écran (`citation_check`), pas le binaire."""
+    format_, octets = await service.rendre(
+        actor_account_id=actor.account_id, deliverable_id=deliverable_id
+    )
+    return Response(
+        content=octets,
+        media_type=_TYPES[format_],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="preparation-{deliverable_id}.{format_}"'
+            )
+        },
+    )
 
 
 # ====================================================================== L'ARCHIVE

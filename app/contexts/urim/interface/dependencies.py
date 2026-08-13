@@ -127,6 +127,9 @@ def get_deliverable_service(
 ) -> UrimDeliverableService:
     return UrimDeliverableService(
         studies=SqlStudyRepository(session),
+        # La note se bâtit sur le dossier **rejoué** — une seule définition de ce dossier,
+        # et ce rejeu ne persiste rien, donc ne consomme rien.
+        etude=get_study_service(session, index),
         livrables=SqlDeliverableRepository(session),
         # ⚠️ Le texte des **autres versions** ne vient pas de l'index : il n'en charge qu'une
         # (celle de repli). Q9 exige de juger contre toutes celles qu'on détient.

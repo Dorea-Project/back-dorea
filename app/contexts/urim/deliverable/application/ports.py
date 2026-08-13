@@ -65,6 +65,20 @@ class LivrableRecord:
     content_fingerprint: str | None = None
 
 
+class EtudeReader(Protocol):
+    """Le dossier complet d'une préparation — **la seule source qui porte tout**.
+
+    La note imprime les pesées, les mises en garde, les motifs, les couples refusés et les
+    options écartées. Rien de cela n'est en base sous une forme lisible : le moteur est
+    déterministe à corpus constant et **rejoue** au lieu de stocker sa trace. Passer par ce port
+    plutôt que de refaire un rejeu, c'est refuser d'avoir deux définitions du même dossier.
+
+    ⚠️ **Cette lecture ne consomme rien** : `get` rejoue `persist=False`, et tout ce qui compte
+    (`mark_assisted`, la re-clé de réservation) vit derrière `if persist:`."""
+
+    async def get(self, *, actor_account_id: UUID, study_id: UUID): ...
+
+
 class VerseTextReader(Protocol):
     async def textes(
         self,
