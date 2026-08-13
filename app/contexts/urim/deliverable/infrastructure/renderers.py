@@ -34,6 +34,26 @@ from app.contexts.urim.deliverable.domain.documents import Deck, Note
 _LARGEUR_16_9 = 12192000
 _HAUTEUR_16_9 = 6858000
 
+#: Les codes de section, rendus lisibles. Le dictionnaire ne **ferme** rien : un code inconnu
+#: s'imprime tel quel, parce que la colonne est libre et qu'un pasteur peut nommer ses sections.
+_SECTIONS = {
+    "titre": "Titre",
+    "introduction": "Introduction",
+    "proposition": "Proposition",
+    "phrase_interrogative": "Question",
+    "phrase_de_transition": "Transition",
+    "divisions": "Point",
+    "subdivisions": "Sous-point",
+    "illustrations": "Illustration",
+    "application": "Application",
+    "conclusion": "Conclusion",
+    "objectif": "Objectif",
+    "contexte": "Contexte",
+    "definitions": "Définition",
+    "nb": "NB",
+    "temoignage": "Témoignage",
+}
+
 #: Ce qu'un pied de page de note doit dire, et à qui elle est destinée. Voir l'en-tête.
 MENTION = (
     "Note de préparation — les mises en garde s'adressent au prédicateur, "
@@ -76,11 +96,14 @@ def rendre_deck(deck: Deck) -> bytes:
             for morceau in paragraphe.runs:
                 morceau.font.size = Pt(28)
         # La référence sous le texte — une projection sans référence est une citation
-        # invérifiable pour qui la lit depuis le banc.
-        rappel = corps.add_paragraph()
-        rappel.text = diapositive.reference
-        for morceau in rappel.runs:
-            morceau.font.size = Pt(18)
+        # invérifiable pour qui la lit depuis le banc. ⚠️ **Sauf quand elle est déjà le
+        # titre** : sans ce garde, une diapositive sans titre affiche deux fois la même
+        # référence, ce qui se voit du fond de la salle et fait amateur.
+        if diapositive.titre:
+            rappel = corps.add_paragraph()
+            rappel.text = diapositive.reference
+            for morceau in rappel.runs:
+                morceau.font.size = Pt(18)
 
     flux = BytesIO()
     presentation.save(flux)
@@ -114,8 +137,14 @@ def rendre_note(note: Note) -> bytes:
     if note.plan:
         document.add_heading("Votre plan", level=1)
         for code, corps in note.plan:
-            document.add_paragraph(corps, style="List Bullet")
-            _sous_texte(document, code)
+            paragraphe = document.add_paragraph(style="List Bullet")
+            # ⚠️ **Le code de section est une étiquette, pas une ligne.** Imprimé sous chaque
+            # point, `divisions` répété trois fois transformait son plan en sortie de
+            # débogage — vu sur le premier rendu réel.
+            etiquette = paragraphe.add_run(f"{_SECTIONS.get(code, code)} · ")
+            etiquette.italic = True
+            etiquette.font.size = Pt(9)
+            paragraphe.add_run(corps)
 
     if note.versets:
         document.add_heading("Le texte", level=1)
