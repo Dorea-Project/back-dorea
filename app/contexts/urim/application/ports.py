@@ -413,7 +413,7 @@ class NullVerseResolver:
         return None
 
     async def articuler(
-        self, *, point: str, reference: str, texte: str, suivant: str
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
     ) -> PlanSuggestion | None:
         """Sans modèle, le pasteur écrit son point — ce qu'il faisait de toute façon."""
         return None
@@ -453,9 +453,15 @@ class PlanAssistant(Protocol):
     fonctionne — le pasteur écrit son point lui-même, ce qu'il faisait de toute façon."""
 
     async def articuler(
-        self, *, point: str, reference: str, texte: str, suivant: str
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
     ) -> PlanSuggestion | None:
-        """⚠️ **Le modèle reçoit le point du pasteur, le passage et son texte — rien d'autre.**
+        """⚠️ **Le modèle reçoit le point, le passage, son texte, et les textes que le point
+        cite lui-même — rien d'autre.**
+
+        `appuis` a été ajouté après le premier appel réel : sur un point qui citait Hébreux 9
+        alors qu'on servait Actes 1, le modèle a **complété de mémoire** (« dans le lieu très
+        saint »). Exact, et hors du texte fourni — donc invérifiable pour le pasteur. Lui
+        donner les textes qu'il cite supprime le besoin de combler.
 
         Pas les pesées (elles sont curées, il les redirait mal), pas les mises en garde (elles
         s'adressent au prédicateur), pas l'archive. Une invite qui reçoit tout produit une

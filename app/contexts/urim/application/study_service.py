@@ -41,7 +41,11 @@ from app.contexts.urim.application.ports import (
     VariantSeen,
     VerseServed,
 )
-from app.contexts.urim.application.reference_libre import lire
+from app.contexts.urim.application.reference_libre import (
+    lire,
+    lisible_reference,
+    references_dans,
+)
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
 from app.contexts.urim.domain.errors import (
     OptionInconnueError,
@@ -647,11 +651,21 @@ class UrimStudyService:
             ),
             "",
         )
+        # ⚠️ **Les textes que le point cite lui-même voyagent avec lui**, et ce n'est pas un
+        # confort. Au premier appel réel, un point qui citait Hébreux 9 alors qu'on servait
+        # Actes 1 a fait **compléter le modèle de mémoire** — « dans le lieu très saint »,
+        # exact et hors du texte fourni, donc invérifiable pour le pasteur. Lui donner ce
+        # qu'il cite supprime le besoin de combler.
+        appuis = "\n".join(
+            f"{lisible_reference(ref)} — {texte}"
+            for ref, texte in self._servir_les_appuis(point.body or "")
+        )
         propose = await self.resolver.articuler(
             point=point.body or "",
             reference=_afficher(resolu) or record.raw_input,
             texte=" ".join(v.text for v in servis),
             suivant=suivant,
+            appuis=appuis,
         )
         if propose is None:
             return None
@@ -670,6 +684,28 @@ class UrimStudyService:
             at=maintenant,
         )
         return propose
+
+    def _servir_les_appuis(self, ligne: str) -> list[tuple[Reference, str]]:
+        """Les textes cités **dans la ligne du point**, servis depuis le corpus.
+
+        Une référence qui n'existe pas est simplement écartée : ici on nourrit une invite, et
+        « Hébreux 2 compte 18 versets » n'a rien à y faire. C'est le livrable qui montre ce
+        motif au pasteur, pas le modèle."""
+        lecteur = IndexedCorpusReader(self.index)
+        servis: list[tuple[Reference, str]] = []
+        for reference in references_dans(ligne, self.index):
+            if not lecteur.check_reference(reference).exists:
+                continue
+            livre = self.index.book_by_label[reference.book]
+            debut = (reference.chapter or 1, reference.verse_start or 1)
+            fin = (
+                reference.chapter or 1,
+                reference.verse_end or reference.verse_start or 999,
+            )
+            texte = " ".join(v.body for v in verses_between(self.index, livre, debut, fin))
+            if texte:
+                servis.append((reference, texte))
+        return servis
 
     # -- la chaîne de textes ----------------------------------------------------
 

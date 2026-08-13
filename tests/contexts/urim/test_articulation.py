@@ -69,10 +69,11 @@ class _Modele:
 
     async def aiguiller(self, text): return None
 
-    async def articuler(self, *, point, reference, texte, suivant):
-        self.demandes.append(
-            {"point": point, "reference": reference, "texte": texte, "suivant": suivant}
-        )
+    async def articuler(self, *, point, reference, texte, suivant, appuis=""):
+        self.demandes.append({
+            "point": point, "reference": reference, "texte": texte,
+            "suivant": suivant, "appuis": appuis,
+        })
         return self.propose
 
 
@@ -180,6 +181,8 @@ async def test_le_modele_recoit_le_point_le_passage_et_son_texte_seulement():
     assert "Hébreux" in demande["reference"]
     assert "amour fraternel" in demande["texte"]  # le texte servi, pas la curation
     assert demande["suivant"] == _SUIVANT.body
+    # Le point ne cite aucune référence : rien à servir, et c'est un cas normal.
+    assert demande["appuis"] == ""
 
 
 async def test_un_point_vide_ne_s_articule_pas():
@@ -283,6 +286,46 @@ async def test_un_point_reecrit_repose_la_question():
     assert len(modele.demandes) == 2
 
 
+async def test_les_textes_cites_dans_le_point_sont_servis_au_modele():
+    """🐛 **Trouvé au premier appel réel.** Sur un point qui citait Hébreux 9 alors qu'on
+    servait Actes 1, le modèle a complété **de mémoire** : « dans le lieu très saint ». Exact,
+    et hors du texte fourni — donc invérifiable par le pasteur, et c'est tout le problème.
+
+    La cause n'était pas l'invite mais ce qu'on lui donnait : le point citait des textes qu'on
+    ne servait pas. Il devait combler."""
+    studies = _StudiesAvecPlan(
+        ElementRecord("divisions", 1, "1- Il est entré une fois pour toutes Hb 13v1.")
+    )
+    modele = _Modele()
+    service = _service(studies, modele=modele)
+    study_id = await _preparation(service, studies)
+
+    await service.articuler(
+        actor_account_id=AUTEUR, study_id=study_id, element_code="divisions", ordinal=1
+    )
+
+    (demande,) = modele.demandes
+    assert "Hébreux 13:1" in demande["appuis"]
+    assert "amour fraternel" in demande["appuis"]  # le texte, pas seulement la référence
+
+
+async def test_une_reference_fausse_du_point_n_est_pas_servie():
+    """Ici on nourrit une invite : « Hébreux 2 compte 18 versets » n'a rien à y faire. C'est le
+    **livrable** qui montre ce motif au pasteur, pas le modèle."""
+    studies = _StudiesAvecPlan(
+        ElementRecord("divisions", 1, "1- Couronné de gloire et d'honneur Hb 2v29.")
+    )
+    modele = _Modele()
+    service = _service(studies, modele=modele)
+    study_id = await _preparation(service, studies)
+
+    await service.articuler(
+        actor_account_id=AUTEUR, study_id=study_id, element_code="divisions", ordinal=1
+    )
+
+    assert modele.demandes[0]["appuis"] == ""
+
+
 # ============================================================ 5. l'invite elle-même
 
 
@@ -292,8 +335,8 @@ async def test_l_invite_porte_ses_quatre_interdits():
     et cette dernière est ce que le pasteur apporte, lui seul."""
     from app.contexts.urim.adapters.mistral import _SYSTEME_ARTICULATION
 
-    for interdit in ("ne cite AUCUN verset", "aucun fait historique", "n'écris pas le sermon",
-                     "n'invente aucune illustration"):
+    for interdit in ("n'utilise AUCUN contenu biblique", "aucun fait historique",
+                     "n'écris pas le sermon", "n'invente aucune illustration"):
         assert interdit in _SYSTEME_ARTICULATION
     # …et le style demandé, qui vient d'un retour de l'auteur sur la première esquisse.
     assert "français simple" in _SYSTEME_ARTICULATION

@@ -234,12 +234,14 @@ def _reference_depuis(contenu: str) -> Reference | None:
 #: 4. **court** — quelques phrases. Un paragraphe long se recopie ; trois phrases se retravaillent.
 _SYSTEME_ARTICULATION = (
     "Tu aides un pasteur à développer UN point de son plan de prédication. On te donne : son "
-    "point tel qu'il l'a écrit, la référence du passage qu'il prêche, et le texte de ce "
-    "passage. "
+    "point tel qu'il l'a écrit, la référence du passage qu'il prêche, le texte de ce "
+    "passage, et le texte des autres passages qu'il cite dans son point. "
     "Ta tâche : proposer quelques phrases qui expliquent et articulent SON point à partir du "
     "texte fourni, puis une phrase de transition vers le point suivant s'il y en a un. "
     "INTERDICTIONS ABSOLUES : "
-    "(1) ne cite AUCUN verset ni référence qui ne soit pas dans le texte fourni ; "
+    "(1) n'utilise AUCUN contenu biblique qui ne soit pas dans les textes fournis — ni "
+    "verset, ni référence, ni détail que tu croirais connaître : si le point mentionne un "
+    "passage dont le texte n'est pas donné, tu n'en dis rien ; "
     "(2) n'affirme aucun fait historique, culturel ou linguistique — pas de 'chez les Hébreux', "
     "pas d'étymologie, pas de coutume ; "
     "(3) n'écris pas le sermon : tu développes SON point, tu n'en ajoutes pas d'autre, et tu ne "
@@ -327,7 +329,7 @@ class MistralAssistant:
             return None
 
     async def articuler(
-        self, *, point: str, reference: str, texte: str, suivant: str
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
     ) -> PlanSuggestion | None:
         """Développer un point — **la seule sortie en prose du dépôt**, et elle est demandée.
 
@@ -337,6 +339,7 @@ class MistralAssistant:
             f"Point du pasteur : {point}",
             f"Passage prêché : {reference}",
             f"Texte du passage : {texte}",
+            f"Textes cités dans le point : {appuis or '(aucun)'}",
             f"Point suivant : {suivant or '(aucun)'}",
         ))
         contenu = await self.demander(
