@@ -88,6 +88,30 @@ class Alignement:
     versets: int
 
 
+@dataclass
+class Glissement:
+    """Un chapitre qui atterrit **ailleurs** dans l'autre traduction — parfois un autre chapitre.
+
+    🔴 Le détecteur de collisions a montré le trou : 1 Chroniques 6:4 rendait « Éléazar engendra
+    Phinées » d'un côté et « Les fils de Merari » de l'autre. Deux textes sans rapport sous la
+    même référence.
+
+    La cause n'est pas un décalage de numérotation, c'est une **tradition** : Darby suit le
+    découpage hébreu, où 1 Chroniques 6 commence quinze versets plus loin que dans le découpage
+    anglais et latin que la Segond a repris. Le début du chapitre est même dans le chapitre
+    PRÉCÉDENT.
+
+    Aucune fenêtre de ±2 ne pouvait le voir, et l'élargir n'aurait pas suffi : il fallait
+    accepter que la cible change de chapitre. On cherche donc, pour tout chapitre que le
+    décalage simple n'explique pas, **où sa suite de versets se retrouve dans le livre**."""
+
+    livre: int
+    chapitre: int
+    accord: float
+    #: `(verset source) → (chapitre cible, verset cible)`
+    renvois: dict[int, tuple[int, int]]
+
+
 def _accord(a: str, b: str) -> float:
     """Jaccard sur les mots — la mesure la plus bête qui distingue deux traductions
     d'un même verset de deux versets différents."""
@@ -119,6 +143,39 @@ def _aligner(
     meilleur, decalage, couverts = scores[0]
     suivant = scores[1][0] if len(scores) > 1 else 0.0
     return Alignement(livre, chapitre, decalage, meilleur, meilleur - suivant, couverts)
+
+
+def _chercher_dans_le_livre(
+    chapitre_source: dict[int, str],
+    livre_cible: list[tuple[int, int, str]],
+    seuil: float,
+) -> tuple[float, dict[int, tuple[int, int]]] | None:
+    """Où la suite de versets d'un chapitre se retrouve dans le livre entier.
+
+    On fait glisser le chapitre le long du livre cible et on garde la position qui accorde le
+    mieux. Les versets se lisent **dans l'ordre** : c'est ce qui distingue un vrai glissement
+    d'une coïncidence de vocabulaire entre deux généalogies voisines."""
+    versets = [chapitre_source[v] for v in sorted(chapitre_source)]
+    numeros = sorted(chapitre_source)
+    if len(versets) < 4 or len(livre_cible) < len(versets):
+        return None
+
+    meilleur = (0.0, 0)
+    for depart in range(len(livre_cible) - len(versets) + 1):
+        total = sum(
+            _accord(versets[i], livre_cible[depart + i][2]) for i in range(len(versets))
+        )
+        moyen = total / len(versets)
+        if moyen > meilleur[0]:
+            meilleur = (moyen, depart)
+
+    accord, depart = meilleur
+    if accord < seuil:
+        return None
+    return accord, {
+        numeros[i]: (livre_cible[depart + i][0], livre_cible[depart + i][1])
+        for i in range(len(versets))
+    }
 
 
 async def cartographier(code: str, ecrire: bool) -> None:
@@ -186,10 +243,44 @@ async def cartographier(code: str, ecrire: bool) -> None:
         else:
             etablis.append(lu)
 
+    # Second passage : ce qu'aucun décalage simple n'explique atterrit peut-être ailleurs dans
+    # le livre — c'est le cas de 1 Chroniques 6, que le détecteur de collisions a révélé.
+    par_livre: dict[int, list[tuple[int, int, str]]] = {}
+    for (livre, chapitre), versets in textes[code].items():
+        par_livre.setdefault(livre, []).extend(
+            (chapitre, v, texte) for v, texte in versets.items()
+        )
+    for suite in par_livre.values():
+        suite.sort()
+
+    glissements: list[Glissement] = []
+    restants: list[tuple[int, int, Alignement | None]] = []
+    for livre, chapitre, lu in douteux:
+        trouve = _chercher_dans_le_livre(
+            textes[REFERENCE][(livre, chapitre)], par_livre.get(livre, []), seuil
+        )
+        if trouve is None:
+            restants.append((livre, chapitre, lu))
+            continue
+        accord, renvois = trouve
+        # Un glissement qui rend chacun sur lui-même n'est pas un glissement.
+        if all(cible == (chapitre, source) for source, cible in renvois.items()):
+            restants.append((livre, chapitre, lu))
+        else:
+            glissements.append(Glissement(livre, chapitre, accord, renvois))
+    douteux = restants
+
     print(f"  {len(suspects)} chapitres au compte different entre {REFERENCE} et {code}")
     print(f"  {len(etablis)} decalages a cartographier")
+    print(f"  {len(glissements)} chapitres GLISSES (retrouves ailleurs dans le livre)")
     print(f"  {len(locaux)} bien numerotes malgre le compte (un verset fondu ou scinde)")
     print(f"  {len(douteux)} a la main\n")
+
+    for g in sorted(glissements, key=lambda x: (x.livre, x.chapitre)):
+        premier = min(g.renvois)
+        cible = g.renvois[premier]
+        print(f"    {par_rang[g.livre]:<16} ch. {g.chapitre:<4} → {cible[0]}:{cible[1]}"
+              f"   accord {g.accord:.2f}   {len(g.renvois)} versets")
 
     for a in sorted(etablis, key=lambda x: (x.livre, x.chapitre))[:12]:
         print(f"    {par_rang[a.livre]:<16} ch. {a.chapitre:<4} decalage {a.decalage:+}"
@@ -222,6 +313,13 @@ async def cartographier(code: str, ecrire: bool) -> None:
                     "from_ch": a.chapitre, "from_v": verset,
                     "to_ch": a.chapitre, "to_v": verset - a.decalage,
                 })
+    for g in glissements:
+        for source, (cible_ch, cible_v) in g.renvois.items():
+            lignes.append({
+                "from_scheme": REFERENCE, "to_scheme": code, "book_id": g.livre,
+                "from_ch": g.chapitre, "from_v": source,
+                "to_ch": cible_ch, "to_v": cible_v,
+            })
 
     async with async_session_factory() as s:
         await s.execute(
