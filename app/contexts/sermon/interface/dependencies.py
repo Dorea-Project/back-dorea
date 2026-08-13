@@ -17,7 +17,6 @@ from app.contexts.sermon.application.commands.companion import (
     StartCompanion,
 )
 from app.contexts.sermon.application.commands.deposit import DepositSermon
-from app.contexts.sermon.application.commands.gratitude import DepositGratitude
 from app.contexts.sermon.application.commands.manage import ApproveSermon, PublishSermon
 from app.contexts.sermon.application.ports import SermonDigester, SermonTextExtractor
 from app.contexts.sermon.application.queries.list_sermons import GetSermon, ListTenantSermons
@@ -113,14 +112,11 @@ ApproveSermonDep = Annotated[ApproveSermon, Depends(get_approve_command)]
 PublishSermonDep = Annotated[PublishSermon, Depends(get_publish_command)]
 ListTenantSermonsDep = Annotated[ListTenantSermons, Depends(get_list_query)]
 GetSermonDep = Annotated[GetSermon, Depends(get_sermon_query)]
-def get_deposit_gratitude(session: DbSession) -> DepositGratitude:
-    """Import local du moteur : le compagnon est une **source**, pas un dépendant du noyau."""
-    from app.contexts.watch.interface.dependencies import build_intake
-
-    return DepositGratitude(build_intake(session), clock=_now)
+# R0 — `get_deposit_gratitude` vit désormais dans `watch/interface/dependencies.py`, avec la
+# commande. L'alias déprécié de `mobile_router` en dépend directement : on ne recâble pas une
+# seconde fois ce qui est déjà câblé chez lui.
 
 
 StartCompanionDep = Annotated[StartCompanion, Depends(get_start_companion)]
-DepositGratitudeDep = Annotated[DepositGratitude, Depends(get_deposit_gratitude)]
 AnswerAttendanceDep = Annotated[AnswerAttendance, Depends(get_answer_attendance)]
 AdvanceCompanionDep = Annotated[AdvanceCompanion, Depends(get_advance_companion)]

@@ -17,7 +17,6 @@ from app.contexts.sermon.interface.dependencies import (
     AdvanceCompanionDep,
     AnswerAttendanceDep,
     ApproveSermonDep,
-    DepositGratitudeDep,
     DepositSermonDep,
     GetSermonDep,
     ListTenantSermonsDep,
@@ -27,11 +26,18 @@ from app.contexts.sermon.interface.dependencies import (
 from app.contexts.sermon.interface.schemas import (
     AnswerAttendanceBody,
     CompanionCardView,
-    DepositGratitudeBody,
     DepositSermonBody,
-    GratitudeDepositedView,
     SermonListView,
     SermonView,
+)
+
+# R0 — l'alias déprécié de la reconnaissance emprunte **tout** à `watch` : la commande, sa
+# dépendance et ses deux schémas. Rien n'en est recopié ici, sans quoi les deux URL finiraient
+# par ne plus décrire le même geste.
+from app.contexts.watch.interface.dependencies import DepositGratitudeDep
+from app.contexts.watch.interface.schemas import (
+    DepositGratitudeBody,
+    GratitudeDepositedView,
 )
 
 router = APIRouter()
@@ -199,19 +205,30 @@ async def advance_companion(
     "/tenants/{tenant_id}/gratitude",
     response_model=GratitudeDepositedView,
     status_code=status.HTTP_201_CREATED,
-    summary="Déposer un sujet de reconnaissance — la seule parole du membre qui dit que ça va",
+    deprecated=True,
+    summary="[Déprécié → /api/mobile/watch/tenants/{tenant_id}/gratitude] Déposer un sujet "
+            "de reconnaissance",
 )
-async def deposit_gratitude(
+async def deposit_gratitude_alias(
     tenant_id: UUID,
     payload: DepositGratitudeBody,
     actor: CurrentActor,
     command: DepositGratitudeDep,
 ) -> GratitudeDepositedView:
-    """**Aucun identifiant de sujet dans la route** : on ne rend pas grâce à la place de quelqu'un.
+    """**R0 — alias temporaire. Le geste a déménagé, pas changé.**
 
-    Le texte entre au journal et n'en ressort pas : le responsable lira « a déposé un sujet de
-    reconnaissance le 12 avril », jamais ce qui a été écrit. Ce que ça change pour lui est
-    considérable et tient en une ligne — il ouvrira son appel autrement.
+    La commande, ses schémas et sa route vivent maintenant dans `watch`, où le fait, l'interpreter
+    et la source `COMPANION` étaient déjà. Cette URL reste ouverte parce que le client mobile est
+    dans un autre dépôt et ne se déploie pas en même temps que celui-ci : la couper d'un coup
+    ferait disparaître, sans prévenir, la seule parole du membre qui dise que ça va.
+
+    **Aucune duplication en dessous** : même commande, mêmes schémas, même dépendance — importés
+    de `watch`. Deux implémentations divergeraient, et le client verrait deux contrats pour un
+    même geste.
+
+    ⚠️ **À supprimer avec le contexte (R4)**, ou dès que le client mobile appelle la nouvelle URL,
+    selon ce qui vient en premier. Un alias qu'on oublie de retirer n'est plus une transition,
+    c'est une seconde API.
     """
     accepted = await command.execute(
         actor_account_id=actor.account_id, tenant_id=tenant_id, subject=payload.subject

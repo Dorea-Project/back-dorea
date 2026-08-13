@@ -16,6 +16,30 @@ exactement la boucle d'habitude que le produit refuse de fabriquer.
 
 **Best-effort, jamais bloquant.** Si le moteur n'est pas monté, le dépôt réussit quand même : ce
 que la personne a voulu dire ne dépend pas de l'état d'un greffon.
+
+---
+
+## R0 — pourquoi ce fichier a changé de maison, et ce qui n'a pas bougé avec lui
+
+Il vivait dans `sermon/application/commands/gratitude.py`, parce que la question *« as-tu vécu le
+culte ? »* du compagnon était sa porte d'entrée. `Plan_Urim_Producteur.md` retire ce contexte, et
+la règle du chantier est **on relocalise avant de démolir** : sans ce déplacement,
+`GRATITUDE_DEPOSITED`, `GratitudeDepositedV1` et la source `COMPANION` — **déjà** dans `watch` —
+resteraient
+branchés sur un émetteur supprimé. *La seule parole du membre qui dit que ça va* disparaîtrait de
+la veille, et l'interpreter resterait enregistré sans plus jamais être appelé.
+
+**Le déplacement ne change aucun comportement** : même fait, même source, même payload, même
+plafond. Ce qui change est l'URL de la route, et elle garde un alias le temps que le client suive.
+
+⚠️ **Une chose reste à faire, et volontairement pas ici.** `intake: Intake | None` existait parce
+que l'appelant était un contexte **étranger** — `warn_if_disconnected` le dit : *« il laisse un
+contexte fonctionner si la veille n'est pas déployée »*. Cet appelant n'existe plus : la commande
+est chez elle, et `build_intake` ne rend jamais `None`. La commande native voisine —
+`DeclareGesture` — prend d'ailleurs son intake **non optionnel**. Le `| None` est du bois mort, et
+faudra le couper. Pas dans ce commit : R0 est un déménagement, et on n'y fait pas passer une
+refonte en contrebande. À faire disparaître avec la démolition de `sermon` (R4), quand le dernier
+appelant étranger sera parti pour de bon.
 """
 
 from __future__ import annotations

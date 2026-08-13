@@ -7,9 +7,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.contexts.sermon.application.commands.gratitude import (
-    MAX_LENGTH as MAX_GRATITUDE_LENGTH,
-)
 from app.contexts.sermon.application.dtos import CompanionCardDTO, SermonDTO
 from app.contexts.sermon.domain.digest import SermonDigest
 
@@ -122,27 +119,6 @@ class CompanionCardView(BaseModel):
         )
 
 
-class DepositGratitudeBody(BaseModel):
-    """Ce pour quoi la personne rend grâce. **Un champ, et rien autour.**
-
-    Pas de destinataire, pas de visibilité à régler, pas de bouton pour le partager : il n'existe
-    ni mur ni fil des reconnaissances. Une reconnaissance est adressée à Dieu, pas à une audience —
-    et un compteur de reconnaissances serait exactement la boucle d'habitude que le produit refuse
-    de fabriquer.
-    """
-
-    subject: str = Field(
-        min_length=1,
-        max_length=MAX_GRATITUDE_LENGTH,
-        examples=["Mon fils a retrouvé du travail."],
-    )
-
-
-class GratitudeDepositedView(BaseModel):
-    """Ce que le membre reçoit en retour : un accusé, pas une publication.
-
-    `is_life_sign` dit seulement si le moteur a retenu le geste comme signe de vie. Il vaut False
-    quand aucun cas n'était ouvert — c'est-à-dire quand tout allait déjà bien, et l'application
-    n'a rien de plus à en dire."""
-
-    is_life_sign: bool
+# R0 — `DepositGratitudeBody` et `GratitudeDepositedView` ont suivi la commande dans `watch`.
+# L'alias déprécié de `mobile_router` les y importe : **un seul schéma pour deux URL**, sinon les
+# deux versions divergeraient et le client verrait deux contrats pour un même geste.
