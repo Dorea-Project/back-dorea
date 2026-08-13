@@ -31,6 +31,8 @@ from app.contexts.urim.interface.schemas import (
     ArchiveEntryView,
     ArchiveFromStudyBody,
     ArchiveManualBody,
+    ArticulationBody,
+    ArticulationView,
     ConcordanceView,
     CoverageView,
     DecisionBody,
@@ -276,6 +278,44 @@ async def personal_concordance(
     """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
     dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
     return ConcordanceView.from_dto(dto)
+
+
+@router.post(
+    "/studies/{study_id}/articulations",
+    response_model=ArticulationView,
+    summary="Faire articuler un point — dans l'atelier, jamais dans le document",
+)
+async def articuler(
+    study_id: UUID,
+    payload: ArticulationBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> ArticulationView:
+    """**La seule prose que produise Urim, et elle est demandée point par point.**
+
+    Ce qui la rend acceptable n'est pas une promesse mais le chemin des données : le livrable
+    n'imprime que ce que le pasteur a écrit dans son plan. Cette proposition vit dans sa propre
+    table et n'atteint un document que s'il la reprend — donc s'il l'a lue.
+
+    L'invite porte quatre interdits : aucun verset hors du texte fourni, aucun fait historique
+    ou culturel, aucun point ajouté ni conclusion à sa place, aucune illustration — c'est ce
+    que le pasteur apporte, et lui seul.
+
+    Sans modèle, au plafond, ou sur un point vide : `disponible: false`, et rien ne casse."""
+    propose = await service.articuler(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        element_code=payload.element_code,
+        ordinal=payload.ordinal,
+    )
+    if propose is None:
+        return ArticulationView(body="", transition="", model="", disponible=False)
+    return ArticulationView(
+        body=propose.body,
+        transition=propose.transition,
+        model=propose.model,
+        disponible=True,
+    )
 
 
 # ====================================================================== LE LIVRABLE

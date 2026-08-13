@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import re
 
-from app.contexts.urim.application.ports import NullVerseResolver
+from app.contexts.urim.application.ports import NullVerseResolver, PlanSuggestion
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.core.config import Settings
 from app.core.logging import get_logger
@@ -217,6 +217,42 @@ def _reference_depuis(contenu: str) -> Reference | None:
     return Reference(livre.strip(), chapitre, verset if isinstance(verset, int) else None)
 
 
+#: **La seule invite d'Urim qui produise de la prose** — et toutes ses contraintes sont là.
+#:
+#: Elle n'existe que parce que le pasteur la demande, point par point, dans son atelier. Ce
+#: qu'elle rend n'atteint aucun document : le livrable n'imprime que ce que le pasteur a écrit
+#: ou repris. C'est le patron du dépôt — *l'IA propose, l'homme dispose*.
+#:
+#: Quatre interdits, et chacun répare une faute qu'on aurait faite :
+#:
+#: 1. **aucun verset qui ne soit dans le texte fourni** — sinon l'invite devient un moteur de
+#:    proof-texting, ce contre quoi Urim entier est bâti ;
+#: 2. **aucune affirmation historique ou culturelle** — « chez les Hébreux les esclaves allaient
+#:    pieds nus » se dit bien et ne se vérifie pas ; c'est la règle des realia ;
+#: 3. **du français simple** — une note de préparation n'est pas un article de revue, et le
+#:    pasteur ne doit pas traduire son propre travail pour s'en servir ;
+#: 4. **court** — quelques phrases. Un paragraphe long se recopie ; trois phrases se retravaillent.
+_SYSTEME_ARTICULATION = (
+    "Tu aides un pasteur à développer UN point de son plan de prédication. On te donne : son "
+    "point tel qu'il l'a écrit, la référence du passage qu'il prêche, et le texte de ce "
+    "passage. "
+    "Ta tâche : proposer quelques phrases qui expliquent et articulent SON point à partir du "
+    "texte fourni, puis une phrase de transition vers le point suivant s'il y en a un. "
+    "INTERDICTIONS ABSOLUES : "
+    "(1) ne cite AUCUN verset ni référence qui ne soit pas dans le texte fourni ; "
+    "(2) n'affirme aucun fait historique, culturel ou linguistique — pas de 'chez les Hébreux', "
+    "pas d'étymologie, pas de coutume ; "
+    "(3) n'écris pas le sermon : tu développes SON point, tu n'en ajoutes pas d'autre, et tu ne "
+    "conclus pas à sa place ; "
+    "(4) n'invente aucune illustration, aucune anecdote, aucun exemple de la vie courante — "
+    "c'est ce que le pasteur apporte, et lui seul. "
+    "STYLE : français simple et direct, comme on parle. Pas de vocabulaire savant. "
+    "Six phrases au maximum pour le développement, une seule pour la transition. "
+    "Réponds par un objet JSON avec exactement les clés : body (chaîne), transition (chaîne, "
+    "vide s'il n'y a pas de point suivant)."
+)
+
+
 class MistralAssistant:
     """Le moteur IA — **les deux lectures du port dans un seul objet**.
 
@@ -289,6 +325,37 @@ class MistralAssistant:
             self.echecs += 1
             _logger.warning("mistral_echec", error=str(erreur))
             return None
+
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str
+    ) -> PlanSuggestion | None:
+        """Développer un point — **la seule sortie en prose du dépôt**, et elle est demandée.
+
+        Rend `None` sur toute panne : l'atelier continue, le pasteur écrit son point comme il
+        l'a toujours fait. Un modèle absent n'est pas un mode dégradé (§10)."""
+        demande = "\n".join((
+            f"Point du pasteur : {point}",
+            f"Passage prêché : {reference}",
+            f"Texte du passage : {texte}",
+            f"Point suivant : {suivant or '(aucun)'}",
+        ))
+        contenu = await self.demander(
+            _SYSTEME_ARTICULATION, demande, etiquette="articulation"
+        )
+        if not contenu:
+            return None
+        try:
+            lu = json.loads(contenu)
+        except json.JSONDecodeError:
+            return None
+        corps = (lu.get("body") or "").strip()
+        if not corps:
+            return None
+        return PlanSuggestion(
+            body=corps,
+            transition=(lu.get("transition") or "").strip(),
+            model=self._model,
+        )
 
     async def resolve(self, text: str) -> Reference | None:
         contenu = await self.demander(_SYSTEME_REFERENCE, text, etiquette="reference")

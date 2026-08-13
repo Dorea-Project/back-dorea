@@ -306,6 +306,31 @@ class StudyView(BaseModel):
         )
 
 
+class ArticulationBody(BaseModel):
+    """Quel point développer — **son point, désigné par lui**."""
+
+    element_code: str = Field(min_length=1, max_length=64, examples=["divisions"])
+    ordinal: int = Field(ge=0, le=999)
+
+
+class ArticulationView(BaseModel):
+    """Ce que le modèle propose pour ce point.
+
+    ⚠️ **Rien de tout ceci n'entre dans un document.** Le livrable n'imprime que
+    `preparation_element.body` : cette proposition n'atteint un fichier que si le pasteur la
+    reprend dans son plan — c'est-à-dire s'il l'a lue et adoptée.
+
+    `model` voyage avec le texte : une proposition sans son auteur ressemblerait, dans six
+    mois, à quelque chose que quelqu'un a écrit."""
+
+    body: str
+    transition: str
+    model: str
+    #: `false` = aucun modèle branché, plafond atteint, ou point vide. **Pas une erreur** :
+    #: l'atelier fonctionne sans, et le pasteur écrit son point comme il l'a toujours fait.
+    disponible: bool
+
+
 class DiapositiveBody(BaseModel):
     """Une diapositive composée par le pasteur. `texte_projete` est **le sien** — il coupe, il
     abrège, il glose entre crochets — et c'est ce que le serveur juge contre le corpus."""

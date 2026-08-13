@@ -412,6 +412,12 @@ class NullVerseResolver:
     async def resolve(self, text: str) -> Reference | None:
         return None
 
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str
+    ) -> PlanSuggestion | None:
+        """Sans modèle, le pasteur écrit son point — ce qu'il faisait de toute façon."""
+        return None
+
     async def axes(self, text: str) -> tuple[AxisGloss, ...]:
         return ()
 
@@ -420,6 +426,41 @@ class NullVerseResolver:
 
     async def lever(self, text: str) -> tuple[str, ...]:
         return ()
+
+
+@dataclass(slots=True)
+class PlanSuggestion:
+    """Ce que le modèle propose pour **un point du plan** — dans l'atelier, jamais imprimé.
+
+    ⚠️ **C'est la seule sortie en prose de tout Urim, et elle est enfermée ici.** Le livrable
+    n'imprime que `preparation_element.body` ; cette proposition ne l'atteint que si le pasteur
+    la reprend, c'est-à-dire s'il l'a lue et adoptée. Le patron est celui du dépôt entier :
+    *l'IA propose, l'homme dispose* — et côté Sermon, *rien de non approuvé n'atteint le
+    membre*."""
+
+    #: Le développement proposé pour ce point — quelques phrases, jamais un sermon.
+    body: str
+    #: La phrase qui mène au point suivant. Vide s'il n'y a pas de suivant.
+    transition: str = ""
+    #: Le modèle qui l'a écrite — l'équivalent de `corpus_snapshot`, pour la même raison.
+    model: str = ""
+
+
+class PlanAssistant(Protocol):
+    """L'articulation d'un point, demandée explicitement.
+
+    **Model-optional comme tout le reste** : sans clé, l'adaptateur nul rend `None` et l'atelier
+    fonctionne — le pasteur écrit son point lui-même, ce qu'il faisait de toute façon."""
+
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str
+    ) -> PlanSuggestion | None:
+        """⚠️ **Le modèle reçoit le point du pasteur, le passage et son texte — rien d'autre.**
+
+        Pas les pesées (elles sont curées, il les redirait mal), pas les mises en garde (elles
+        s'adressent au prédicateur), pas l'archive. Une invite qui reçoit tout produit une
+        synthèse de tout, et le pasteur ne saurait plus ce qui vient de lui."""
+        ...
 
 
 @dataclass(slots=True)

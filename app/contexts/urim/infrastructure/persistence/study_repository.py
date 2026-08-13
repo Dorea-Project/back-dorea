@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.urim.application.ports import (
     ElementRecord,
+    PlanSuggestion,
     PreparationRecord,
     SuggestionSnapshot,
     SupportRecord,
@@ -24,6 +25,7 @@ from app.contexts.urim.application.ports import (
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.contexts.urim.infrastructure.persistence.models import (
     UrimModelSuggestionModel,
+    UrimPlanSuggestionModel,
     UrimPreachedModel,
     UrimPreparationDismissalModel,
     UrimPreparationElementModel,
@@ -319,6 +321,50 @@ class SqlStudyRepository:
                 )
                 for p in row.passages
             ),
+        )
+
+    async def save_plan_suggestion(
+        self,
+        study_id: UUID,
+        element_code: str,
+        ordinal: int,
+        input_hash: str,
+        suggestion: PlanSuggestion,
+        at: datetime,
+    ) -> None:
+        """Garder la proposition — **dans sa table, jamais dans la colonne du pasteur**."""
+        row = await self._s.get(
+            UrimPlanSuggestionModel, (study_id, element_code, ordinal)
+        )
+        valeurs = dict(
+            input_hash=input_hash,
+            model=suggestion.model,
+            body=suggestion.body,
+            transition=suggestion.transition or None,
+            suggested_at=at,
+        )
+        if row is None:
+            self._s.add(UrimPlanSuggestionModel(
+                preparation_id=study_id, element_code=element_code,
+                ordinal=ordinal, **valeurs,
+            ))
+        else:
+            for cle, valeur in valeurs.items():
+                setattr(row, cle, valeur)
+        await self._s.flush()
+
+    async def get_plan_suggestion(
+        self, study_id: UUID, element_code: str, ordinal: int, input_hash: str
+    ) -> PlanSuggestion | None:
+        """Celle qui répond **à ce point-ci**. Un point réécrit n'a plus de réponse gardée —
+        et c'est voulu : ce serait la réponse à une question qui n'est plus posée."""
+        row = await self._s.get(
+            UrimPlanSuggestionModel, (study_id, element_code, ordinal)
+        )
+        if row is None or row.input_hash != input_hash:
+            return None
+        return PlanSuggestion(
+            body=row.body, transition=row.transition or "", model=row.model
         )
 
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]:

@@ -270,6 +270,35 @@ class UrimModelSuggestionModel(Base):
     suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UrimPlanSuggestionModel(Base):
+    """L'articulation proposée pour un point — **dans l'atelier, jamais dans le document**.
+
+    Le livrable n'imprime que `preparation_element.body`. Une proposition que le pasteur n'a pas
+    reprise n'atteint donc aucun fichier, et il n'existe pas de chemin pour qu'elle y arrive :
+    c'est une **table séparée**, pas une colonne de plus sur l'élément.
+
+    ⚠️ **Le partage d'un champ aurait suffi à tout défaire.** Dans la même colonne, une reprise
+    silencieuse ferait imprimer la machine sous le nom du pasteur — et la règle centrale du
+    livrable tomberait sans que personne ait écrit une ligne pour la lever.
+
+    `input_hash` fait deux choses : le rejeu ne redemande pas (donc ne refacture pas), et un
+    point réécrit obtient une proposition neuve plutôt qu'une réponse à une question qui n'est
+    plus posée. `model` est à cette table ce que `corpus_snapshot` est à la préparation."""
+
+    __tablename__ = "urim_plan_suggestion"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    element_code: Mapped[str] = mapped_column(String, primary_key=True)
+    ordinal: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String)
+    body: Mapped[str] = mapped_column(Text)
+    transition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimPreachedModel(Base):
     """L'archive — **propriété de l'auteur**.
 

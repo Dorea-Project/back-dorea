@@ -29,6 +29,7 @@ from app.contexts.urim.application.ports import (
     ElementRecord,
     NullVerseResolver,
     PassageDetailDTO,
+    PlanSuggestion,
     PreacherAuthorization,
     PreparationRecord,
     ReservationPort,
@@ -572,6 +573,103 @@ class UrimStudyService:
         # aucun contenu, et un élément vide reste un état normal.
         await self.studies.set_elements(study_id, list(elements))
         return await self._rejouer(record, persist=False)
+
+    async def articuler(
+        self, *, actor_account_id: UUID, study_id: UUID, element_code: str, ordinal: int
+    ) -> PlanSuggestion | None:
+        """**La seule prose qu'Urim produise — demandée, point par point, et jamais imprimée.**
+
+        Ce qui la rend acceptable n'est pas une promesse, c'est le chemin des données : le
+        livrable n'imprime que `preparation_element.body`. Cette proposition vit dans sa
+        **propre table** ; elle n'atteint un document que si le pasteur la reprend dans son
+        plan, c'est-à-dire s'il l'a lue et adoptée. C'est le patron du dépôt — *l'IA propose,
+        l'homme dispose* — et celui de Sermon : *rien de non approuvé n'atteint le membre*.
+
+        ⚠️ **Le quatrième mur n'est pas franchi.** `FORBIDDEN_IN_MODEL_PROMPT` interdit de
+        donner le plan au modèle **dans la capture**, parce que le Retour existe pour mesurer
+        l'écart entre le préparé et le prêché : un modèle qui aurait vu le plan fabriquerait la
+        conformité. Ici on est dans l'atelier, avant le dimanche, et c'est le pasteur qui
+        demande. Le Retour, lui, ne lira jamais cette table.
+
+        ⚠️ **Ça consomme.** C'est un appel de modèle comme les autres : `mark_assisted` est
+        posé. Et la garde du plafond s'applique — au plafond, la réponse est `None`, et le
+        pasteur écrit son point comme il l'a toujours fait."""
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        elements = await self.studies.list_elements(study_id)
+        point = next(
+            (e for e in elements if e.element_code == element_code and e.ordinal == ordinal),
+            None,
+        )
+        if point is None or not (point.body or "").strip():
+            # On n'articule pas un point qui n'existe pas : ce serait l'écrire.
+            return None
+
+        empreinte = hashlib.sha256(
+            normalize(point.body or "").encode()
+        ).hexdigest()[:32]
+        garde = await self.studies.get_plan_suggestion(
+            study_id, element_code, ordinal, empreinte
+        )
+        if garde is not None:
+            # Déjà demandé pour ce point : on rend le mémo. Redemander referait payer une
+            # question qui a déjà sa réponse.
+            return garde
+
+        maintenant = self.clock()
+        usage = await self.reservations.usage(
+            record.church_id, record.author_id, maintenant
+        )
+        if usage.assistance_exhausted and not await self.tier.is_unlimited(
+            record.author_id
+        ):
+            return None
+
+        resolu = _deserialiser(record.resolved_ref) or self._passage_de_l_unite(record)
+        servis, _variantes = self._texte_servi(
+            StudyState(
+                session_id=record.id,
+                church_id=record.church_id,
+                author_id=record.author_id,
+                corpus_snapshot=record.corpus_snapshot or self.index.snapshot,
+                entry_mode=EntryMode(record.entry_mode) if record.entry_mode else None,
+                raw_input=record.raw_input,
+                resolved=resolu,
+                bounds=self._bornes(record),
+            )
+        )
+        suivant = next(
+            (
+                e.body or ""
+                for e in sorted(elements, key=lambda e: (e.element_code, e.ordinal))
+                if e.element_code == element_code and e.ordinal > ordinal
+            ),
+            "",
+        )
+        propose = await self.resolver.articuler(
+            point=point.body or "",
+            reference=_afficher(resolu) or record.raw_input,
+            texte=" ".join(v.text for v in servis),
+            suivant=suivant,
+        )
+        if propose is None:
+            return None
+
+        await self.studies.save_plan_suggestion(
+            study_id, element_code, ordinal, empreinte, propose, maintenant
+        )
+        await self.reservations.mark_assisted(
+            church_id=record.church_id,
+            author_id=record.author_id,
+            pericope_key=(
+                f"pericope:{record.pericope_id}"
+                if record.pericope_id is not None
+                else _cle_provisoire(record.raw_input)
+            ),
+            at=maintenant,
+        )
+        return propose
 
     # -- la chaîne de textes ----------------------------------------------------
 
