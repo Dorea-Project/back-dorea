@@ -30,6 +30,14 @@ class _Option:
         self.strength = strength
 
 
+class _Pesee:
+    def __init__(self, code: str, force: str) -> None:
+        self.axis_code = code
+        self.label = code.capitalize()
+        self.strength = force
+        self.rationale = "ce que le texte en fait"
+
+
 class _Vue:
     """Le strict nécessaire — le constructeur ne lit rien d'autre, et c'est le sujet."""
 
@@ -40,6 +48,8 @@ class _Vue:
         self.options = [_Option("axe:ecclesiologie")]
         #: Où en est la préparation — lu par les deux tours qui n'offrent rien, pour situer.
         self.resolved = None
+        #: L'axe retenu — le bloc des pesées marque le sien et rend les autres sélectionnables.
+        self.axis_code = None
         self.bearings = []
         self.caveats = []
         self.couples = []
@@ -140,6 +150,86 @@ def test_le_tour_est_serialisable_tel_quel() -> None:
     tour = construire_tour(_Vue(theme="Un thème", trace=[_Trace("propose_theme")]))
     rendu = TurnView.model_validate(tour.model_dump()).model_dump()
     assert {b["kind"] for b in rendu["blocks"]} == {"theme", "actions", "chips"}
+
+
+# -- l'axe retenu n'est pas une fatalité du texte (§7) --------------------------------
+
+
+def _avec_pesees(**remplace) -> _Vue:
+    return _Vue(
+        trace=[_Trace("bear_axes")], outcome="degrade", options=[],
+        bearings=[
+            _Pesee("christologie", "dominant"),
+            _Pesee("anthropologie", "porte"),
+            _Pesee("eschatologie", "resiste"),
+            _Pesee("demonologie", "absent"),
+        ],
+        **remplace,
+    )
+
+
+def _pesees(vue) -> dict[str, object]:
+    bloc = next(b for b in construire_tour(vue).blocks if b.kind == "bearings")
+    return {i.axis_code: i for i in bloc.items}
+
+
+def test_l_axe_retenu_est_marque_et_les_autres_axes_portes_sont_prenables() -> None:
+    """🔴 **Un texte à un seul dominant voyait son axe posé d'office, sans le dire.**
+
+    Le pasteur orthodoxe ouvre 2 Pierre 1:4 *pour* la déification ; l'unité n'a que
+    `christologie` en dominant, donc `bear_axes` continue sans rendre la main. Il repartait avec
+    une préparation christologique — et l'unité porte pourtant l'anthropologie.
+
+    Le geste existait déjà de bout en bout côté API. **Rien ne le disait**, et une porte ouverte
+    que personne ne voit a l'air d'une fonctionnalité manquante."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    items = _pesees(vue)
+
+    assert items["christologie"].selected
+    assert not items["christologie"].selectable, "reprendre l'axe déjà retenu ne fait rien"
+    assert items["anthropologie"].selectable
+
+
+def test_un_axe_absent_ou_resistant_n_est_jamais_prenable() -> None:
+    """*Un axe absent n'affiche rien, et aucun plan ne se construit dessus.* Et un axe auquel le
+    texte **résiste** est un garde-fou, pas un angle : c'est le même partage que `bear_axes`,
+    qui offre les dominants, sinon les portants, et jamais les résistants."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    items = _pesees(vue)
+
+    assert not items["demonologie"].selectable
+    assert not items["eschatologie"].selectable
+
+
+def test_le_bloc_des_pesees_dit_a_quel_etage_poster() -> None:
+    """⚠️ Le tour porte le code de l'étage **courant**, qui n'est pas celui-ci.
+
+    Le cas est celui du dernier tour : les pesées y voyagent en décor, le tour dit
+    `propose_theme`, et le geste qu'elles portent s'adresse à `bear_axes`. Sans `decide_stage`,
+    un client les enverrait à l'étage qui vient de parler et se ferait refuser — le 422 au clic,
+    dans l'autre sens."""
+    vue = _avec_pesees()
+    vue.trace = [_Trace("propose_theme")]
+    vue.theme = "Un thème proposé"
+    vue.axis_code = "christologie"
+
+    tour = construire_tour(vue)
+
+    bloc = next(b for b in tour.blocks if b.kind == "bearings")
+    assert bloc.decide_stage == "bear_axes"
+    assert tour.stage_code == "propose_theme", "le tour ne parle pas de l'étage des pesées"
+
+
+def test_le_tour_des_pesees_nomme_le_geste_qu_il_rend_possible() -> None:
+    """Le bloc porte l'affordance ; la phrase doit la dire, sinon elle reste invisible."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    assert "axes" in construire_tour(vue).ask
 
 
 # -- la dominance : le trou 1 du contrat ---------------------------------------------

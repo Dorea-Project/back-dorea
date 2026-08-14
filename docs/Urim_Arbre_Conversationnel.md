@@ -286,8 +286,9 @@ qui résistent — qui résistent alors à la **christologie**, pas à sa thèse
 
 L'unité porte pourtant `anthropologie`, `soteriologie`, `theologie_propre` et `eschatologie` en
 `porte`. L'étage le dit lui-même quand il y a plusieurs dominants — *« les ordonner serait
-décider ce que le pasteur veut prêcher »* — et avec un seul, il décide. La correction existe
-dans l'API (`POST /decisions` sur `bear_axes`) et **aucun écran ne l'offre**.
+décider ce que le pasteur veut prêcher »* — et avec un seul, il décide. La correction existait
+dans l'API (`POST /decisions` sur `bear_axes`) et **aucun écran ne l'offrait**. Traité en §7 —
+où l'on a découvert que la porte de sortie était en plus cassée.
 
 ⚠️ **Et cette décision n'est pas vérifiée** : `bear_axes` accepte n'importe quelle chaîne comme
 axe doctrinal, exactement comme `shape_homiletic` acceptait n'importe quel couple. C'est la même
@@ -319,10 +320,11 @@ qu'il remplace était précisément l'information utile.
 
 ---
 
-## 7. Question ouverte — l'axe unique décide à la place du pasteur
+## 7. L'axe unique — la porte invisible, et la cascade qu'elle cachait
 
-> **Note de conception, non implémentée.** Posée le 2026-08-14 en marchant un sermon orthodoxe.
-> Le trou de validation qui l'accompagnait est fermé ; la question, elle, reste entière.
+> Posée le 2026-08-14 en marchant un sermon orthodoxe, **résolue le même jour** — et la
+> résolution a coûté plus que la question, parce que la porte de sortie n'était pas seulement
+> invisible : elle était cassée.
 
 ### Le fait
 
@@ -355,13 +357,91 @@ Les deux corrections possibles ont donc chacune leur coût :
 | **offrir les `porte` en second rang** | un geste possible, aucun tour imposé | le tour porte deux familles d'options qui ne valent pas la même chose |
 | **rendre la main dès qu'il y a un choix** | fidèle à la doctrine de l'étage | un tour de plus sur presque toutes les préparations |
 
-### Ce qui existe déjà, et qui n'est offert nulle part
+### Ce que la marche a trouvé : la porte n'était pas seulement invisible
 
-La correction est **possible aujourd'hui** : `POST /studies/{id}/decisions` avec
-`stage_code: bear_axes` et un des dix loci repose l'axe, et le pipeline repart derrière. Aucun
-écran ne la propose, et le contrat du tour n'a pas de bloc pour elle. C'est donc une porte
-ouverte que personne ne voit — ce qui est la pire des trois situations, parce qu'elle a l'air
-d'une absence de fonctionnalité alors que c'est une absence d'affichage.
+Avant d'offrir un geste, il fallait vérifier ce qu'il faisait. `POST /decisions` sur `bear_axes`
+reposait bien l'axe — et laissait le thème de l'ancien. Les quatre révisions possibles, mesurées
+une par une :
+
+| le pasteur change… | ce qui restait périmé |
+| :-- | :-- |
+| **l'axe** | le thème nommait encore `christologie` |
+| **le couple** | le thème nommait encore la mise en forme abandonnée |
+| **ses bornes** | l'axe, le couple **et** le thème survivaient à l'unité devenue illisible |
+| **le texte** | l'unité, l'axe, le couple et le thème, tous inchangés |
+
+**Aucune décision amont ne remontait l'aval.** La cause est une phrase du service qui n'était
+vraie que de la trace :
+
+> *« Le rejeu est le choix structurant : on stocke les décisions, et on refait tourner les huit
+> étages. »*
+
+Les bornes, l'axe, le couple et le thème ne sont pas des décisions : ce sont des **résultats**,
+stockés comme tels, et chaque étage qui les produit se garde de tourner deux fois (`applies`).
+Le rejeu ne rejouait donc que ce que personne n'avait encore décidé. C'est la racine commune des
+deux bugs déjà réparés — `shape_homiletic` injoignable, `propose_theme` qui ne recalcule jamais.
+
+Le cas des bornes forcées est le plus grave : S22 promet que la liberté accordée *« se propage
+d'elle-même, sans qu'aucun étage n'ait à connaître la règle »*. Elle ne se propageait pas du
+tout — le pasteur gardait un thème et une faisabilité tirés d'une unité que le produit venait de
+déclarer illisible.
+
+### La résolution — en deux temps, et le premier n'était pas la question posée
+
+**1. La cascade** (`UrimStudyService._perimer`). Une décision périme ce que les étages avals
+avaient calculé, et le pipeline le recalcule. Trois portées, nommées par ce qu'elles emportent
+plutôt que par l'étage qui les déclenche :
+
+    tout l'aval      un mode d'entree, un autre texte  -> unite, bornes, axe, couple, theme
+    sous le texte    un texte choisi sur une intention -> unite, bornes, couple, theme
+                     (l'AXE reste : sur le chemin inverse, le pasteur l'a nomme en premier)
+    sous les bornes  une autre unite, ou « mes bornes » -> couple, theme  (S22 se propage enfin)
+
+⚠️ **Un thème réécrit par le pasteur ne se périme jamais.** *Une proposition, jamais un titre —
+le titre, c'est votre voix.* On ne distingue pas sa phrase de celle du moteur par une colonne :
+le gabarit est déterministe, donc l'égalité suffit à dire que personne n'y a touché. Même ruse
+que `_une_unite_existait`, qui repose la question au corpus plutôt que d'ajouter un champ qui
+pourrait le contredire.
+
+Effet de bord heureux : la branche que `propose_theme` déclarait inatteignable — *« Hors unité
+curée — le thème ne s'appuie sur aucune faisabilité relue »* — atteint enfin un pasteur.
+
+**2. Le choix, rendu visible là où il était déjà affiché.** Le bloc `bearings` accompagne tous
+les tours avals et porte les dix axes avec leur force. Il marque désormais l'axe **retenu**
+(`selected`) et ceux qu'on peut prendre à la place (`selectable`), et il dit **où poster**
+(`decide_stage: "bear_axes"`) — sans quoi un client enverrait la décision à l'étage qui vient de
+parler, et se ferait refuser.
+
+`absent` n'est jamais prenable — *un axe absent n'affiche rien, et aucun plan ne se construit
+dessus* — ni `resiste` : c'est un garde-fou, pas un angle. Même partage que `bear_axes`, qui
+offre les dominants, sinon les portants, et jamais les résistants.
+
+**Aucun tour n'a été ajouté à personne.** Les 42,2 % de préparations qui n'avaient pas d'écran
+de choix n'en ont toujours pas : elles ont une phrase qui nomme le geste, et des pesées qui le
+portent. On n'a pas construit une fonctionnalité — on a rendu visible celle qui existait, après
+l'avoir réparée.
+
+⚠️ **Ce que la phrase ne dit pas, et pourquoi.** Le geste n'est nommé que sur le tour où les
+pesées sont le sujet. Au tour du thème — le plus probable pour s'apercevoir que l'angle n'est
+pas le sien — l'affordance est portée par le bloc seul. L'ajouter à cette question-là était
+tentant et faux : le thème s'affiche aussi hors unité curée, où il n'y a **aucune** pesée à
+l'écran, et la phrase promettrait alors un geste sans rien pour le faire. C'est exactement le
+mur n°2, dans l'autre sens. Un client qui rend `selectable` n'a pas ce problème ; une phrase
+qui l'ignore, si.
+
+### Vérifié de bout en bout, sur le cas qui a posé la question
+
+    2 Pierre 1:4  ->  axe pose d'office : christologie
+                      theme « christologie, en expositif doctrinal »
+                      a prendre : theologie_propre, anthropologie, hamartiologie,
+                                  soteriologie, eschatologie
+    il prend anthropologie (la deification)
+                  ->  theme « anthropologie, en expositif doctrinal »
+                      et les textes qui resistent CHANGENT : Job 38:31-33,
+                      Romains 11:33-36 — l'insondabilite des jugements de Dieu
+
+La protection suit désormais l'angle que le pasteur prêche, et non celui que le corpus a jugé
+dominant. C'était toute la question.
 
 ### La mesure, prise sur les 4 561 unités
 
@@ -376,8 +456,8 @@ Elle était nécessaire avant de trancher, et elle déplace la question. Une pas
 | 3 et plus | 82 · 1,8 % | il choisit |
 
 Et parmi les 1 926 unités à dominant unique, **98,9 % portent au moins un autre axe** (trois en
-médiane) : il y aurait donc presque toujours quelque chose à lui offrir. Seules **22 unités**
-(1,1 %) n'ont rien d'autre — et là, le comportement actuel est exactement juste.
+médiane) : il y a donc presque toujours quelque chose à lui offrir. Seules **22 unités** (1,1 %)
+n'ont rien d'autre — et là, le comportement d'origine était exactement juste.
 
 Ce que la mesure change : l'argument du *« tour de plus imposé à tout le monde »* pesait tant
 qu'on croyait le cas rare. **Le pasteur passe déjà par un écran de choix d'axe sur 57,8 % des
@@ -385,6 +465,11 @@ textes.** Sur les 42,2 % restants, l'écran n'est pas ajouté à un fil qui n'en
 retiré à un fil qui en a un une fois sur deux. L'asymétrie n'est plus la même, et la
 non-uniformité devient elle-même un défaut : le même geste existe ou non selon le texte, sans
 que rien à l'écran ne l'explique.
+
+C'est ce qui a écarté la troisième voie — *rendre la main dès qu'il y a un choix*. Elle est la
+plus fidèle à la doctrine de l'étage, et elle imposerait un tour à 1 926 préparations pour un
+désaccord qui, lui, n'est pas mesuré. Le geste offert sans tour supplémentaire donne la même
+liberté et ne coûte rien à celui qui était d'accord.
 
 ---
 

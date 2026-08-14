@@ -19,6 +19,7 @@ import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import Final
 from uuid import UUID, uuid4
 
 from app.contexts.urim.application.ports import (
@@ -54,6 +55,7 @@ from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Outcome
 from app.contexts.urim.engine.pipeline import UrimEngine
+from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import REFORMULER
 from app.contexts.urim.engine.state import (
@@ -188,6 +190,32 @@ def _livre_de(index: CorpusIndex, pericope_id: UUID) -> int:
         (p.book_id for p in index.pericopes if p.id == pericope_id), -1
     )
 
+
+#: ⚠️ **Ce qu'une décision périme, par profondeur — et l'ordre du pipeline est la seule règle.**
+#:
+#: Quatre portées, pas une par étage : ce qui compte n'est pas *quel* étage a tranché, c'est
+#: **jusqu'où** sa décision remonte le fil. Les nommer par ce qu'elles emportent plutôt que par
+#: l'étage qui les déclenche évite d'avoir à réviser une liste à chaque étage nouveau.
+#:
+#: `bounds_overridden` retombe à `False` et non à `None` : c'est un booléen, et son absence de
+#: valeur **est** `False`.
+_TOUT_L_AVAL: Final = (
+    "pericope_id", "bounds_overridden", "axis_code", "plan_source", "subject_matter", "theme",
+)
+
+#: Changer de **texte** garde l'angle : sur le chemin inversé, le pasteur a nommé son axe avant
+#: qu'aucun texte n'existe, et c'est la seule chose qu'il ait dite.
+_SOUS_LE_TEXTE: Final = ("pericope_id", "bounds_overridden", "plan_source", "subject_matter",
+                         "theme")
+
+#: Changer de **bornes** ne touche pas à l'angle non plus — mais la faisabilité est clée sur
+#: l'unité, donc elle tombe avec elle (S22).
+_SOUS_LES_BORNES: Final = ("plan_source", "subject_matter", "theme")
+
+#: Sous l'angle comme sous la mise en forme, il n'y a que le thème — les deux le composent, et
+#: rien d'autre n'en dépend. Nommé plutôt que répété : les portées se lisent alors comme une
+#: table, et un étage nouveau se range dans l'une d'elles au lieu d'inventer sa liste.
+_LE_THEME: Final = ("theme",)
 
 #: Les deux étages dont le refus signifie « je n'ai pas trouvé », et non « voici un fait ».
 #:
@@ -436,7 +464,9 @@ class UrimStudyService:
         if stage == "route_entry":
             if option not in {m.value for m in EntryMode}:
                 raise OptionInconnueError(f"« {option} » n'est pas un mode d'entrée.")
+            self._perimer(record, _TOUT_L_AVAL)
             record.entry_mode = option
+            record.resolved_ref = None
             return
 
         if stage == "resolve_passage":
@@ -447,12 +477,14 @@ class UrimStudyService:
                 # n'avait jamais cité. Le mode est corrigé et le pipeline rejoué depuis le
                 # début — c'est une correction d'entrée, pas une résolution de passage, d'où
                 # l'écriture sur `entry_mode` et non sur `resolved_ref`.
+                self._perimer(record, _TOUT_L_AVAL)
                 record.entry_mode = EntryMode.CONVICTION.value
                 record.resolved_ref = None
                 return
             ref = self._reference_depuis_libelle(option)
             if ref is None:
                 raise OptionInconnueError(f"« {option} » ne désigne aucun passage connu.")
+            self._perimer(record, _TOUT_L_AVAL)
             record.resolved_ref = _serialiser(ref)
             return
 
@@ -461,15 +493,23 @@ class UrimStudyService:
                 # Le pasteur force ses bornes. `pericope_id` retombe à None, et **tout ce
                 # qui est curé devient illisible** pour les étages avals — pesées, mises
                 # en garde, faisabilité. S22 est mécanique, pas déclaratif.
+                #
+                # 🔴 Mécanique, elle ne l'était pas : le couple et le thème tirés de l'unité
+                # abandonnée survivaient au geste. Ils se périment ici — l'axe, lui, reste :
+                # c'est un angle doctrinal, il ne dépend pas des bornes, et sur le chemin
+                # intention c'est **le pasteur** qui l'a nommé avant même de voir un texte.
+                self._perimer(record, _SOUS_LES_BORNES)
                 record.pericope_id = None
                 record.bounds_overridden = True
                 return
             try:
-                record.pericope_id = UUID(option)
+                unite = UUID(option)
             except ValueError as exc:
                 raise OptionInconnueError(
                     f"« {option} » n'est pas une unité littéraire connue."
                 ) from exc
+            self._perimer(record, _SOUS_LES_BORNES)
+            record.pericope_id = unite
             record.bounds_overridden = False
             return
 
@@ -503,6 +543,7 @@ class UrimStudyService:
                     choisi.refusal_reason
                     or f"« {option} » n'est pas faisable sur cette unité littéraire."
                 )
+            self._perimer(record, _LE_THEME)
             record.plan_source, record.subject_matter = plan, matiere
             return
 
@@ -511,7 +552,9 @@ class UrimStudyService:
             # Le déduire de la forme (« ça ressemble à un UUID donc c'est un texte ») aurait
             # marché et se serait cassé au premier axe nommé comme un identifiant.
             if option.startswith("axe:"):
-                record.axis_code = self._verifier_axe(option.removeprefix("axe:"))
+                axe = self._verifier_axe(option.removeprefix("axe:"))
+                self._perimer(record, _LE_THEME)
+                record.axis_code = axe
                 return
             if option.startswith("texte:"):
                 try:
@@ -532,6 +575,10 @@ class UrimStudyService:
                         f"« {option} » n'est pas une unité littéraire connue."
                     )
                 livre = self.index.label_by_book.get(cible.book_id, "")
+                # ⚠️ L'axe **survit** ici, et c'est le chemin inversé qui l'exige : sur une
+                # intention, le pasteur a nommé son angle **avant** de voir un texte. Le
+                # périmer avec le reste lui reprendrait la seule chose qu'il ait dite.
+                self._perimer(record, _SOUS_LE_TEXTE)
                 record.resolved_ref = _serialiser(
                     Reference(livre, cible.start_ch, cible.start_v, cible.end_v)
                 )
@@ -550,12 +597,15 @@ class UrimStudyService:
             if reference is not None and IndexedCorpusReader(self.index).check_reference(
                 reference
             ).exists:
+                self._perimer(record, _SOUS_LE_TEXTE)
                 record.resolved_ref = _serialiser(reference)
                 return
             raise OptionInconnueError(f"« {option} » n'est pas une option de cet étage.")
 
         if stage == "bear_axes":
-            record.axis_code = self._verifier_axe(option)
+            axe = self._verifier_axe(option)
+            self._perimer(record, _LE_THEME)
+            record.axis_code = axe
             return
 
         if stage == "propose_theme":
@@ -563,6 +613,40 @@ class UrimStudyService:
             return
 
         raise OptionInconnueError(f"L'étage « {stage} » n'attend aucune décision.")
+
+    def _perimer(self, record: PreparationRecord, champs: tuple[str, ...]) -> None:
+        """Ce qu'une décision amont **périme** — et pourquoi le moteur ne peut pas le faire.
+
+        🔴 *« Le rejeu est le choix structurant : on stocke les décisions, et on refait tourner
+        les huit étages. »* La phrase était vraie de la trace et fausse de tout le reste. Les
+        bornes, l'axe, le couple et le thème sont stockés comme des **résultats**, et chaque
+        étage qui les produit se garde de tourner deux fois (`applies`). Une décision amont ne
+        remontait donc jamais l'aval — elle le laissait périmé :
+
+            il change l'axe      -> le theme dit encore l'ancien
+            il change le couple  -> le theme dit encore l'ancienne mise en forme
+            il force ses bornes  -> l'axe, le couple ET le theme survivent a l'unite
+                                    que le produit vient de declarer illisible (S22)
+
+        Le dernier cas est le plus grave : S22 promet que la liberté accordée *« se propage
+        d'elle-même, sans qu'aucun étage n'ait à connaître la règle »*. Elle ne se propageait
+        pas du tout. C'est ici qu'elle se propage, une fois, pour tous les étages.
+
+        ⚠️ **Le thème réécrit par le pasteur ne se périme jamais.** *Une proposition, jamais un
+        titre — le titre, c'est votre voix.* On efface le thème seulement s'il est encore mot
+        pour mot ce que le gabarit rendrait : le gabarit étant déterministe, l'égalité dit que
+        personne n'y a touché."""
+        # ⚠️ **La question se pose AVANT d'effacer quoi que ce soit.** Posée dans la boucle,
+        # elle comparait le thème à un gabarit dont on venait de vider le plan et la matière :
+        # « christologie » au lieu de « christologie, en expositif doctrinal », donc jamais
+        # égal, donc un thème du moteur passait pour une phrase du pasteur et survivait.
+        du_moteur = record.theme == theme_propose(
+            record.axis_code, record.plan_source, record.subject_matter
+        )
+        for champ in champs:
+            if champ == "theme" and not du_moteur:
+                continue  # sa phrase à lui — on n'y touche pas
+            setattr(record, champ, False if champ == "bounds_overridden" else None)
 
     def _verifier_axe(self, code: str) -> str:
         """L'axe retenu est-il un locus **que ce corpus connaît** ?

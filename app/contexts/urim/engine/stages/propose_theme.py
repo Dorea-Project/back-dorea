@@ -49,11 +49,15 @@ Un nouveau semis peut faire basculer la réponse pour une préparation ancienne.
 ce que `corpus_drifted` signale, et c'est le prix assumé de ne pas ajouter une colonne qui dirait
 la même chose et pourrait la contredire.
 
-⚠️ **Et cette phrase n'atteint aujourd'hui aucun pasteur.** La chaîne se referme d'elle-même :
-`bounds_overridden` n'est vrai que lorsque `pericope_id` est `None` — les trois écrivains le
-posent ainsi —, sans unité curée `bear_axes` dégrade sans retenir d'axe, et sans axe cet étage ne
-s'applique pas. La branche est un garde-fou, pas un comportement observable ; le corriger valait
-quand même mieux que laisser une phrase fausse attendre son jour.
+⚠️ **Cette phrase n'atteignait aucun pasteur, et elle en atteint un depuis le 2026-08-14.** La
+chaîne se refermait d'elle-même : `bounds_overridden` n'est vrai que lorsque `pericope_id` est
+`None`, sans unité curée `bear_axes` dégrade sans retenir d'axe, et sans axe cet étage ne
+s'applique pas. La branche était un garde-fou, pas un comportement observable.
+
+Ce qui l'a ouverte : la **cascade** des décisions (`UrimStudyService._perimer`). Un pasteur qui
+force ses bornes **après** avoir retenu un axe garde son axe — c'est son angle, il ne dépend pas
+des bornes —, la faisabilité tombe avec l'unité, et cet étage se ré-exécute pour proposer un
+thème sans elle. La phrase avait donc bien un jour à attendre.
 
 Ce que la découverte dit vraiment est plus grave que la formulation : **hors unité curée, le
 pipeline s'arrête à la pesée doctrinale.** Le pasteur reçoit son texte et rien après.
@@ -97,14 +101,21 @@ class ProposeTheme:
         )
 
 
+def theme_propose(axis: str | None, plan: str | None, matiere: str | None) -> str:
+    """Un gabarit **fermé** : même état, même phrase. Aucun modèle, aucune surprise.
+
+    ⚠️ **Public, et la bordure s'en sert pour une autre question.** Le gabarit étant
+    déterministe, comparer le thème enregistré à ce qu'il rendrait dit si le pasteur l'a
+    **réécrit** ou s'il a laissé la proposition. C'est ce qui permet à une décision amont de
+    périmer un thème du moteur sans jamais effacer une phrase écrite par le pasteur — sans
+    ajouter la colonne qui aurait dit la même chose, et qui aurait pu la contredire (même ruse
+    que `_une_unite_existait` ci-dessous)."""
+    forme = f", en {plan} {matiere}" if plan and matiere else ""
+    return f"{axis}{forme}"
+
+
 def _gabarit(state: StudyState) -> str:
-    """Un gabarit **fermé** : même état, même phrase. Aucun modèle, aucune surprise."""
-    forme = (
-        f", en {state.plan_source} {state.subject_matter}"
-        if state.plan_source and state.subject_matter
-        else ""
-    )
-    return f"{state.axis}{forme}"
+    return theme_propose(state.axis, state.plan_source, state.subject_matter)
 
 
 def _une_unite_existait(state: StudyState, deps: EngineDeps) -> bool:

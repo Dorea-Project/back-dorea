@@ -86,9 +86,13 @@ _PAR_ECRAN: dict[str, tuple[str, str]] = {
     # ⚠️ Ces trois écrans-là n'arrivent **qu'avec les mains vides** : dès que l'étage offre un
     # choix, c'est lui qui parle. Leur question n'est donc pas décorative — c'est la seule
     # chose qui reste à faire au pasteur, et sans elle le tour est un cul-de-sac poli.
+    # ⚠️ La question nomme le geste que le bloc rend possible depuis §7 : l'axe retenu n'est pas
+    # une fatalité du texte, c'est un angle, et le pasteur peut en prendre un autre parmi ceux
+    # que le texte porte. Le dire ici est tout ce qui manquait — le geste, lui, existait.
     "bearings": (
         "Voici ce que ce texte porte — et ce à quoi il résiste.",
-        "Ouvrez un autre passage, ou travaillez celui-ci tel quel.",
+        "Prêchez-le sur un autre de ses axes si le vôtre est ailleurs, ou ouvrez un autre "
+        "passage.",
     ),
     "feasibility": (
         "Voici les plans que ce texte peut tenir, et ceux qu'il refuse.",
@@ -252,11 +256,40 @@ class BearingItem(BaseModel):
     strength: str
     rationale: str
 
+    #: L'axe sur lequel la préparation travaille — **celui dont tout l'aval dépend** : le thème
+    #: s'en dérive, et les textes qui résistent sont cherchés pour lui.
+    selected: bool = False
+
+    #: ⚠️ **Cet axe peut être pris à la place de celui-là**, et c'est le trou que §7 a nommé.
+    #:
+    #: 🔴 Un texte à **un seul** axe dominant voyait son axe posé d'office : `bear_axes`
+    #: continue sans rendre la main, et aucun écran ne disait que le choix existait. Le pasteur
+    #: orthodoxe qui ouvre 2 Pierre 1:4 *pour* la déification repartait avec une préparation
+    #: christologique — l'unité porte pourtant l'anthropologie. 42,2 % des unités curées sont
+    #: dans ce cas, et 98,9 % d'entre elles portent au moins un autre axe.
+    #:
+    #: Le geste existait déjà de bout en bout : `POST /decisions` sur `bear_axes` repose l'axe
+    #: et le pipeline repart derrière. **Rien ne le disait.** Une porte ouverte que personne ne
+    #: voit est pire qu'une porte fermée : elle a l'air d'une fonctionnalité manquante.
+    #:
+    #: `absent` n'est jamais sélectionnable — *un axe absent n'affiche rien, et aucun plan ne se
+    #: construit dessus* —, et `resiste` non plus : on ne prêche pas un texte sur ce qu'il
+    #: contredit.
+    selectable: bool = False
+
 
 class BearingsBlock(BaseModel):
+    """Ce que le texte porte — **et, depuis §7, ce qu'on peut prendre à la place**.
+
+    ⚠️ `decide_stage` dit **où** poster : le tour porte le code de l'étage courant, qui n'est
+    pas celui-ci. Sans lui, un client qui rendrait ces pesées cliquables les enverrait à
+    l'étage qui vient de parler, et le service refuserait — la moitié du 422 au clic, dans
+    l'autre sens."""
+
     kind: Literal["bearings"] = "bearings"
     items: list[BearingItem]
     caveats: list[str] = []
+    decide_stage: str = "bear_axes"
 
 
 class FeasibilityItem(BaseModel):
@@ -398,6 +431,12 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
                 BearingItem(
                     axis_code=b.axis_code, label=b.label,
                     strength=b.strength, rationale=b.rationale,
+                    selected=b.axis_code == vue.axis_code,
+                    # On ne propose pas de reprendre l'axe déjà retenu : ce serait offrir un
+                    # geste qui ne fait rien.
+                    selectable=(
+                        b.strength in _AXES_PRECHABLES and b.axis_code != vue.axis_code
+                    ),
                 )
                 for b in vue.bearings
             ],
@@ -433,6 +472,12 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
 
 #: Une sortie, pas un écran : `actions` accompagne le thème, il ne le remplace pas.
 _DECOR = frozenset({"actions"})
+
+#: Les forces sur lesquelles un sermon se construit. `absent` en est exclu — *un axe absent
+#: n'affiche rien, et aucun plan ne se construit dessus* — et `resiste` aussi : c'est un
+#: garde-fou, pas un angle. C'est le même partage que `bear_axes`, qui offre les dominants,
+#: sinon les portants, et jamais les résistants.
+_AXES_PRECHABLES = frozenset({"dominant", "porte"})
 
 
 def _forme(vue, blocs: list[Block], vivantes: list) -> str:
