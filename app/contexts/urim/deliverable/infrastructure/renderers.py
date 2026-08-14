@@ -286,10 +286,13 @@ def rendre_note(note: Note) -> bytes:
         # source, et personne ne relit une définition grecque avant de la redire en chaire.
         # Ce qui la remplace est plus sûr et souvent plus parlant — les autres endroits où le
         # mot paraît. La culture d'un mot s'enseigne par sa récurrence, pas par un synonyme.
+        # ⚠️ **L'attribution est une obligation de licence, pas une politesse** : le sens
+        # vient de TBESG (STEPBible, CC BY 4.0), traduit. Elle voyage donc avec la section.
         _sous_texte(
             document,
-            "Aucune traduction n'est proposée : elle serait inventée. À la place, les mêmes "
-            "mots ailleurs dans l'Écriture — c'est l'usage qui donne le sens.",
+            "Le sens est traduit d'un lexique publié (STEP Bible, CC BY) et l'entrée "
+            "d'origine est donnée à côté. Les autres passages où le mot paraît disent le "
+            "reste — c'est l'usage qui l'enseigne.",
         )
         for mot in note.original:
             ligne = document.add_paragraph(style="List Bullet")
@@ -304,6 +307,19 @@ def rendre_note(note: Note) -> bytes:
             ligne.add_run(
                 f"{detail} — {mot.reference}{' · ' + grammaire if grammaire else ''}"
             )
+            # **Le sens, et sa source dans la même ligne.** Les séparer les rendrait
+            # indépendants : la traduction pourrait circuler sans ce qui la vérifie.
+            if mot.sens:
+                sens = document.add_paragraph()
+                fort = sens.add_run(mot.sens)
+                fort.bold = True
+                appui = sens.add_run(
+                    f"  ({mot.sens_source}"
+                    + (f", {mot.strong}" if mot.strong else "")
+                    + ")"
+                )
+                appui.italic = True
+                appui.font.size = Pt(9)
             # ⚠️ **Ce que ces versets ont en commun**, présenté comme un fait et jamais comme
             # une définition : le mot français qui revient là où le mot grec paraît est presque
             # toujours sa traduction — et quand il ne l'est pas, le pasteur le voit, parce que

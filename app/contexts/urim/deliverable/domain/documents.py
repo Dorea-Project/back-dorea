@@ -175,6 +175,14 @@ class MotOriginal:
     #: Ce que ces versets ont en commun — l'indice de ce que le mot rend, **jamais présenté
     #: comme sa définition**.
     communs: tuple[str, ...] = ()
+    #: Le sens, **traduit d'un lexique publié** (L1) — vide tant que rien n'est acquis.
+    sens: str = ""
+    #: ⚠️ **L'entrée d'origine voyage avec la traduction.** C'est ce qui la rend
+    #: vérifiable : « assemblée » se conteste en un coup d'œil contre « assembly », et
+    #: sans elle la traduction deviendrait à son tour une source.
+    sens_source: str = ""
+    #: `G5266` — la traçabilité que la licence et le pasteur exigent l'une et l'autre.
+    strong: str = ""
 
 
 @dataclass(frozen=True, slots=True)
