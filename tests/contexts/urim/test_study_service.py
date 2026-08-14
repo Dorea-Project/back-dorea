@@ -13,9 +13,16 @@ Chaque test ci-dessous porte le nom de ce qu'il a laissé passer :
 3. **le bouclage du chemin intention** — l'unité choisie qui n'était plus le passage ;
 4. **le refus de ce que personne n'avait relu** — `shape_homiletic` confondant l'absence de
    ligne avec un verdict ;
-5. **la saisie stylisée** — les caractères mathématiques envoyés tels quels au modèle.
+5. **la saisie stylisée** — les caractères mathématiques envoyés tels quels au modèle ;
+6. **le 422 au clic, deuxième fois** — `en_un_seul` au bornage, une option que l'étage émet
+   depuis l'origine et que le service n'a jamais su lire.
 
 Aucun ne demande de base ni de réseau. C'est le point : ils auraient tous pu exister avant.
+
+Le sixième dit ce que les cinq premiers laissaient croire résolu : la faute n'est pas un code
+oublié, c'est qu'**aucun test ne relisait la liste des options en la rejouant**. Celui-ci le
+fait pour son étage, et c'est la seule forme qui vaille — un code se corrige une fois, une
+classe de défauts se garde.
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from app.contexts.urim.application.ports import (
 from app.contexts.urim.application.study_service import UrimStudyService, _lisible
 from app.contexts.urim.domain.errors import OptionInconnueError
 from app.contexts.urim.engine.deps import AxisBearing, DoctrinalAxis, Feasibility
+from app.contexts.urim.engine.stages.bound_pericope import EN_UN_SEUL
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.contexts.urim.infrastructure.corpus.index import (
     CorpusIndex,
@@ -456,3 +464,111 @@ async def test_le_modele_recoit_la_saisie_repliee_pas_la_brute():
 
     assert modele.recu, "le modèle n'a pas été consulté"
     assert all(recu == "retour" for recu in modele.recu)
+
+
+# ============================================== 6. le 422 au clic, deuxième fois — le bornage
+
+
+UNITE_1 = UUID("aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa")
+UNITE_2 = UUID("bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
+
+def _index_a_deux_unites() -> CorpusIndex:
+    """Hébreux 13 curé en **deux** unités — le cas d'école `Galates 5`, à l'échelle du banc.
+
+    Une demande qui *englobe*, donc N + 1 options : c'est la seule branche du bornage que le
+    service n'avait jamais eu à relire, et l'index à une unité ne pouvait pas l'atteindre."""
+    return replace(
+        _index(),
+        pericopes=(
+            PericopeRow(
+                UNITE_1, 58, 13, 1, 13, 1, "Amour fraternel",
+                "L'exhortation tient seule.", "ia-mistral",
+            ),
+            PericopeRow(
+                UNITE_2, 58, 13, 2, 13, 2, "Hospitalité",
+                "Le v. 2 ouvre un autre motif.", "ia-mistral",
+            ),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_chaque_code_propose_par_le_bornage_est_accepte_par_le_service():
+    """🔴 **Le même défaut que le test 2, à un autre étage — et il courait depuis l'origine.**
+
+    L'étage 2 émet `en_un_seul` dès que la demande couvre plusieurs unités ; `_appliquer` ne
+    connaissait que `tel_quel` et un UUID, donc `UUID("en_un_seul")` → 422 au clic. Une option
+    affichée, motivée, et refusée au moment de la choisir.
+
+    Ce test ne vérifie pas *une* option : il **relit celles que l'étage vient d'émettre** et les
+    rejoue toutes. C'est la seule forme qui protège de la classe entière — une option ajoutée
+    demain au bornage tombera ici, et non devant un pasteur."""
+    index = _index_a_deux_unites()
+    ouverte = await _ouvrir(_service(index), "Hébreux 13")
+
+    assert ouverte.trace[-1][0] == "bound_pericope", "le banc ne joue pas la bonne branche"
+    codes = [code for code, *_ in ouverte.options]
+    assert {str(UNITE_1), str(UNITE_2), EN_UN_SEUL} == set(codes)
+
+    for code in codes:
+        service = _service(index)
+        dto = await _ouvrir(service, "Hébreux 13")
+
+        apres = await service.decide(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            stage_code="bound_pericope", option_code=code,
+        )
+
+        # Accepté **et** tranché : l'étage ne s'applique plus, donc il ne repose pas sa
+        # question au tour suivant. Un code avalé sans rien écrire passerait le premier
+        # critère et laisserait le pasteur tourner en rond.
+        assert "bound_pericope" not in [etage for etage, _ in apres.trace], code
+
+
+@pytest.mark.asyncio
+async def test_le_tout_en_un_seul_sermon_garde_la_demande_entiere():
+    """**Ce que « le tout, en un seul sermon » écrit — et pourquoi ce n'est pas une évidence.**
+
+    Aucune des N unités ne peut porter ce sermon-là : en retenir une attacherait au tout la
+    relecture d'un tiers du texte, sans que rien ne le dise. `pericope_id` retombe donc à None
+    et le drapeau de bornage est vrai — la demande du pasteur l'emporte sur ce que la curation
+    proposait, et S22 devient mécanique : plus rien de curé n'est lisible en aval.
+
+    ⚠️ **Et le texte servi est celui qu'il a demandé, entier.** « Hébreux 13 » n'a pas de
+    verset (S7) : la présentation le lisait comme un verset unique et rendait 13:1 — « le tout »
+    aurait rendu la première ligne du tout."""
+    service = _service(_index_a_deux_unites())
+    dto = await _ouvrir(service, "Hébreux 13")
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bound_pericope", option_code=EN_UN_SEUL,
+    )
+
+    assert apres.record.pericope_id is None
+    assert apres.record.bounds_overridden is True
+    assert apres.pericope_label is None, "aucune unité ne signe un sermon sur l'ensemble"
+    assert [v.reference for v in apres.verses] == ["Hébreux 13:1", "Hébreux 13:2"]
+
+    # Le rejeu repart des colonnes, pas de la décision : c'est là que les bornes se
+    # reconstituent, et une reconstitution fautive ne se verrait qu'au tour suivant.
+    relu = await service.get(actor_account_id=AUTEUR, study_id=dto.record.id)
+    assert [v.reference for v in relu.verses] == ["Hébreux 13:1", "Hébreux 13:2"]
+
+
+@pytest.mark.asyncio
+async def test_choisir_une_unite_ne_sert_que_cette_unite():
+    """L'autre branche, pour que la précédente prouve quelque chose.
+
+    Si les deux options rendaient le même texte, l'écran ne proposerait qu'un choix apparent."""
+    service = _service(_index_a_deux_unites())
+    dto = await _ouvrir(service, "Hébreux 13")
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bound_pericope", option_code=str(UNITE_2),
+    )
+
+    assert apres.record.pericope_id == UNITE_2
+    assert apres.record.bounds_overridden is False
+    assert [v.reference for v in apres.verses] == ["Hébreux 13:2"]

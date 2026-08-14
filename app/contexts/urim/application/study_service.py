@@ -54,6 +54,7 @@ from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Outcome
 from app.contexts.urim.engine.pipeline import UrimEngine
+from app.contexts.urim.engine.stages.bound_pericope import EN_UN_SEUL, TEL_QUEL
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import REFORMULER
 from app.contexts.urim.engine.state import (
@@ -105,6 +106,11 @@ def _deserialiser(brut: str | None) -> Reference | None:
 #: la liste cesse d'être lue. Le compte réel voyage toujours à côté (`total`) : on écourte, on
 #: ne dissimule pas.
 _OCCURRENCES_MAX = 50
+
+#: Le haut de l'intervalle quand la référence ne le dit pas — un chapitre entier, un livre
+#: entier. La même convention que `_INFINI` au bornage : on ne devine pas la fin, on la laisse
+#: ouverte et c'est le corpus qui l'arrête.
+_FIN_OUVERTE = 10**9
 
 #: Combien de textes résistants on rapporte d'ailleurs. Trois : au-delà, la page devient une
 #: bibliographie et le pasteur n'en lit aucun — ce qui revient exactement à n'en montrer aucun.
@@ -457,10 +463,25 @@ class UrimStudyService:
             return
 
         if stage == "bound_pericope":
-            if option == "tel_quel":
-                # Le pasteur force ses bornes. `pericope_id` retombe à None, et **tout ce
+            if option in (TEL_QUEL, EN_UN_SEUL):
+                # Le pasteur garde ses bornes. `pericope_id` retombe à None, et **tout ce
                 # qui est curé devient illisible** pour les étages avals — pesées, mises
                 # en garde, faisabilité. S22 est mécanique, pas déclaratif.
+                #
+                # ⚠️ **Deux gestes distincts, une seule écriture — et c'est délibéré.**
+                # `tel_quel` dit « mes bornes » contre l'unité qui les débordait ; `en_un_seul`
+                # dit « toutes les unités ensemble ». Mais aucune des N unités ne peut porter
+                # un sermon sur l'ensemble : en retenir une pour « en avoir une » attacherait
+                # au tout la relecture d'un tiers du texte, sans que rien ne le signale — le
+                # défaut exact qu'`explorer` refuse déjà quand plusieurs unités couvrent la
+                # demande. Le drapeau reste vrai au sens propre : la demande du pasteur
+                # l'emporte sur ce que la curation proposait.
+                #
+                # **Pas de troisième colonne**, parce que les trois cas se relisent dans le
+                # corpus à tout instant — 0 unité sur le passage : le corpus n'avait rien ;
+                # 1 : le pasteur a refusé qu'elle le déborde ; N : il les a réunies. C'est
+                # exactement le mécanisme que `propose_theme` documente et pour la même
+                # raison : une colonne dirait la même chose et pourrait la contredire.
                 record.pericope_id = None
                 record.bounds_overridden = True
                 return
@@ -1216,9 +1237,16 @@ class UrimStudyService:
 
         debut = (etendue.start.chapter or 1, etendue.start.verse_start or 1)
         fin_ref = etendue.end or etendue.start
+        # ⚠️ **Une référence imprécise borne un intervalle ouvert, pas un verset.**
+        #
+        # « Galates 5 » n'a ni `verse_start` ni `verse_end` (S7), « 1 Rois » n'a pas même de
+        # chapitre (S23) : lus comme un verset, ils servaient 5:1 et 1:1. Le bornage traduit
+        # depuis toujours ces degrés de précision en bornes ouvertes (`_empan`) ; la
+        # présentation, elle, les refermait — et « le tout, en un seul sermon » sur trois
+        # unités rendait alors le premier verset de la première.
         fin = (
-            fin_ref.chapter or debut[0],
-            fin_ref.verse_end or fin_ref.verse_start or debut[1],
+            fin_ref.chapter or _FIN_OUVERTE,
+            fin_ref.verse_end or fin_ref.verse_start or _FIN_OUVERTE,
         )
 
         servis, variantes = [], []
