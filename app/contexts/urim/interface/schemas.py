@@ -109,9 +109,25 @@ class ElementView(BaseModel):
     body: str | None
 
 
+class ReferenceElsewhereView(BaseModel):
+    """⚠️ **Le numéro que ce verset porte ailleurs**, et seulement quand il en change.
+
+    Le pasteur prépare sur la Segond et ouvre en chaire la Bible de son assemblée. « Exode 7:26 »
+    y désigne un autre texte si cette Bible est une Ostervald : le verset y est en 8:1, poussé
+    par le découpage hébreu. Les deux références sont bien formées, donc rien ne l'avertirait.
+
+    `reference` à `null` : ce témoin **ne porte pas** ce verset — Darby n'a pas Actes 8:37, que
+    le texte critique ne retient pas. À afficher comme une absence, pas comme une erreur."""
+
+    version: str
+    reference: str | None
+
+
 class VerseView(BaseModel):
     reference: str
     text: str
+    #: Vide dès que la numérotation concorde, ce qui est le cas presque partout.
+    elsewhere: list[ReferenceElsewhereView] = []
 
 
 class VariantView(BaseModel):
@@ -285,7 +301,16 @@ class StudyView(BaseModel):
                 ElementView(element_code=e.element_code, ordinal=e.ordinal, body=e.body)
                 for e in dto.elements
             ],
-            verses=[VerseView(reference=v.reference, text=v.text) for v in dto.verses],
+            verses=[
+                VerseView(
+                    reference=v.reference, text=v.text,
+                    elsewhere=[
+                        ReferenceElsewhereView(version=a.version, reference=a.reference)
+                        for a in v.elsewhere
+                    ],
+                )
+                for v in dto.verses
+            ],
             variants=[
                 VariantView(
                     reference=v.reference, body=v.body,
@@ -501,7 +526,16 @@ class PassageDetailView(BaseModel):
             pericope_label=dto.pericope_label,
             pericope_rationale=dto.pericope_rationale,
             reviewed_by=dto.reviewed_by,
-            verses=[VerseView(reference=v.reference, text=v.text) for v in dto.verses],
+            verses=[
+                VerseView(
+                    reference=v.reference, text=v.text,
+                    elsewhere=[
+                        ReferenceElsewhereView(version=a.version, reference=a.reference)
+                        for a in v.elsewhere
+                    ],
+                )
+                for v in dto.verses
+            ],
             variants=[
                 VariantView(
                     reference=v.reference, body=v.body,

@@ -30,6 +30,7 @@ from app.contexts.urim.application.ports import (
     PassageDetailDTO,
     PreacherAuthorization,
     PreparationRecord,
+    ReferenceElsewhere,
     ReservationPort,
     StudyDTO,
     StudyRepository,
@@ -1224,7 +1225,10 @@ class UrimStudyService:
         servis, variantes = [], []
         for v in verses_between(self.index, livre, debut, fin):
             reference = f"{etendue.start.book} {v.chapter}:{v.verse}"
-            servis.append(VerseServed(reference=reference, text=v.body))
+            servis.append(VerseServed(
+                reference=reference, text=v.body,
+                elsewhere=self._ailleurs(livre, v.chapter, v.verse),
+            ))
             for var in self.index.variants.get((livre, v.chapter, v.verse), ()):
                 variantes.append(VariantSeen(
                     reference=reference, body=var.body,
@@ -1234,6 +1238,29 @@ class UrimStudyService:
                     source_ref=var.source_ref,
                 ))
         return tuple(servis), tuple(variantes)
+
+    def _ailleurs(
+        self, livre: int, chapitre: int, verset: int
+    ) -> tuple[ReferenceElsewhere, ...]:
+        """Ce que les autres témoins font de ce verset — **quand ils en font autre chose**.
+
+        Le silence est la réponse ordinaire, et il est voulu : la numérotation concorde sur la
+        quasi-totalité du corpus, et annoncer la concordance verset après verset enterrerait
+        les quelques centaines d'endroits où elle manque. Le signal n'existe que là où il
+        protège.
+
+        ⚠️ **Aucune requête ici.** `reference_chez` lit l'index gelé — les étages du moteur sont
+        synchrones et la présentation d'un passage ne doit pas toucher la base."""
+        ailleurs = []
+        for code in sorted(self.index.temoins):
+            cible = self.index.reference_chez(code, livre, chapitre, verset)
+            if cible == (chapitre, verset):
+                continue
+            ailleurs.append(ReferenceElsewhere(
+                version=code,
+                reference=f"{cible[0]}:{cible[1]}" if cible else None,
+            ))
+        return tuple(ailleurs)
 
     def _passage_de_l_unite(self, record: PreparationRecord) -> Reference | None:
         """L'unité curée **est** le passage — sans quoi le chemin conviction boucle.

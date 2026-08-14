@@ -109,6 +109,27 @@ class UsageSnapshot:
     assistance_exhausted: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceElsewhere:
+    """Le même verset sous le numéro d'un autre témoin — ou l'aveu qu'il ne le porte pas.
+
+    🔴 **Le pasteur a une Bible sur son bureau, et ce n'est pas forcément la nôtre.** Urim sert
+    la Segond ; beaucoup d'assemblées francophones lisent Ostervald. Préparer sur « Exode 7:26 »
+    puis ouvrir un Ostervald à 7:26, c'est lire un autre texte — le verset y est en 8:1, poussé
+    par le découpage hébreu. Rien ne le signale, et rien ne pourrait le signaler : les deux
+    références sont parfaitement formées, et c'est bien ce qui rend l'erreur silencieuse.
+
+    `reference` à `None` dit que ce témoin **ne porte pas** ce verset : Darby n'a pas Actes 8:37,
+    que le texte critique ne retient pas. C'est une information, pas une panne — la taire
+    laisserait le pasteur chercher dans son livre quelque chose qui n'y est pas.
+
+    ⚠️ **Ce n'est pas un choix de traduction.** Urim ne demande jamais au pasteur de configurer :
+    il signale. On ne lui propose pas de lire ailleurs, on le prévient que le numéro change."""
+
+    version: str
+    reference: str | None
+
+
 @dataclass(slots=True)
 class VerseServed:
     """Un verset **rendu au pasteur** — la chose pour laquelle Urim existe.
@@ -119,6 +140,12 @@ class VerseServed:
 
     reference: str
     text: str
+
+    #: ⚠️ **Seulement les témoins qui rangent ce verset AILLEURS**, jamais ceux qui le rangent
+    #: au même endroit. Sur 31 170 versets, la numérotation concorde presque partout : signaler
+    #: la concordance noierait les quelques centaines d'endroits où elle manque, et c'est
+    #: exactement à ces endroits-là que le pasteur se trompe de verset.
+    elsewhere: tuple[ReferenceElsewhere, ...] = ()
 
 
 @dataclass(slots=True)

@@ -38,6 +38,7 @@ from app.contexts.urim.infrastructure.corpus.index import (
     CorpusIndex,
     OriginalWord,
     PericopeRow,
+    Temoin,
     VerseRow,
 )
 
@@ -58,7 +59,7 @@ TEXTE = {
 }
 
 
-def _index(*, bearings=(), couples=()) -> CorpusIndex:
+def _index(*, bearings=(), couples=(), temoins=None) -> CorpusIndex:
     unite = PericopeRow(
         UNITE, 58, 13, 1, 13, 2, "Exhortations", "L'unité tient du v. 1 au v. 2.", "ia-mistral"
     )
@@ -91,6 +92,7 @@ def _index(*, bearings=(), couples=()) -> CorpusIndex:
         bearings={UNITE: tuple(bearings)}, caveats={}, notes={},
         couples={UNITE: tuple(couples)}, dominant={},
         axes=tuple(DoctrinalAxis(c, c, i) for i, c in enumerate(LOCI, start=1)),
+        temoins=temoins or {},
     )
 
 
@@ -456,3 +458,48 @@ async def test_le_modele_recoit_la_saisie_repliee_pas_la_brute():
 
     assert modele.recu, "le modèle n'a pas été consulté"
     assert all(recu == "retour" for recu in modele.recu)
+
+
+# --- le numéro que le verset porte ailleurs -------------------------------------
+#
+# Le pasteur prépare sur la Segond et ouvre en chaire la Bible de son assemblée. Les deux
+# références sont bien formées, donc rien ne l'avertirait — c'est ce silence-là qu'on casse,
+# et seulement là où il coûte quelque chose.
+
+
+def test_le_verset_dit_ou_un_autre_temoin_le_range():
+    """Le cas d'Exode 7:26, transposé sur l'unité du banc : le numéro change, on le dit."""
+    service = _service(_index(temoins={
+        "OST": Temoin("OST", {(58, 13): frozenset({5})}, {(58, 13, 1): (13, 5)}),
+    }))
+
+    ailleurs = service._ailleurs(58, 13, 1)
+
+    assert [(a.version, a.reference) for a in ailleurs] == [("OST", "13:5")]
+
+
+def test_la_concordance_reste_silencieuse():
+    """🔴 **Le silence est la réponse ordinaire, et c'est voulu.**
+
+    La numérotation concorde sur la quasi-totalité du corpus. Annoncer « Ostervald : 13:1 »
+    sous chaque verset enterrerait les quelques centaines d'endroits où elle ne concorde pas —
+    c'est-à-dire exactement ceux pour lesquels ce champ existe."""
+    service = _service(_index(temoins={
+        "OST": Temoin("OST", {(58, 13): frozenset({1, 2})}, {}),
+    }))
+
+    assert service._ailleurs(58, 13, 1) == ()
+
+
+def test_un_temoin_qui_ne_porte_pas_le_verset_le_dit():
+    """Darby n'a pas Actes 8:37, que le texte critique ne retient pas.
+
+    Se taire laisserait le pasteur chercher dans son livre quelque chose qui n'y est pas ;
+    l'annoncer absent est une information, pas une panne."""
+    service = _service(_index(temoins={
+        "DARBY": Temoin("DARBY", {(58, 13): frozenset({2})}, {}),
+    }))
+
+    ailleurs = service._ailleurs(58, 13, 1)
+
+    assert [(a.version, a.reference) for a in ailleurs] == [("DARBY", None)]
