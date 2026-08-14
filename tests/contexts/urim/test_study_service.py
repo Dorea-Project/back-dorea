@@ -328,6 +328,276 @@ async def test_une_faisabilite_relue_et_toute_refusee_refuse_bel_et_bien():
     assert "aucun personnage" in dto.rationale
 
 
+# ============================================ 4-bis. le couple que personne n'a jamais vérifié
+
+
+@pytest.mark.asyncio
+async def test_un_couple_invente_n_atteint_pas_le_theme():
+    """🔴 **Trouvé en marchant l'arbre, sur un sermon pentecôtiste.**
+
+    `shape_homiletic.applies()` exige `subject_matter is None` ; la décision écrivait les deux
+    champs d'un coup, donc l'étage ne se ré-exécutait plus jamais et sa validation devenait
+    injoignable. `abracadabra:sur-mesure` traversait tout le pipeline et ressortait dans le
+    thème rendu au pasteur : *« pneumatologie, en abracadabra sur-mesure »*.
+
+    C'est le miroir exact du 422 au clic : là, l'étage proposait ce que le service refusait ;
+    ici, le service accepte ce que l'étage aurait refusé."""
+    pesees = (AxisBearing("anthropologie", "Anthropologie", "dominant", "le sujet"),)
+    couples = (Feasibility("expositif", "doctrinal", True, "", "faible"),)
+    service = _service(index=_index(bearings=pesees, couples=couples))
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+
+    with pytest.raises(OptionInconnueError):
+        await service.decide(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            stage_code="shape_homiletic", option_code="abracadabra:sur-mesure",
+        )
+
+    relu = await service.get(actor_account_id=AUTEUR, study_id=dto.record.id)
+    assert "abracadabra" not in (relu.record.theme or "")
+
+
+@pytest.mark.asyncio
+async def test_un_couple_refuse_par_la_curation_est_refuse_avec_son_motif_a_lui():
+    """⚠️ **Le motif est celui du texte, pas celui du logiciel** (S19).
+
+    *« ce passage ne porte aucun personnage »* apprend quelque chose au pasteur ; *« option
+    inconnue »* le laisse chercher ce qu'il a mal cliqué. La curation a déjà écrit la phrase,
+    on la sert."""
+    pesees = (AxisBearing("anthropologie", "Anthropologie", "dominant", "le sujet"),)
+    couples = (
+        Feasibility("expositif", "doctrinal", True, "", "faible"),
+        Feasibility("textuel", "biographique", False, "aucun personnage nommé", "moyen"),
+    )
+    service = _service(index=_index(bearings=pesees, couples=couples))
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+
+    with pytest.raises(OptionInconnueError, match="aucun personnage nommé"):
+        await service.decide(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            stage_code="shape_homiletic", option_code="textuel:biographique",
+        )
+
+
+@pytest.mark.asyncio
+async def test_un_couple_offert_se_choisit_toujours():
+    """La sévérité ne doit pas fermer la porte qu'on vient d'ouvrir : ce que l'étage propose
+    doit rester cliquable. C'est la moitié du test qui manquait au 422 au clic."""
+    pesees = (AxisBearing("anthropologie", "Anthropologie", "dominant", "le sujet"),)
+    couples = (Feasibility("expositif", "doctrinal", True, "", "faible"),)
+    service = _service(index=_index(bearings=pesees, couples=couples))
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+    offert = next(o[0] for o in dto.options)
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="shape_homiletic", option_code=offert,
+    )
+
+    assert apres.record.theme
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("etage", "code"),
+    [("bear_axes", "abracadabra"), ("weigh_conviction", "axe:abracadabra")],
+)
+async def test_un_axe_invente_n_atteint_pas_la_preparation(etage: str, code: str):
+    """🔴 **Deux étages écrivent `axis_code`, et aucun ne vérifiait.**
+
+    Trouvé en marchant un sermon orthodoxe : un texte à un seul axe dominant pose l'axe
+    d'office, et la seule façon de le redresser — `POST /decisions` sur `bear_axes` — acceptait
+    n'importe quelle chaîne. `abracadabra` devenait l'axe doctrinal, puis le thème.
+
+    ⚠️ La garde porte sur **les dix loci**, pas sur ce que l'unité porte : prêcher un texte sur
+    un axe qu'il soutient sans en faire son sujet reste possible, et c'est délibéré."""
+    service = _service()
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+
+    with pytest.raises(OptionInconnueError, match="axes doctrinaux"):
+        await service.decide(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            stage_code=etage, option_code=code,
+        )
+
+
+@pytest.mark.asyncio
+async def test_un_axe_que_le_texte_soutient_reste_choisissable():
+    """La porte de sortie du pasteur dont l'angle n'est pas celui du corpus.
+
+    2 Pierre 1:4 a `christologie` pour seul dominant ; il porte aussi l'anthropologie. Le
+    pasteur qui l'ouvre **pour** la déification doit pouvoir le dire — l'étage existe pour ne
+    pas décider à sa place."""
+    service = _service()
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bear_axes", option_code="anthropologie",
+    )
+
+    assert apres.record.axis_code == "anthropologie"
+
+
+# ================================== 4-ter. la cascade — une décision amont périme l'aval
+
+
+#: Une unité pesée et faisable : de quoi mener une préparation jusqu'au thème, puis la reprendre.
+_PESEES = (
+    AxisBearing("christologie", "Christologie", "dominant", "le sujet du texte"),
+    AxisBearing("anthropologie", "Anthropologie", "porte", "le texte le soutient"),
+)
+_COUPLES = (
+    Feasibility("expositif", "doctrinal", True, "", "faible"),
+    Feasibility("textuel", "doctrinal", True, "", "faible"),
+)
+
+
+async def _jusqu_au_theme(service):
+    """Ouvrir, choisir une mise en forme, et obtenir le thème — la préparation aboutie."""
+    dto = await _ouvrir(service, "Hébreux 13:1-2")
+    dto = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="shape_homiletic", option_code="expositif:doctrinal",
+    )
+    assert dto.record.theme == "christologie, en expositif doctrinal"
+    return dto
+
+
+@pytest.mark.asyncio
+async def test_changer_l_axe_fait_suivre_le_theme():
+    """🔴 **Le rejeu ne rejouait que ce que personne n'avait décidé.**
+
+    L'axe, le couple, les bornes et le thème sont stockés comme des **résultats**, et chaque
+    étage qui les produit se garde de tourner deux fois (`applies`). Une décision amont ne
+    remontait donc jamais l'aval : le pasteur redressait son axe et emportait en chaire un
+    thème qui nommait l'ancien."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _jusqu_au_theme(service)
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bear_axes", option_code="anthropologie",
+    )
+
+    assert apres.record.theme == "anthropologie, en expositif doctrinal"
+
+
+@pytest.mark.asyncio
+async def test_changer_le_couple_fait_suivre_le_theme():
+    """Le thème nommait la mise en forme que le pasteur venait précisément d'abandonner."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _jusqu_au_theme(service)
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="shape_homiletic", option_code="textuel:doctrinal",
+    )
+
+    assert apres.record.theme == "christologie, en textuel doctrinal"
+
+
+@pytest.mark.asyncio
+async def test_forcer_ses_bornes_emporte_la_faisabilite_mais_pas_l_angle():
+    """**S22 devient enfin mécanique.** *« La liberté accordée se propage d'elle-même, sans
+    qu'aucun étage n'ait à connaître la règle. »* Elle ne se propageait pas du tout : le couple
+    et le thème tirés de l'unité abandonnée lui survivaient.
+
+    L'axe, lui, reste — c'est un angle doctrinal, il ne dépend pas des bornes, et sur le chemin
+    intention c'est le pasteur qui l'a nommé avant même de voir un texte."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _jusqu_au_theme(service)
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bound_pericope", option_code="tel_quel",
+    )
+
+    assert apres.record.pericope_id is None
+    assert apres.record.plan_source is None and apres.record.subject_matter is None
+    assert apres.record.axis_code == "christologie", "l'angle du pasteur a été emporté"
+    # Le thème est reproposé **sans** faisabilité : c'est la branche que `propose_theme`
+    # déclarait inatteignable, et que la cascade vient d'ouvrir.
+    assert apres.record.theme == "christologie"
+    assert "aucune faisabilité relue" in dict(apres.trace)["propose_theme"]
+
+
+@pytest.mark.asyncio
+async def test_changer_de_texte_perime_tout_l_aval():
+    """Un autre passage, c'est une autre unité, d'autres pesées, une autre faisabilité. Ce qui
+    en était tiré ne vaut plus rien — et le pipeline le recalcule au lieu de le charrier."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _jusqu_au_theme(service)
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="resolve_passage", option_code="Hébreux 13:1",
+    )
+
+    assert apres.record.axis_code is None
+    assert apres.record.plan_source is None
+    assert apres.record.theme is None
+
+
+@pytest.mark.asyncio
+async def test_sur_le_chemin_inverse_changer_de_texte_ne_reprend_pas_son_angle():
+    """⚠️ **La subtilité de la cascade, et elle vient du chemin inversé.**
+
+    Sur une intention, l'ordre est renversé : le pasteur nomme son **axe** avant qu'aucun texte
+    n'existe, puis choisit un texte qui le porte. Périmer l'axe avec le reste lui reprendrait la
+    seule chose qu'il ait dite — et le renverrait à l'écran des dix loci qu'il vient de quitter.
+
+    Le couple et le thème tombent, eux : ils étaient tirés de l'unité qu'il abandonne."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _ouvrir(service, "je veux prêcher sur la fraternité")
+    assert dto.entry_mode == "conviction"
+
+    for etage, option in (
+        ("weigh_conviction", "axe:anthropologie"),
+        ("weigh_conviction", f"texte:{UNITE}"),
+        ("shape_homiletic", "expositif:doctrinal"),
+    ):
+        dto = await service.decide(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            stage_code=etage, option_code=option,
+        )
+    assert dto.record.theme == "anthropologie, en expositif doctrinal"
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="weigh_conviction", option_code=f"texte:{UNITE}",
+    )
+
+    assert apres.record.axis_code == "anthropologie", "son angle lui a été repris"
+    assert apres.record.plan_source is None
+    assert apres.record.theme != "anthropologie, en expositif doctrinal"
+
+
+@pytest.mark.asyncio
+async def test_le_theme_reecrit_par_le_pasteur_ne_se_perime_jamais():
+    """⚠️ **C'est son sermon** — *une proposition, jamais un titre ; le titre, c'est votre voix.*
+
+    On ne distingue pas une phrase du pasteur d'une phrase du moteur par une colonne : le
+    gabarit est déterministe, donc l'égalité suffit à dire que personne n'y a touché. Même ruse
+    que `_une_unite_existait`, qui repose la question au corpus plutôt que d'ajouter un champ
+    qui pourrait le contredire."""
+    service = _service(index=_index(bearings=_PESEES, couples=_COUPLES))
+    dto = await _jusqu_au_theme(service)
+    sien = "L'amour sans masque — ce que l'Église se doit les uns aux autres"
+    await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="propose_theme", option_code=sien,
+    )
+
+    apres = await service.decide(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        stage_code="bear_axes", option_code="anthropologie",
+    )
+
+    assert apres.record.theme == sien
+    assert apres.record.axis_code == "anthropologie"
+
+
 # ================================================================ la chaîne de textes d'appui
 
 

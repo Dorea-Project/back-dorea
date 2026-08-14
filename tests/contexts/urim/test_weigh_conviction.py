@@ -19,8 +19,14 @@ from app.contexts.urim.engine.deps import (
     NullConvictionReader,
 )
 from app.contexts.urim.engine.outcomes import Outcome
-from app.contexts.urim.engine.stages.weigh_conviction import WeighConviction
-from app.contexts.urim.engine.state import Bounds, EntryMode, Reference, StudyState
+from app.contexts.urim.engine.stages.weigh_conviction import PAR_GROUPE, WeighConviction
+from app.contexts.urim.engine.state import (
+    Bounds,
+    EntryMode,
+    PassageSuggestion,
+    Reference,
+    StudyState,
+)
 
 DIX = tuple(
     DoctrinalAxis(code, code.replace("_", " ").capitalize(), rang)
@@ -35,11 +41,11 @@ DIX = tuple(
 )
 
 
-def _site(nom: str, force: str) -> BearingSite:
+def _site(nom: str, force: str, livre: str = "Romains") -> BearingSite:
     return BearingSite(
         pericope_id=uuid4(),
         label=nom,
-        bounds=Bounds(start=Reference("Romains", 8, 1), end=Reference("Romains", 8, 11)),
+        bounds=Bounds(start=Reference(livre, 8, 1), end=Reference(livre, 8, 11)),
         strength=force,
         rationale=f"motif de {nom}",
     )
@@ -74,9 +80,23 @@ class _Rien:
         return False
 
 
-def _deps(doctrine=None, conviction=None) -> EngineDeps:
+class _Corpus:
+    """Le corpus tel que cet étage l'interroge — **une seule question**.
+
+    Il ne lui demande que *quelles unités couvrent ce passage ?*, pour savoir si le dossier du
+    modèle désigne une unité de l'axe. Une doublure plus riche laisserait croire que l'étage
+    lit le corpus, ce qu'il ne fait pas."""
+
+    def __init__(self, couvertures: dict | None = None) -> None:
+        self._couvertures = couvertures or {}
+
+    def pericopes_for(self, reference):
+        return self._couvertures.get(reference.book, ())
+
+
+def _deps(doctrine=None, conviction=None, corpus=None) -> EngineDeps:
     return EngineDeps(
-        corpus=_Rien(),
+        corpus=corpus or _Corpus(),
         doctrine=doctrine or _Doctrine(),
         homiletics=_Rien(),
         context=NullEcclesialContext(),
@@ -249,6 +269,222 @@ def test_le_chemin_inverse_est_deterministe():
     }
 
     assert len(vues) == 1
+
+
+# ================================================== 5. le déversoir, et ce qu'il enterrait
+
+
+#: Le corpus réel, en petit : 4 070 unités qui *portent* l'anthropologie, cinq qui lui
+#: résistent. Le premier texte qui résistait arrivait en **4 298ᵉ** position.
+def _comme_l_anthropologie() -> tuple[BearingSite, ...]:
+    livres = ("Genèse", "Exode", "Psaumes", "Ésaïe", "Matthieu", "Romains", "Apocalypse")
+    portants = tuple(
+        _site(f"porte {n}", "porte", livres[n % len(livres)]) for n in range(400)
+    )
+    resistants = tuple(_site(f"resiste {n}", "resiste", "Job") for n in range(5))
+    return (*portants, *resistants)
+
+
+def test_les_textes_qui_resistent_ne_sont_jamais_evinces():
+    """🔴 **Le garde-fou était enterré sous quatre mille textes.**
+
+    `sites_by_axis` trie par force, donc les résistants arrivent en queue : sur l'anthropologie,
+    le premier tombait en 4 298ᵉ position. Le contrat dit *« elles sont affichées au même rang,
+    exprès »* — l'ordre disait le contraire, et c'est la seule protection du mode conviction.
+
+    Le quota **identique** par groupe est ce qui rend la règle mécanique : un groupe pléthorique
+    ne peut plus prendre la place d'un groupe rare."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+
+    options = WeighConviction().execute(_etat(axis="anthropologie"), _deps(doctrine)).options
+
+    resistants = [o for o in options if o.strength == "resiste"]
+    assert len(resistants) == 5, "des textes qui résistent ont été évincés"
+    assert len(options) <= 3 * PAR_GROUPE
+
+
+def test_le_quota_est_le_meme_pour_les_trois_groupes():
+    """« Au même rang » cesse d'être une intention pour devenir une soustraction."""
+    sites = (
+        *(_site(f"d{n}", "dominant", "Genèse") for n in range(50)),
+        *(_site(f"p{n}", "porte", "Exode") for n in range(50)),
+        *(_site(f"r{n}", "resiste", "Job") for n in range(50)),
+    )
+
+    options = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites))).options
+
+    for force in ("dominant", "porte", "resiste"):
+        assert sum(1 for o in options if o.strength == force) == PAR_GROUPE
+
+
+def test_l_echantillon_s_etale_sur_le_canon_au_lieu_de_prendre_le_debut():
+    """Prendre les six premiers rendait six chapitres voisins de la Genèse.
+
+    C'est la mécanique de `_resistent_ailleurs`, et pour la même raison : le pasteur doit
+    recevoir un texte de la Loi, un des Prophètes, un des Épîtres — pas une bibliographie d'un
+    seul livre."""
+    livres = ("Genèse", "Exode", "Psaumes", "Ésaïe", "Matthieu", "Romains", "Apocalypse")
+    sites = tuple(
+        _site(f"u{n}", "dominant", livres[n // 10]) for n in range(10 * len(livres))
+    )
+
+    resultat = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites)))
+
+    montres = {o.label.split(" —")[0] for o in resultat.options}
+    assert len(montres) == PAR_GROUPE
+    # Six livres distincts sur les sept : aucun ne parle deux fois tant qu'il en reste d'autres.
+    assert len(montres) == len({o.label for o in resultat.options})
+
+
+def test_l_echantillon_reste_deterministe():
+    """La condition du moteur : même corpus, même axe, mêmes six textes. Aucun tirage."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+    deps = _deps(doctrine)
+
+    vues = {
+        tuple(o.code for o in WeighConviction().execute(_etat(axis="x"), deps).options)
+        for _ in range(20)
+    }
+
+    assert len(vues) == 1
+
+
+def test_le_compte_reel_voyage_avec_l_echantillon():
+    """⚠️ **On écourte, on ne dissimule pas** — la règle de la concordance.
+
+    Un extrait présenté comme un tout ferait conclure d'un échantillon, et la conclusion
+    porterait ici sur ce que l'Écriture dit d'un axe."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+
+    motif = WeighConviction().execute(_etat(axis="x"), _deps(doctrine)).rationale
+
+    assert "405" in motif, "le compte réel a disparu"
+    assert "En voici" in motif
+    assert "5 sur 5" not in motif  # les cinq résistants sont tous montrés
+
+
+def test_sous_le_plafond_rien_n_est_retire_ni_annonce():
+    """Le cas ordinaire ne doit pas hériter du vocabulaire de l'exception : quatre unités
+    restent quatre unités, sans phrase sur un échantillon qui n'a pas eu lieu."""
+    sites = tuple(_site(f"u{n}", "dominant") for n in range(4))
+
+    resultat = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites)))
+
+    assert len(resultat.options) == 4
+    assert "En voici" not in resultat.rationale
+
+
+# ============================ 6. le dossier du modele — la pertinence, a moitie de place
+
+
+class _Unite:
+    """Ce que `pericopes_for` rend : une unité curée qui couvre un passage."""
+
+    def __init__(self, identifiant) -> None:
+        self.id = identifiant
+
+
+def _dossier(*sites: BearingSite) -> tuple:
+    """Un corpus où chaque site est désigné par un passage du modèle, un livre par site."""
+    couvertures = {f"Livre{n}": (_Unite(s.pericope_id),) for n, s in enumerate(sites)}
+    passages = tuple(
+        PassageSuggestion(Reference(f"Livre{n}", 1, 1), "traite ce sujet")
+        for n in range(len(sites))
+    )
+    return _Corpus(couvertures), passages
+
+
+def test_les_unites_que_le_dossier_designe_passent_en_tete():
+    """🔴 **Le seul signal de pertinence dont cet étage dispose, et il le jetait.**
+
+    Sur « on prie pour les malades », le modèle trouve 2 Corinthiens 12:7-10 — l'écharde non
+    retirée, le garde-fou même de cette intention. Le texte porte l'axe sans en être le sujet,
+    donc il concourait avec plus de mille autres pour six places tirées par étalement : une
+    chance sur mille sept cents de sortir."""
+    cible = _site("l'echarde", "porte", "Livre0")
+    foule = tuple(_site(f"u{n}", "porte", f"Autre{n}") for n in range(200))
+    corpus, passages = _dossier(cible)
+
+    resultat = WeighConviction().execute(
+        _etat(axis="x", suggested_passages=passages),
+        _deps(_Doctrine((*foule, cible)), corpus=corpus),
+    )
+
+    assert resultat.options[0].label.startswith("l'echarde")
+    assert "en tête" in resultat.rationale
+
+
+def test_le_dossier_ne_prend_que_la_moitie_des_places():
+    """**Trois sur six.** Lui donner tout le groupe rendrait la diversité canonique négociable :
+    un dossier groupé sur le Nouveau Testament effacerait la Loi et les Prophètes d'un écran."""
+    designees = tuple(_site(f"d{n}", "porte", f"Livre{n}") for n in range(6))
+    foule = tuple(_site(f"u{n}", "porte", f"Autre{n}") for n in range(200))
+    corpus, passages = _dossier(*designees)
+
+    resultat = WeighConviction().execute(
+        _etat(axis="x", suggested_passages=passages),
+        _deps(_Doctrine((*designees, *foule)), corpus=corpus),
+    )
+
+    labels = [o.label.split(" —")[0] for o in resultat.options]
+    assert labels[:PAR_GROUPE // 2] == ["d0", "d1", "d2"], "la tête n'est pas la moitié"
+    assert len(labels) == PAR_GROUPE
+    # ⚠️ La réserve borne le **choix du modèle**, pas l'identité des textes : l'étalement peut
+    # tomber de lui-même sur une unité désignée, et c'est le canon qui l'aura choisie. Compter
+    # les désignées dans le rendu mesurerait donc la coïncidence, pas l'influence.
+    assert any(not lab.startswith("d") for lab in labels[PAR_GROUPE // 2:]), (
+        "le canon n'a gardé aucune place"
+    )
+
+
+def test_le_dossier_ne_peut_affamer_aucun_groupe():
+    """⚠️ **La propriété de sûreté tient au quota par groupe, pas au dossier.**
+
+    Quoi que le modèle corrobore — et il corrobore ici uniquement des textes qui *portent* —
+    les résistants gardent leurs six places. C'est ce qui rend acceptable qu'un modèle influence
+    l'ordre : il ne peut pas faire disparaître ce qui contredit."""
+    designees = tuple(_site(f"d{n}", "porte", f"Livre{n}") for n in range(6))
+    portants = tuple(_site(f"p{n}", "porte", f"Autre{n}") for n in range(100))
+    resistants = tuple(_site(f"r{n}", "resiste", f"Contre{n}") for n in range(100))
+    corpus, passages = _dossier(*designees)
+
+    resultat = WeighConviction().execute(
+        _etat(axis="x", suggested_passages=passages),
+        _deps(_Doctrine((*designees, *portants, *resistants)), corpus=corpus),
+    )
+
+    assert sum(1 for o in resultat.options if o.strength == "resiste") == PAR_GROUPE
+
+
+def test_une_proposition_qui_couvre_plusieurs_unites_ne_corrobore_rien():
+    """`Job 38:1-42` recouvre **sept** unités curées : on ne sait pas laquelle le modèle visait,
+    et les retenir laisserait une proposition paresseuse manger tout le quota.
+
+    C'est la règle de l'exploration : *quand plusieurs unités couvrent la demande, la curation
+    ne s'attache à aucune.*"""
+    foule = tuple(_site(f"u{n}", "porte", f"Autre{n}") for n in range(50))
+    vague = _Corpus({"Job": tuple(_Unite(s.pericope_id) for s in foule[:7])})
+    passages = (PassageSuggestion(Reference("Job", 38), "tout le chapitre"),)
+
+    resultat = WeighConviction().execute(
+        _etat(axis="x", suggested_passages=passages),
+        _deps(_Doctrine(foule), corpus=vague),
+    )
+
+    assert "en tête" not in resultat.rationale
+
+
+def test_sans_dossier_la_selection_est_exactement_celle_d_avant():
+    """S12 — sans modèle branché, rien ne change : l'étalement canonique reprend seul, et le
+    motif ne promet aucune tête qui n'existe pas."""
+    foule = tuple(_site(f"u{n}", "porte", f"Livre{n % 7}") for n in range(50))
+    deps = _deps(_Doctrine(foule))
+
+    avec = WeighConviction().execute(_etat(axis="x"), deps)
+    sans = WeighConviction().execute(_etat(axis="x", suggested_passages=()), deps)
+
+    assert [o.code for o in avec.options] == [o.code for o in sans.options]
+    assert "en tête" not in avec.rationale
 
 
 def test_les_options_de_texte_portent_un_identifiant_utilisable():

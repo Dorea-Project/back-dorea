@@ -109,11 +109,25 @@ class ShapeHomiletic:
                 outcome=Outcome.AWAIT,
                 rationale=_avec_refus(
                     f"{len(faisables)} mises en forme sont possibles sur cette unité.", refuses
-                ),
+                ) + _clause_de_charge(state.risk_flags),
                 state=state,
-                options=tuple(_option(couple) for couple in faisables),
+                # ⚠️ **Le risque relevé se lit ICI, à l'écran où le pasteur choisit.**
+                #
+                # 🔴 Il ne se lisait nulle part. La branche `CONTINUE` ci-dessous est la seule
+                # qui appelait `_releve()`, et elle est **injoignable depuis l'API** : la
+                # décision écrit `plan_source` *et* `subject_matter` d'un coup, si bien que
+                # `applies()` — qui exige `subject_matter is None` — ne laisse plus jamais cet
+                # étage s'exécuter. La promesse faite à l'écran des axes (« le risque sera
+                # relevé sur la mise en forme ») n'était donc jamais tenue.
+                options=tuple(_option(couple, state.risk_flags) for couple in faisables),
             )
 
+        # ⚠️ **Ces deux branches sont la garde de l'étage, pas celle du produit.**
+        #
+        # Elles n'ont jamais été atteintes depuis l'API — voir plus haut — et c'est la bordure
+        # qui valide désormais le couple reçu (`UrimStudyService._appliquer`). On les garde :
+        # un étage qui reçoit un état incohérent doit le dire, et trois tests les tiennent.
+        # Mais elles ne sont **pas** la protection du pasteur ; ne pas les confondre.
         choisi = _trouver(couples, state.plan_source, state.subject_matter)
         if choisi is None or not choisi.feasible:
             motif = choisi.refusal_reason if choisi else "Ce couple n'a pas été relu."
@@ -181,10 +195,30 @@ def _avec_refus(tete: str, refuses: Sequence[Feasibility]) -> str:
     return f"{tete} Écartées : {dits}."
 
 
-def _option(couple: Feasibility) -> Option:
+def _clause_de_charge(drapeaux: Sequence[str]) -> str:
+    """Nomme **l'effet** du drapeau, jamais l'état de celui qui écrit (S10, S37).
+
+    La même phrase qu'à l'écran des axes, et c'est voulu : elle y annonçait le relèvement, elle
+    le constate ici. Deux formulations auraient laissé croire à deux mécanismes."""
+    if not drapeaux:
+        return ""
+    return (
+        " Formulation à forte charge : le risque de proof-texting est relevé d'un cran sur "
+        "les mises en forme ci-dessous."
+    )
+
+
+def _option(couple: Feasibility, drapeaux: Sequence[str] = ()) -> Option:
+    """⚠️ **Le risque porté par l'option est le risque relevé.**
+
+    Le bloc `feasibility` continue d'afficher la curation telle quelle — c'est le panorama, et
+    il ne doit pas bouger sous les pieds du relecteur. L'option, elle, est ce que le pasteur
+    **choisit** : c'est là que la vigilance doit être lisible, au moment du geste."""
+    risque = _releve(couple.proof_text_risk, drapeaux)
+    releve = " (relevé d'un cran)" if risque != couple.proof_text_risk else ""
     return Option(
         code=f"{couple.plan_source}:{couple.subject_matter}",
         label=f"{couple.plan_source} x {couple.subject_matter}",
-        rationale=f"Risque de proof-texting : {couple.proof_text_risk}.",
+        rationale=f"Risque de proof-texting : {risque}{releve}.",
         origin="curation",
     )

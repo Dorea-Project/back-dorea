@@ -218,6 +218,46 @@ def test_une_intention_declaree_releve_le_risque_d_un_cran():
         assert diagnostic not in resultat.rationale.lower()
 
 
+def test_la_charge_releve_le_risque_sur_les_couples_offerts():
+    """🔴 **Le relèvement ne se lisait nulle part, et c'est une marche qui l'a montré.**
+
+    Les trois tests voisins appellent `execute()` sur un état où `plan_source` **et**
+    `subject_matter` sont posés — un état que `applies()` rejette, et que le service ne produit
+    jamais : il écrit les deux champs d'un coup. La branche `CONTINUE`, seule à appeler
+    `_releve()`, était donc injoignable depuis l'API. Trois tests verts sur du code mort.
+
+    Le risque relevé se lit maintenant **à l'écran où le pasteur choisit**, ce que la phrase de
+    l'écran des axes lui promettait : *« le risque de proof-texting sera relevé sur la mise en
+    forme »*."""
+    homiletique = _Homiletique([EXPOSITIF])  # curé « faible »
+    state = _state(risk_flags=("intention_persuasive",))
+
+    resultat = ShapeHomiletic().execute(state, _deps(homiletics=homiletique))
+
+    assert resultat.outcome is Outcome.AWAIT
+    (offert,) = resultat.options
+    assert "moyen" in offert.rationale, "le risque offert n'est pas relevé"
+    assert "relevé d'un cran" in offert.rationale
+    # Le motif de l'étage le dit **une fois**, en toutes lettres — la même phrase qu'à l'écran
+    # des axes, qui l'avait annoncé. Deux formulations feraient croire à deux mécanismes.
+    assert "forte charge" in resultat.rationale
+    # ⚠️ Le motif nomme l'effet, jamais l'état de celui qui écrit (S10).
+    for diagnostic in ("plainte", "colère", "vous êtes", "vous voulez"):
+        assert diagnostic not in resultat.rationale.lower()
+
+
+def test_sans_charge_le_risque_offert_reste_celui_de_la_curation():
+    """Le pendant : un signal qui ne se lève pas ne doit rien changer.
+
+    C'est la propriété de sûreté de S37 — *un port qui ne peut qu'ajouter de la vigilance ne
+    peut pas nuire en se trompant* — et elle ne vaut que si l'absence de drapeau est neutre."""
+    resultat = ShapeHomiletic().execute(_state(), _deps(homiletics=_Homiletique([EXPOSITIF])))
+
+    (offert,) = resultat.options
+    assert "faible" in offert.rationale
+    assert "relevé" not in offert.rationale
+
+
 def test_le_risque_ne_depasse_jamais_le_dernier_cran():
     """L'échelle est fermée : trois valeurs, pas un score qui grimpe."""
     homiletique = _Homiletique([THEMATIQUE])

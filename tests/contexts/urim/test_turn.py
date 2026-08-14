@@ -20,7 +20,11 @@ class _Trace:
 
 class _Option:
     def __init__(
-        self, code: str, dismissed: bool = False, strength: str | None = None
+        self,
+        code: str,
+        dismissed: bool = False,
+        strength: str | None = None,
+        signature: str | None = None,
     ) -> None:
         self.code = code
         self.label = f"libellé {code}"
@@ -28,6 +32,16 @@ class _Option:
         self.origin = "locus"
         self.dismissed = dismissed
         self.strength = strength
+        #: Qui a écrit le **libellé** — `None` = le corpus, `ia-mistral` = une glose.
+        self.signature = signature
+
+
+class _Pesee:
+    def __init__(self, code: str, force: str) -> None:
+        self.axis_code = code
+        self.label = code.capitalize()
+        self.strength = force
+        self.rationale = "ce que le texte en fait"
 
 
 class _Vue:
@@ -38,6 +52,10 @@ class _Vue:
         self.outcome = "await_decision"
         self.rationale = "Ni nom de livre, ni phrase des Écritures."
         self.options = [_Option("axe:ecclesiologie")]
+        #: Où en est la préparation — lu par les deux tours qui n'offrent rien, pour situer.
+        self.resolved = None
+        #: L'axe retenu — le bloc des pesées marque le sien et rend les autres sélectionnables.
+        self.axis_code = None
         self.bearings = []
         self.caveats = []
         self.couples = []
@@ -104,6 +122,41 @@ def test_l_origine_ne_se_perd_pas() -> None:
     assert pastilles.items[0].origin == "locus"
 
 
+def test_un_libelle_habille_par_le_modele_porte_sa_signature() -> None:
+    """🔴 **Sept libellés du corpus et trois du modèle, indiscernables.**
+
+    Sur l'écran des dix loci, le pasteur lit *« voici les dix axes de la dogmatique »* — et
+    l'un d'eux s'appelle « L'effusion obligatoire », c'est-à-dire sa propre thèse sous
+    l'apparence d'une catégorie du corpus. `origin` valait `locus` pour les dix.
+
+    Mesuré avant d'être corrigé : le modèle **fait écho** à la saisie, il n'invente aucune
+    thèse. Ce n'est donc pas la formulation qu'on change — cet écran doit parler la langue du
+    pasteur — c'est qu'on dit **lequel est habillé**. §5.4, là où il manquait."""
+    vue = _Vue(options=[
+        _Option("axe:pneumatologie", signature="ia-mistral"),
+        _Option("axe:angelologie"),
+    ])
+
+    habille, brut = construire_tour(vue).blocks[0].items
+
+    assert habille.signature == "ia-mistral"
+    assert brut.signature is None, "un libellé du corpus ne se signe pas"
+
+
+def test_la_signature_du_libelle_ne_dit_rien_de_la_provenance_de_l_option() -> None:
+    """⚠️ Les deux champs répondent à deux questions, et les confondre dirait faux.
+
+    `origin` : d'où vient la **proposition** — les dix loci viennent tous de la dogmatique.
+    `signature` : qui a écrit le **libellé**. Un client qui lirait la signature comme une
+    origine annoncerait au pasteur que l'axe lui-même est généré."""
+    vue = _Vue(options=[_Option("axe:pneumatologie", signature="ia-mistral")])
+
+    (pastille,) = construire_tour(vue).blocks[0].items
+
+    assert pastille.origin == "locus"
+    assert pastille.signature == "ia-mistral"
+
+
 def test_la_signature_est_portee_jusqu_au_tour() -> None:
     """§5.4 — *pour que rien de généré ne se confonde avec une relecture.*"""
     assert construire_tour(_Vue(curation_reviewed_by="ia-mistral")).signature == "ia-mistral"
@@ -138,6 +191,86 @@ def test_le_tour_est_serialisable_tel_quel() -> None:
     tour = construire_tour(_Vue(theme="Un thème", trace=[_Trace("propose_theme")]))
     rendu = TurnView.model_validate(tour.model_dump()).model_dump()
     assert {b["kind"] for b in rendu["blocks"]} == {"theme", "actions", "chips"}
+
+
+# -- l'axe retenu n'est pas une fatalité du texte (§7) --------------------------------
+
+
+def _avec_pesees(**remplace) -> _Vue:
+    return _Vue(
+        trace=[_Trace("bear_axes")], outcome="degrade", options=[],
+        bearings=[
+            _Pesee("christologie", "dominant"),
+            _Pesee("anthropologie", "porte"),
+            _Pesee("eschatologie", "resiste"),
+            _Pesee("demonologie", "absent"),
+        ],
+        **remplace,
+    )
+
+
+def _pesees(vue) -> dict[str, object]:
+    bloc = next(b for b in construire_tour(vue).blocks if b.kind == "bearings")
+    return {i.axis_code: i for i in bloc.items}
+
+
+def test_l_axe_retenu_est_marque_et_les_autres_axes_portes_sont_prenables() -> None:
+    """🔴 **Un texte à un seul dominant voyait son axe posé d'office, sans le dire.**
+
+    Le pasteur orthodoxe ouvre 2 Pierre 1:4 *pour* la déification ; l'unité n'a que
+    `christologie` en dominant, donc `bear_axes` continue sans rendre la main. Il repartait avec
+    une préparation christologique — et l'unité porte pourtant l'anthropologie.
+
+    Le geste existait déjà de bout en bout côté API. **Rien ne le disait**, et une porte ouverte
+    que personne ne voit a l'air d'une fonctionnalité manquante."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    items = _pesees(vue)
+
+    assert items["christologie"].selected
+    assert not items["christologie"].selectable, "reprendre l'axe déjà retenu ne fait rien"
+    assert items["anthropologie"].selectable
+
+
+def test_un_axe_absent_ou_resistant_n_est_jamais_prenable() -> None:
+    """*Un axe absent n'affiche rien, et aucun plan ne se construit dessus.* Et un axe auquel le
+    texte **résiste** est un garde-fou, pas un angle : c'est le même partage que `bear_axes`,
+    qui offre les dominants, sinon les portants, et jamais les résistants."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    items = _pesees(vue)
+
+    assert not items["demonologie"].selectable
+    assert not items["eschatologie"].selectable
+
+
+def test_le_bloc_des_pesees_dit_a_quel_etage_poster() -> None:
+    """⚠️ Le tour porte le code de l'étage **courant**, qui n'est pas celui-ci.
+
+    Le cas est celui du dernier tour : les pesées y voyagent en décor, le tour dit
+    `propose_theme`, et le geste qu'elles portent s'adresse à `bear_axes`. Sans `decide_stage`,
+    un client les enverrait à l'étage qui vient de parler et se ferait refuser — le 422 au clic,
+    dans l'autre sens."""
+    vue = _avec_pesees()
+    vue.trace = [_Trace("propose_theme")]
+    vue.theme = "Un thème proposé"
+    vue.axis_code = "christologie"
+
+    tour = construire_tour(vue)
+
+    bloc = next(b for b in tour.blocks if b.kind == "bearings")
+    assert bloc.decide_stage == "bear_axes"
+    assert tour.stage_code == "propose_theme", "le tour ne parle pas de l'étage des pesées"
+
+
+def test_le_tour_des_pesees_nomme_le_geste_qu_il_rend_possible() -> None:
+    """Le bloc porte l'affordance ; la phrase doit la dire, sinon elle reste invisible."""
+    vue = _avec_pesees()
+    vue.axis_code = "christologie"
+
+    assert "axes" in construire_tour(vue).ask
 
 
 # -- la dominance : le trou 1 du contrat ---------------------------------------------

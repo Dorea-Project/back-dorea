@@ -80,12 +80,22 @@ lieu de planter.
 { "kind": "chips",
   "items": [
     { "code": "axe:ecclesiologie", "label": "Ecclésiologie", "hint": "l'Église",
-      "origin": "locus", "selected": false }
+      "origin": "locus", "selected": false, "signature": null }
   ] }
 ```
 
 Source : `options[]`. `hint` est la glose courte (« Dieu », « le péché »). `origin` sert au
 regroupement visuel — la maquette ne mélange jamais un locus et une proposition par le sens.
+
+⚠️ **`signature` dit qui a écrit le LIBELLÉ**, quand ce n'est pas le corpus — `ia-mistral`, le
+mot du bandeau. Sur l'écran des dix loci, certains titres sont habillés dans la langue du
+pasteur par un modèle (« L'effusion obligatoire » pour la pneumatologie) et les autres portent
+celui de la dogmatique ; ils avaient exactement la même apparence. C'est §5.4 appliqué à
+l'option — *pour que rien de généré ne se confonde avec une relecture*.
+
+Ne pas la confondre avec `origin` : l'axe vient de la dogmatique dans les dix cas, seul son
+habit est généré. Un client qui lirait la signature comme une origine annoncerait au pasteur que
+l'axe lui-même est inventé.
 
 > *Les pastilles sont des raccourcis, jamais des barreaux.* Le pasteur peut taper « Ecclésiologie »
 > à la main : `expects` vaut `choice`, ce qui **autorise** le texte libre, jamais ne l'exclut.
@@ -190,6 +200,11 @@ c'est la même règle que les versions indisponibles : *elle informe, elle ne ra
 ---
 
 ## 6. Les quatre trous — ce que la maquette promet et que le moteur ne sait pas encore faire
+
+> **Le territoire est cartographié à côté.** `docs/Urim_Arbre_Conversationnel.md` liste les
+> 13 cellules qui rendent un tour, ce que chacune affiche, et comment l'atteindre — et il porte
+> les deux murs trouvés en la marchant : la liste épuisée, et le « voici » au-dessus de rien.
+> Ce document-ci reste le contrat ; celui-là dit ce que le pasteur reçoit vraiment.
 
 **Trou 1 — l'option ne dit pas sa dominance.** La maquette groupe les quatre unités en *« en
 fait son sujet »* et *« le soutient »*. `OptionView` porte `code`, `label`, `rationale`, `origin`

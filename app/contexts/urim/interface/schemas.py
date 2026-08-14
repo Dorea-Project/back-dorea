@@ -102,6 +102,12 @@ class OptionView(BaseModel):
     #: permet au client de séparer *en fait son sujet* de *le soutient* sans lire le libellé.
     strength: str | None = None
 
+    #: ⚠️ **Qui a écrit ce libellé** — `null` quand il vient du corpus, `ia-mistral` quand un
+    #: modèle l'a habillé. C'est §5.4 appliqué à l'écran des axes : *pour que rien de généré ne
+    #: se confonde avec une relecture*. Sept des dix loci portent le mot de la dogmatique, les
+    #: autres celui du pasteur — et ils avaient exactement la même apparence.
+    signature: str | None = None
+
 
 class ElementView(BaseModel):
     element_code: str
@@ -273,9 +279,10 @@ class StudyView(BaseModel):
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
             options=[
                 OptionView(
-                    code=c, label=lib, rationale=m, origin=o, dismissed=e, strength=f
+                    code=c, label=lib, rationale=m, origin=o, dismissed=e, strength=f,
+                    signature=s,
                 )
-                for c, lib, m, o, e, f in dto.options
+                for c, lib, m, o, e, f, s in dto.options
             ],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,

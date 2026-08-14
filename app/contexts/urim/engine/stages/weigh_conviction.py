@@ -56,6 +56,46 @@ _CE_QUE_LE_TEXTE_FAIT = {
     "resiste": "⚠ ce texte le complique ou le contredit",
 }
 
+#: Le mot de `reviewed_by`, et pas un synonyme : le client connaît déjà « ia-mistral » par le
+#: bandeau de l'unité littéraire. Deux vocabulaires pour la même question — *qui a écrit ça ?* —
+#: lui feraient traiter deux fois le même cas.
+SIGNATURE_GLOSE = "ia-mistral"
+
+#: ⚠️ **Combien de textes par groupe — et le même nombre pour les trois.**
+#:
+#: 🔴 L'étage servait **toutes** les unités de l'axe : 4 302 sur l'anthropologie, 3 971 sur la
+#: théologie propre. Ce n'était pas un écran trop long, c'était un garde-fou enterré : les
+#: sites arrivent triés par force, si bien que le **premier texte qui résiste** tombait en
+#: 4 298ᵉ position sur l'anthropologie, en 1 730ᵉ sur la sotériologie. Le contrat dit *« elles
+#: sont affichées au même rang, exprès »* ; l'ordre disait le contraire, et personne ne
+#: scrollait jusque-là.
+#:
+#: Le quota **identique** pour les trois groupes est ce qui rend « au même rang » mécanique
+#: plutôt que déclaratif : six textes qui portent, six qui résistent, et le pasteur les voit
+#: dans le même écran. Un quota proportionnel aurait reproduit l'enterrement en plus discret.
+#:
+#: Six est un pari, comme tous les seuils du produit — à revoir sur des saisies réelles, pas à
+#: graver. La maquette en montre quatre ; `_resistent_ailleurs` s'en tient à trois, mais il
+#: *avertit* là où cet écran demande de **choisir**.
+PAR_GROUPE = 6
+
+#: ⚠️ **La moitié au modèle, l'autre au canon — et la moitié est la garantie.**
+#:
+#: Le dossier que le modèle a proposé pour la saisie est le seul signal de **pertinence** dont
+#: cet étage dispose : l'étalement canonique, lui, ne connaît que la diversité. Sur « on prie
+#: pour les malades », le modèle trouve 2 Corinthiens 12:7-10 — l'écharde non retirée, le
+#: garde-fou même de cette intention — quand l'étalement lui laissait une chance sur mille sept
+#: cents de sortir.
+#:
+#: Lui donner **tout** le groupe rendrait la diversité canonique négociable : un dossier groupé
+#: sur le Nouveau Testament effacerait la Loi et les Prophètes d'un écran entier. Trois places
+#: sur six : le modèle remonte ce qu'il a trouvé, le canon garde de quoi le contredire.
+#:
+#: La propriété de sûreté tient au **quota par groupe**, pas ici : quoi que le modèle corrobore,
+#: il ne peut affamer aucune force — les résistants ont leurs six places, et il arrive qu'il en
+#: remonte un (« Le contrôle des constellations » résiste à l'anthropologie).
+PAR_GROUPE_CORROBORES = PAR_GROUPE // 2
+
 
 class WeighConviction:
     """Le chemin inversé. Il ne trouve pas un texte : il en propose, et il en explique."""
@@ -108,6 +148,10 @@ class WeighConviction:
         options = tuple(
             Option(
                 code=f"axe:{axe.code}",
+                # ⚠️ La signature suit **le libellé**, pas l'option : les dix loci viennent tous
+                # du corpus, seuls certains sont habillés. Un client qui marquerait l'option
+                # entière dirait que l'axe est généré, ce qui est faux.
+                signature=SIGNATURE_GLOSE if gloses.get(axe.code) else None,
                 label=(
                     gloses[axe.code].title if axe.code in gloses else ""
                 ) or axe.label,
@@ -189,6 +233,8 @@ class WeighConviction:
                 state=state,
             )
 
+        corrobores = _corrobores(state, deps)
+        retenus = _echantillon(sites, corrobores)
         options = tuple(
             Option(
                 code=f"texte:{site.pericope_id}",
@@ -198,14 +244,115 @@ class WeighConviction:
                 # au pasteur, ce champ le dit au client, qui peut alors grouper sans lire.
                 strength=site.strength,
             )
-            for site in sites
+            for site in retenus
         )
         return StageResult(
             outcome=Outcome.AWAIT,
-            rationale=_motif_des_textes(sites, state),
+            rationale=_motif_des_textes(
+                sites, retenus, state,
+                designes=any(s.pericope_id in corrobores for s in retenus),
+            ),
             state=state,
             options=options,
         )
+
+
+def _corrobores(state: StudyState, deps: EngineDeps) -> frozenset:
+    """Les unités que le **dossier du modèle** désigne, et elles seules.
+
+    ⚠️ **Une seule unité, ou rien.** `Job 38:1-42` — un chapitre entier — recouvre **sept**
+    unités curées, `1 Jean 4:7-21` en recouvre trois : les retenir laisserait une proposition
+    paresseuse manger tout le quota, et surtout on ne saurait pas laquelle le modèle visait.
+    C'est la règle que l'exploration tient déjà : *quand plusieurs unités couvrent la demande,
+    la curation ne s'attache à aucune.* Une proposition précise corrobore, une proposition vague
+    ne dit pas laquelle.
+
+    Déterministe et rejouable : les passages proposés sont mémorisés à la bordure, et
+    `pericopes_for` ne lit que le corpus. Sans modèle branché, l'ensemble est vide et la
+    sélection redevient exactement ce qu'elle était."""
+    designees = set()
+    for propose in state.suggested_passages:
+        couvrantes = list(deps.corpus.pericopes_for(propose.reference))
+        if len(couvrantes) == 1:
+            designees.add(couvrantes[0].id)
+    return frozenset(designees)
+
+
+def _echantillon(
+    sites: tuple[BearingSite, ...], corrobores: frozenset = frozenset()
+) -> tuple[BearingSite, ...]:
+    """Un échantillon **par groupe**, à quota égal — et l'ordre du canon préservé.
+
+    Les trois groupes sont traités séparément et reçoivent le même nombre de places : c'est ce
+    qui empêche les 4 070 unités qui *portent* l'anthropologie d'écraser les 5 qui lui
+    résistent. Le rendu reste dans l'ordre `dominant · porte · resiste`, celui du tri d'index
+    et celui des groupes du tour."""
+    par_force = {
+        force: tuple(s for s in sites if s.strength == force)
+        for force in _CE_QUE_LE_TEXTE_FAIT
+    }
+    inconnues = tuple(s for s in sites if s.strength not in _CE_QUE_LE_TEXTE_FAIT)
+    return tuple(
+        site
+        for groupe in (*par_force.values(), inconnues)
+        for site in _choisir(groupe, corrobores)
+    )
+
+
+def _choisir(
+    groupe: tuple[BearingSite, ...], corrobores: frozenset
+) -> tuple[BearingSite, ...]:
+    """Les places du groupe : la moitié à ce que le modèle a désigné, le reste au canon.
+
+    ⚠️ **Rien n'est réordonné tant que tout tient à l'écran.** Un groupe entièrement montré n'a
+    pas de tête : remonter quelque chose n'y apprendrait rien et ferait bouger un ordre —
+    celui du canon — que le pasteur peut vouloir lire tel quel."""
+    if len(groupe) <= PAR_GROUPE:
+        return groupe
+
+    tete = tuple(s for s in groupe if s.pericope_id in corrobores)[:PAR_GROUPE_CORROBORES]
+    pris = {id(s) for s in tete}
+    reste = tuple(s for s in groupe if id(s) not in pris)
+    return (*tete, *_etaler(reste, PAR_GROUPE - len(tete)))
+
+
+def _etaler(sites: tuple[BearingSite, ...], plafond: int) -> tuple[BearingSite, ...]:
+    """`plafond` textes au plus, **étalés sur le canon** plutôt que pris au début.
+
+    C'est la mécanique de `_resistent_ailleurs`, et pour la même raison : les sites arrivent
+    dans l'ordre canonique, si bien que prendre les premiers rend six chapitres voisins de la
+    Genèse. Un livre ne parle qu'une fois, puis on répartit — le pasteur reçoit un texte de la
+    Loi, un des Prophètes, un des Épîtres.
+
+    ⚠️ **Déterministe, donc rejouable.** C'est la condition du moteur, et elle exclut tout
+    tirage : même corpus, même axe, mêmes six textes.
+
+    Si les livres distincts ne suffisent pas à remplir l'écran, on complète avec le reste :
+    montrer trois textes quand le corpus en a cent et qu'on s'autorisait six serait une autre
+    façon de dissimuler."""
+    if len(sites) <= plafond:
+        return sites
+
+    premiers, livres = [], set()
+    for site in sites:
+        livre = site.bounds.start.book
+        if livre not in livres:
+            livres.add(livre)
+            premiers.append(site)
+
+    if len(premiers) < plafond:
+        # On complète dans l'ordre du canon, et on filtre `sites` pour le rendu : l'ordre
+        # canonique se rétablit tout seul, sans comparer des sites entre eux — deux unités d'un
+        # même chapitre peuvent être égales champ à champ sans être la même.
+        gardes = {id(s) for s in premiers}
+        for site in sites:
+            if len(gardes) >= plafond:
+                break
+            gardes.add(id(site))
+        return tuple(s for s in sites if id(s) in gardes)
+
+    pas = (len(premiers) - 1) / (plafond - 1)
+    return tuple(premiers[round(rang * pas)] for rang in range(plafond))
 
 
 def _motif_des_axes(
@@ -231,14 +378,36 @@ def _motif_des_axes(
     return debut + _clause_de_risque(state)
 
 
-def _motif_des_textes(sites: tuple[BearingSite, ...], state: StudyState) -> str:
+def _motif_des_textes(
+    sites: tuple[BearingSite, ...],
+    retenus: tuple[BearingSite, ...],
+    state: StudyState,
+    designes: bool = False,
+) -> str:
+    """⚠️ **On écourte, on ne dissimule pas.**
+
+    Le compte réel voyage à côté de ce qui est montré — c'est la règle de la concordance, où
+    `total` dit 126 pendant qu'on en affiche cinquante. Un extrait présenté comme un tout ferait
+    conclure d'un échantillon, et ici la conclusion porterait sur ce que l'Écriture dit d'un
+    axe."""
     resistants = sum(1 for s in sites if s.strength == "resiste")
+    montres = sum(1 for s in retenus if s.strength == "resiste")
     motif = f"{len(sites)} unité(s) relue(s) disent quelque chose de cet axe."
+    if len(retenus) < len(sites):
+        motif += (
+            f" En voici {len(retenus)}, réparties sur le canon — un livre ne parle qu'une "
+            "fois, et le choix reste ouvert à toute référence que vous donnerez."
+        )
+    if designes:
+        # L'ordre cesse d'être neutre dès qu'un dossier le remonte : le dire est le minimum,
+        # sans quoi le pasteur croit lire le canon là où il lit une pertinence supposée.
+        motif += " Celles que votre formulation désignait sont en tête."
     if resistants:
         # Annoncé, jamais glissé en bas de liste : c'est la partie qu'un pasteur pressé
         # sauterait, et c'est celle qui le protège.
+        combien = f"{montres} sur {resistants}" if montres < resistants else str(montres)
         motif += (
-            f" Dont {resistants} qui le **compliquent ou le contredisent** — elles sont "
+            f" Dont {combien} qui le **compliquent ou le contredisent** — elles sont "
             "affichées au même rang, exprès."
         )
     return motif + _clause_de_risque(state)
