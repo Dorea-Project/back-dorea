@@ -674,6 +674,56 @@ jour et n'avait jamais vues*.
 
 ---
 
+## 8 quinquies. Les trois fautes d'une note, et ce qui attrape chacune
+
+> Découvert le **2026-08-13**, en lançant l'articulation pour de vrai sur les points de
+> l'Ascension (`mistral-small-latest`, deux appels).
+
+Le dépôt savait nommer deux fautes. Le point 4 du témoin en a révélé une **troisième**, et
+c'est la plus dangereuse des trois parce qu'elle passe tous les contrôles.
+
+| # | La faute | Exemple réel | Ce qui l'attrape |
+| :-- | :-- | :-- | :-- |
+| **1** | La référence **n'existe pas** | `Hb 2v29` — Hébreux 2 compte 18 versets | `check_reference`, avec le motif **du corpus** (S19) |
+| **2** | Le texte projeté est **altéré** | un mot changé sur une diapositive | `citation_check`, **avant** que le fichier existe (§4) |
+| **3** | 🔴 La référence **existe et ne dit pas ce qu'on lui fait dire** | *« le don de l'Esprit **Jn 14v2-3** »* — or Jean 14:2-3 parle des demeures dans la maison du Père ; l'Esprit est en 14:16-17 | **rien ne la détecte** — et c'est voulu |
+
+### Pourquoi on ne cherche pas à la détecter
+
+Faire juger au modèle si un texte **soutient** une affirmation reviendrait à lui donner autorité
+sur la doctrine d'un prédicateur. C'est exactement ce que les dix loci curés — relus, signés —
+existent pour éviter. Et une garde automatique qui se tromperait ici ne se tromperait pas d'un
+détail : elle contredirait un pasteur sur son propre texte, sans que personne en réponde.
+
+### Ce qui la montre quand même : **la juxtaposition**
+
+Le document n'a pas besoin de juger. Il pose le texte sous l'affirmation :
+
+```
+### 4- L'inauguration d'une ère nouvelle : le don de l'Esprit Jn14v2-3…
+  Jean 14:2-3 — Il y a plusieurs demeures dans la maison de mon Père…
+                Je vais vous préparer une place.
+```
+
+Le pasteur voit en une seconde. **C'est le même mécanisme que les textes qui résistent** : on ne
+dit pas « vous avez tort », on met sous ses yeux ce qu'il n'aurait pas cherché.
+
+> C'est aussi la meilleure justification de §8 quater : servir les appuis sous chaque point
+> n'était pas une commodité de mise en page. C'est le seul endroit où cette troisième faute
+> devient visible.
+
+### Ce que les deux appels réels ont appris de l'articulation
+
+| Constat | Suite |
+| :-- | :-- |
+| 🐛 **Le modèle complète de mémoire** quand un point cite un texte qu'on ne lui sert pas — *« dans le lieu très saint »*, exact et hors du texte fourni | ✅ **corrigé** : les textes cités dans la ligne du point sont servis avec elle, et l'interdit est reformulé — *« ni détail que tu croirais connaître »*. Le second appel sur le même point ne fuit plus |
+| Servir Hébreux 9 n'a **pas nourri** le développement — le modèle est resté sur Actes | C'est une **garde**, pas une matière : elle supprime le besoin de combler, elle n'ajoute rien |
+| Sur les références **fausses** (non servies), il n'a **rien inventé** | La garde tient là où elle est le plus tentée |
+| Il **nomme sa source** quand il utilise un texte servi (*« comme le dit l'Épître aux Éphésiens »*) | Non demandé par l'invite — bon signe, mais à ne pas tenir pour acquis |
+| ⚠️ Il produit des **affirmations homilétiques** hors texte : *« cette puissance vient remplacer la présence physique de Jésus »* | **Ni corrigeable ni corrigible** : c'est ce qu'« articuler » veut dire. C'est au pasteur de garder ou de réécrire — et c'est pourquoi rien de tout cela n'entre dans le document sans passer par sa main |
+
+---
+
 ## 9. Ce que cette note appelle comme code — et où elle s'arrête
 
 Elle s'arrête ici. Voici ce qu'il faudra écrire, pour que personne ne le découvre en cours de route.
