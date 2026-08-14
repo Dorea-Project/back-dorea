@@ -105,6 +105,16 @@ def _suites_communes(
             depart += longueur
         else:
             depart += 1
+    # 🧪 **Essayé et retiré (2026-08-14) : créditer aussi les mots repris ISOLÉMENT**, une fois
+    # la contiguïté prouvée. L'idée : sur « lamour ne [perir≠périt] jamais », `jamais` était
+    # perdu. Mesuré sur huit saisies réelles, l'effet est l'inverse du but —
+    #
+    #     votre citation     0,424 → 0,424   (inchangée : `jamais` est fréquent, donc sans poids)
+    #     S20 correcte       0,427 → 0,475   (MONTE, et bascule en citation)
+    #     « sur le pardon »  0,328 → 0,400   (monte)
+    #
+    # — parce que les mots qu'une intention partage avec l'Écriture sont précisément les mots
+    # isolés et communs. **Le mot seul profite au bruit, pas au signal.** Ne pas refaire.
     return tuple(retenus)
 
 
@@ -301,7 +311,16 @@ class IndexedCorpusReader:
         # dans *Cantique des cantiques 1:1* — sur quatre, soit 0,50. Or un article ne désigne
         # rien. Pesée par l'idf, la même suite tombe à 0,26, tandis que `jésus pleura` monte
         # de 0,67 à 0,96 : la mesure s'améliore **des deux côtés à la fois**.
-        total = sum(self.index.idf.get(mot, 0.0) for mot in mots)
+        # 🐛 **Un mot inconnu sortait du dénominateur, donc gonflait le score.** Mesuré : la
+        # saisie S20 mal orthographiée — « lamour fraternel nexiiste plus dans leglise » —
+        # marquait **0,574**, au-dessus du seuil, tandis que la même bien écrite tombait à
+        # 0,427. Une faute de frappe rendait donc une intention *plus* citable, et l'accusation
+        # que S20 existe pour protéger basculait déjà en citation sans que personne le voie.
+        #
+        # Un mot que l'Écriture ignore n'est pas neutre : c'est **un mot que la citation
+        # supposée ne contient pas**. Il compte donc comme un écart, au poids du mot médian —
+        # ni gratuit, ni écrasant.
+        total = sum(self.index.idf.get(mot, self.index.idf_median) for mot in mots)
         if total <= 0:
             return 0.0
 

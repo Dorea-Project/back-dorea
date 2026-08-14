@@ -200,6 +200,15 @@ class CorpusIndex:
     couples: Mapping[UUID, tuple[Feasibility, ...]]
     dominant: Mapping[UUID, str]
 
+    #: Ce que pèse un mot **que l'Écriture ignore**, quand il faut bien lui donner un poids.
+    #:
+    #: 🐛 Sans lui, un mot inconnu valait zéro et **sortait du dénominateur** de l'affinité :
+    #: une saisie mal orthographiée marquait donc *plus* qu'une saisie correcte, et
+    #: l'accusation de S20 basculait en citation. Zéro le rend gratuit, le maximum écraserait
+    #: toute phrase contenant un nom propre moderne — la médiane dit ce qu'il est : un mot
+    #: ordinaire, qui n'est pas là.
+    idf_median: float = 1.0
+
     #: Les variantes, clées sur **le verset** — pas sur la péricope : une variante porte sur
     #: un mot du texte, elle existe que le passage soit curé ou non.
     variants: Mapping[tuple[int, int, int], tuple[VariantRow, ...]] = field(
@@ -484,6 +493,9 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         chapters_held={k: frozenset(v) for k, v in chapters_held.items()},
         max_verse_held=max_verse_held,
         idf=idf,
+        # Calculée une fois au chargement : c'est une propriété du corpus, pas de la
+        # requête, et la trier à chaque appel coûterait 130 000 comparaisons par saisie.
+        idf_median=(sorted(idf.values())[len(idf) // 2] if idf else 1.0),
         verses=verses,
         postings=postings,
         pericopes=pericopes,
