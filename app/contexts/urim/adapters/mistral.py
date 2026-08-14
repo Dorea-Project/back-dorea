@@ -22,6 +22,7 @@ est **l'invite système**, et elle l'est — recopiée à l'identique.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -31,6 +32,23 @@ from app.core.config import Settings
 from app.core.logging import get_logger
 
 _logger = get_logger("urim.mistral")
+
+#: 🐛 **Un appel sans délai maximum a figé une préparation 35 minutes.** Mesuré le 2026-08-14 :
+#: résolveur construit à 15:35:44, réponse du modèle à 16:10:35, un seul appel entre les deux.
+#:
+#: Le pire n'est pas l'attente, c'est qu'elle est **invisible** : tout ce fichier est bâti sur
+#: « une panne du modèle n'est jamais une panne d'Urim », et le repli déterministe ne se
+#: déclenche que sur une erreur. Un appel qui **pend** n'échoue pas — il attend, et le pasteur
+#: attend avec lui. La garde manquait exactement là où le reste était prévu.
+#:
+#: La valeur est large : les appels mesurés tiennent en 2 à 8 secondes, et le premier d'un
+#: processus coûte le chargement de l'index, pas le réseau. Quarante-cinq secondes laissent
+#: passer une lenteur réelle et coupent une connexion morte.
+#:
+#: ⚠️ Le délai est posé **ici** et non dans le SDK : `Mistral.__init__` expose `(*args,
+#: **kwargs)`, on ne peut pas vérifier ce qu'il accepte, et le cap doit couvrir ses éventuelles
+#: reprises internes autant que l'appel lui-même.
+DELAI_MODELE = 45
 
 #: Reprise de M9-1 — la contrainte « jamais le texte » est dans l'invite.
 #:
@@ -297,19 +315,23 @@ class MistralAssistant:
         coût d'une ouverture sans jamais l'avoir mesuré : sans elle, la consommation est un
         total mensuel sur une facture, et on ne sait pas **quelle** invite le fabrique."""
         try:
-            reponse = await self._client.chat.complete_async(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": systeme},
-                    {"role": "user", "content": texte},
-                ],
-                response_format={"type": "json_object"},  # sortie JSON garantie
-                # ⚠️ **Zéro, parce qu'Urim est un moteur de rejeu.** « Le fils prodigue rentre
-                # chez son père » rendait Luc 15:20 une fois sur deux et rien l'autre fois : la
-                # même saisie n'ouvrait pas la même préparation. On ne stocke pas le
-                # raisonnement, seulement les décisions — encore faut-il que la décision soit
-                # reproductible, sinon la trace ment sur ce que le pasteur a vu.
-                temperature=0,
+            reponse = await asyncio.wait_for(
+                self._client.chat.complete_async(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": systeme},
+                        {"role": "user", "content": texte},
+                    ],
+                    response_format={"type": "json_object"},  # sortie JSON garantie
+                    # ⚠️ **Zéro, parce qu'Urim est un moteur de rejeu.** « Le fils prodigue
+                    # rentre chez son père » rendait Luc 15:20 une fois sur deux et rien
+                    # l'autre fois : la même saisie n'ouvrait pas la même préparation. On ne
+                    # stocke pas le raisonnement, seulement les décisions — encore faut-il que
+                    # la décision soit reproductible, sinon la trace ment sur ce que le
+                    # pasteur a vu.
+                    temperature=0,
+                ),
+                DELAI_MODELE,
             )
             usage = getattr(reponse, "usage", None)
             if usage is not None:
@@ -321,6 +343,15 @@ class MistralAssistant:
                     sortie=getattr(usage, "completion_tokens", None),
                 )
             return reponse.choices[0].message.content or ""
+        except TimeoutError:
+            # ⚠️ **Nommée à part, jamais confondue avec une panne ordinaire.** Ce mode-là était
+            # invisible : il ne produit ni erreur ni journal, seulement une requête qui ne
+            # revient pas. Le distinguer est la seule façon de le voir revenir.
+            self.echecs += 1
+            _logger.warning(
+                "mistral_delai_depasse", invite=etiquette, secondes=DELAI_MODELE
+            )
+            return None
         except Exception as erreur:  # pragma: no cover - réseau
             # ⚠️ **Une panne du modèle n'est jamais une panne d'Urim.** Le résolveur
             # déterministe reprend, et le pasteur ne voit pas la différence.
