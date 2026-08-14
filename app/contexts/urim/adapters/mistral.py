@@ -22,15 +22,33 @@ est **l'invite système**, et elle l'est — recopiée à l'identique.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
-from app.contexts.urim.application.ports import NullVerseResolver
+from app.contexts.urim.application.ports import NullVerseResolver, PlanSuggestion
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.core.config import Settings
 from app.core.logging import get_logger
 
 _logger = get_logger("urim.mistral")
+
+#: 🐛 **Un appel sans délai maximum a figé une préparation 35 minutes.** Mesuré le 2026-08-14 :
+#: résolveur construit à 15:35:44, réponse du modèle à 16:10:35, un seul appel entre les deux.
+#:
+#: Le pire n'est pas l'attente, c'est qu'elle est **invisible** : tout ce fichier est bâti sur
+#: « une panne du modèle n'est jamais une panne d'Urim », et le repli déterministe ne se
+#: déclenche que sur une erreur. Un appel qui **pend** n'échoue pas — il attend, et le pasteur
+#: attend avec lui. La garde manquait exactement là où le reste était prévu.
+#:
+#: La valeur est large : les appels mesurés tiennent en 2 à 8 secondes, et le premier d'un
+#: processus coûte le chargement de l'index, pas le réseau. Quarante-cinq secondes laissent
+#: passer une lenteur réelle et coupent une connexion morte.
+#:
+#: ⚠️ Le délai est posé **ici** et non dans le SDK : `Mistral.__init__` expose `(*args,
+#: **kwargs)`, on ne peut pas vérifier ce qu'il accepte, et le cap doit couvrir ses éventuelles
+#: reprises internes autant que l'appel lui-même.
+DELAI_MODELE = 45
 
 #: Reprise de M9-1 — la contrainte « jamais le texte » est dans l'invite.
 #:
@@ -217,6 +235,44 @@ def _reference_depuis(contenu: str) -> Reference | None:
     return Reference(livre.strip(), chapitre, verset if isinstance(verset, int) else None)
 
 
+#: **La seule invite d'Urim qui produise de la prose** — et toutes ses contraintes sont là.
+#:
+#: Elle n'existe que parce que le pasteur la demande, point par point, dans son atelier. Ce
+#: qu'elle rend n'atteint aucun document : le livrable n'imprime que ce que le pasteur a écrit
+#: ou repris. C'est le patron du dépôt — *l'IA propose, l'homme dispose*.
+#:
+#: Quatre interdits, et chacun répare une faute qu'on aurait faite :
+#:
+#: 1. **aucun verset qui ne soit dans le texte fourni** — sinon l'invite devient un moteur de
+#:    proof-texting, ce contre quoi Urim entier est bâti ;
+#: 2. **aucune affirmation historique ou culturelle** — « chez les Hébreux les esclaves allaient
+#:    pieds nus » se dit bien et ne se vérifie pas ; c'est la règle des realia ;
+#: 3. **du français simple** — une note de préparation n'est pas un article de revue, et le
+#:    pasteur ne doit pas traduire son propre travail pour s'en servir ;
+#: 4. **court** — quelques phrases. Un paragraphe long se recopie ; trois phrases se retravaillent.
+_SYSTEME_ARTICULATION = (
+    "Tu aides un pasteur à développer UN point de son plan de prédication. On te donne : son "
+    "point tel qu'il l'a écrit, la référence du passage qu'il prêche, le texte de ce "
+    "passage, et le texte des autres passages qu'il cite dans son point. "
+    "Ta tâche : proposer quelques phrases qui expliquent et articulent SON point à partir du "
+    "texte fourni, puis une phrase de transition vers le point suivant s'il y en a un. "
+    "INTERDICTIONS ABSOLUES : "
+    "(1) n'utilise AUCUN contenu biblique qui ne soit pas dans les textes fournis — ni "
+    "verset, ni référence, ni détail que tu croirais connaître : si le point mentionne un "
+    "passage dont le texte n'est pas donné, tu n'en dis rien ; "
+    "(2) n'affirme aucun fait historique, culturel ou linguistique — pas de 'chez les Hébreux', "
+    "pas d'étymologie, pas de coutume ; "
+    "(3) n'écris pas le sermon : tu développes SON point, tu n'en ajoutes pas d'autre, et tu ne "
+    "conclus pas à sa place ; "
+    "(4) n'invente aucune illustration, aucune anecdote, aucun exemple de la vie courante — "
+    "c'est ce que le pasteur apporte, et lui seul. "
+    "STYLE : français simple et direct, comme on parle. Pas de vocabulaire savant. "
+    "Six phrases au maximum pour le développement, une seule pour la transition. "
+    "Réponds par un objet JSON avec exactement les clés : body (chaîne), transition (chaîne, "
+    "vide s'il n'y a pas de point suivant)."
+)
+
+
 class MistralAssistant:
     """Le moteur IA — **les deux lectures du port dans un seul objet**.
 
@@ -259,19 +315,23 @@ class MistralAssistant:
         coût d'une ouverture sans jamais l'avoir mesuré : sans elle, la consommation est un
         total mensuel sur une facture, et on ne sait pas **quelle** invite le fabrique."""
         try:
-            reponse = await self._client.chat.complete_async(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": systeme},
-                    {"role": "user", "content": texte},
-                ],
-                response_format={"type": "json_object"},  # sortie JSON garantie
-                # ⚠️ **Zéro, parce qu'Urim est un moteur de rejeu.** « Le fils prodigue rentre
-                # chez son père » rendait Luc 15:20 une fois sur deux et rien l'autre fois : la
-                # même saisie n'ouvrait pas la même préparation. On ne stocke pas le
-                # raisonnement, seulement les décisions — encore faut-il que la décision soit
-                # reproductible, sinon la trace ment sur ce que le pasteur a vu.
-                temperature=0,
+            reponse = await asyncio.wait_for(
+                self._client.chat.complete_async(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": systeme},
+                        {"role": "user", "content": texte},
+                    ],
+                    response_format={"type": "json_object"},  # sortie JSON garantie
+                    # ⚠️ **Zéro, parce qu'Urim est un moteur de rejeu.** « Le fils prodigue
+                    # rentre chez son père » rendait Luc 15:20 une fois sur deux et rien
+                    # l'autre fois : la même saisie n'ouvrait pas la même préparation. On ne
+                    # stocke pas le raisonnement, seulement les décisions — encore faut-il que
+                    # la décision soit reproductible, sinon la trace ment sur ce que le
+                    # pasteur a vu.
+                    temperature=0,
+                ),
+                DELAI_MODELE,
             )
             usage = getattr(reponse, "usage", None)
             if usage is not None:
@@ -283,12 +343,53 @@ class MistralAssistant:
                     sortie=getattr(usage, "completion_tokens", None),
                 )
             return reponse.choices[0].message.content or ""
+        except TimeoutError:
+            # ⚠️ **Nommée à part, jamais confondue avec une panne ordinaire.** Ce mode-là était
+            # invisible : il ne produit ni erreur ni journal, seulement une requête qui ne
+            # revient pas. Le distinguer est la seule façon de le voir revenir.
+            self.echecs += 1
+            _logger.warning(
+                "mistral_delai_depasse", invite=etiquette, secondes=DELAI_MODELE
+            )
+            return None
         except Exception as erreur:  # pragma: no cover - réseau
             # ⚠️ **Une panne du modèle n'est jamais une panne d'Urim.** Le résolveur
             # déterministe reprend, et le pasteur ne voit pas la différence.
             self.echecs += 1
             _logger.warning("mistral_echec", error=str(erreur))
             return None
+
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
+    ) -> PlanSuggestion | None:
+        """Développer un point — **la seule sortie en prose du dépôt**, et elle est demandée.
+
+        Rend `None` sur toute panne : l'atelier continue, le pasteur écrit son point comme il
+        l'a toujours fait. Un modèle absent n'est pas un mode dégradé (§10)."""
+        demande = "\n".join((
+            f"Point du pasteur : {point}",
+            f"Passage prêché : {reference}",
+            f"Texte du passage : {texte}",
+            f"Textes cités dans le point : {appuis or '(aucun)'}",
+            f"Point suivant : {suivant or '(aucun)'}",
+        ))
+        contenu = await self.demander(
+            _SYSTEME_ARTICULATION, demande, etiquette="articulation"
+        )
+        if not contenu:
+            return None
+        try:
+            lu = json.loads(contenu)
+        except json.JSONDecodeError:
+            return None
+        corps = (lu.get("body") or "").strip()
+        if not corps:
+            return None
+        return PlanSuggestion(
+            body=corps,
+            transition=(lu.get("transition") or "").strip(),
+            model=self._model,
+        )
 
     async def resolve(self, text: str) -> Reference | None:
         contenu = await self.demander(_SYSTEME_REFERENCE, text, etiquette="reference")

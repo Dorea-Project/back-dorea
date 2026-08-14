@@ -46,6 +46,14 @@ data/urim_caveats_ancienne_invite.json
 # Les téléchargements bruts des traductions — ~10 Mo chacun, remis en cache par
 # `urim_seed_version.py` et déjà dépliés en base. Même règle que la LSG brute.
 data/*_raw.json
+# Le lexique TBESG (4,7 Mo, STEPBible CC BY 4.0) : même règle que MorphGNT et la WLC —
+# retéléchargeable en une commande, et déjà déplié en base par `urim_seed_lexique.py`, qui
+# en garde l'entrée d'origine dans `gloss_source`. Versionner la source stockerait deux fois
+# la même chose, dont une que rien ne lit.
+#
+# ⚠️ L'attribution, elle, ne s'ignore pas : elle est portée par `gloss_source_ref` sur chaque
+# ligne et affichée dans la note du prédicateur, comme la licence l'exige.
+data/stepbible/
 data/*_raw.xml
 # Les verdicts du contre-interrogatoire : une trace de reprise, pas une source. La base
 # fera foi quand les worktrees auront fusionne et que ce sera une table.

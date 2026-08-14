@@ -129,6 +129,25 @@ class UrimPreparationElementModel(Base):
 
     __tablename__ = "urim_preparation_element"
 
+    __table_args__ = (
+        # ⚠️ **La liste est fermée en base, pas seulement au service.** Une garde applicative
+        # tombe au premier second chemin d'écriture — un import, un script de reprise. Et le
+        # verrou du livrable s'adosse à `divisions` : un code qui dérive lui refuserait son
+        # document alors qu'il a écrit son plan.
+        #
+        # Quinze et non dix : les dix de Braga **plus** les cinq que les prédications réelles
+        # portent (`docs/temoins/`). Fermer aux dix aurait refusé à trois pasteurs sur trois
+        # des sections qu'ils tiennent depuis toujours.
+        CheckConstraint(
+            "element_code IN ("
+            "'titre','introduction','proposition','phrase_interrogative',"
+            "'phrase_de_transition','divisions','subdivisions','illustrations',"
+            "'application','conclusion',"
+            "'objectif','contexte','definitions','nb','temoignage')",
+            name="element_code_connu",
+        ),
+    )
+
     preparation_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
     )
@@ -270,6 +289,35 @@ class UrimModelSuggestionModel(Base):
     suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UrimPlanSuggestionModel(Base):
+    """L'articulation proposée pour un point — **dans l'atelier, jamais dans le document**.
+
+    Le livrable n'imprime que `preparation_element.body`. Une proposition que le pasteur n'a pas
+    reprise n'atteint donc aucun fichier, et il n'existe pas de chemin pour qu'elle y arrive :
+    c'est une **table séparée**, pas une colonne de plus sur l'élément.
+
+    ⚠️ **Le partage d'un champ aurait suffi à tout défaire.** Dans la même colonne, une reprise
+    silencieuse ferait imprimer la machine sous le nom du pasteur — et la règle centrale du
+    livrable tomberait sans que personne ait écrit une ligne pour la lever.
+
+    `input_hash` fait deux choses : le rejeu ne redemande pas (donc ne refacture pas), et un
+    point réécrit obtient une proposition neuve plutôt qu'une réponse à une question qui n'est
+    plus posée. `model` est à cette table ce que `corpus_snapshot` est à la préparation."""
+
+    __tablename__ = "urim_plan_suggestion"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    element_code: Mapped[str] = mapped_column(String, primary_key=True)
+    ordinal: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String)
+    body: Mapped[str] = mapped_column(Text)
+    transition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimPreachedModel(Base):
     """L'archive — **propriété de l'auteur**.
 
@@ -294,9 +342,20 @@ class UrimPreachedModel(Base):
     preparation_id: Mapped[UUID | None] = mapped_column(
         Uuid, ForeignKey("urim_preparation.id"), nullable=True
     )  # NULL si importée
-    church_id: Mapped[UUID] = mapped_column(Uuid)
+    #: **NULL = aucune église**, comme sur la préparation. La colonne était `NOT NULL` alors
+    #: que `urim_preparation.church_id` est devenue nullable le 11/08 : **un pasteur sans
+    #: église pouvait préparer et pas archiver** — et c'est le cas d'entrée du produit.
+    #: `author_id` est le propriétaire réel ; l'église n'est qu'un lieu.
+    church_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     author_id: Mapped[UUID] = mapped_column(Uuid)
     preached_on: Mapped[date] = mapped_column(Date)
+    #: L'unité littéraire, si le passage en avait une — **colonne nue**, jamais de FK (§3.9).
+    #:
+    #: Sans elle, le rangement par loci devrait **re-résoudre** le passage à chaque affichage :
+    #: une curation qui bouge ferait alors changer un rangement passé sans que rien ne le dise.
+    #: L'unité est ce qui porte les pesées ; c'est donc elle qu'il faut retenir, pas seulement
+    #: les bornes.
+    pericope_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     book_id: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     start_ch: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     start_v: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
@@ -314,20 +373,58 @@ class UrimPreachedModel(Base):
 
 
 class UrimDeliverableModel(Base):
+    """Le livrable — **le document et son encodage sont deux questions**.
+
+    `kind IN ('pptx','pdf')` les mélangeait. Avec deux documents (ce que l'assemblée voit, la
+    note du prédicateur) et trois formats, une colonne unique ne peut plus dire *lequel* est
+    sorti — or c'est la frontière que ce module existe pour tenir, et ce que la trace doit
+    savoir. Un PDF de la note et un PDF du deck ne circulent pas dans les mêmes mains.
+
+    **`validated_by` n'est pas décoratif.** Un livrable `conforme` que personne n'a signé serait
+    une validation que personne n'a faite : la contrainte le refuse, comme
+    `synthese_validee_signee` côté Retour et `reviewed_by NOT NULL` côté corpus.
+
+    **`content_fingerprint`** — *une décision ne vaut que sur l'objet qu'elle a regardé*. Deux
+    documents de la même préparation à deux semaines d'écart ne sont pas le même document ; sans
+    empreinte, on ne peut ni le dire ni le prouver."""
+
     __tablename__ = "urim_deliverable"
 
     __table_args__ = (
-        CheckConstraint("kind IN ('pptx','pdf')", name="deliverable_kind"),
+        CheckConstraint("kind IN ('deck','note')", name="deliverable_kind"),
+        CheckConstraint("format IN ('pptx','docx','pdf')", name="deliverable_format"),
+        # Les deux couples que la frontière écran/note rend impossibles — en base, parce
+        # qu'une garde applicative tombe au premier second chemin d'écriture.
+        CheckConstraint(
+            "(kind = 'deck' AND format IN ('pptx','pdf'))"
+            " OR (kind = 'note' AND format IN ('docx','pdf'))",
+            name="deliverable_document_format",
+        ),
         CheckConstraint(
             "validation IN ('conforme','rejete')", name="deliverable_validation"
+        ),
+        CheckConstraint(
+            "validation IS DISTINCT FROM 'conforme'"
+            " OR (validated_by IS NOT NULL AND validated_at IS NOT NULL)",
+            name="deliverable_validation_signee",
         ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     preparation_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("urim_preparation.id"))
     kind: Mapped[str] = mapped_column(String)
+    format: Mapped[str] = mapped_column(String)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     validation: Mapped[str | None] = mapped_column(String, nullable=True)
+    validated_by: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: L'état du corpus **au moment de la génération**. La préparation porte le sien ; s'ils
+    #: divergent, le document a été produit contre un autre corpus que celui où le raisonnement
+    #: a été mené.
+    corpus_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class UrimCitationCheckModel(Base):

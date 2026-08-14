@@ -8,7 +8,7 @@ pour décider s'il est d'accord.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -355,6 +355,194 @@ class StudyView(BaseModel):
         chose que ce que l'écran lui montre."""
         vue = cls.from_dto(dto)
         return vue.model_copy(update={"turn": construire_tour(vue)})
+
+
+class ArticulationBody(BaseModel):
+    """Quel point développer — **son point, désigné par lui**."""
+
+    element_code: str = Field(min_length=1, max_length=64, examples=["divisions"])
+    ordinal: int = Field(ge=0, le=999)
+
+
+class ArticulationView(BaseModel):
+    """Ce que le modèle propose pour ce point.
+
+    ⚠️ **Rien de tout ceci n'entre dans un document.** Le livrable n'imprime que
+    `preparation_element.body` : cette proposition n'atteint un fichier que si le pasteur la
+    reprend dans son plan — c'est-à-dire s'il l'a lue et adoptée.
+
+    `model` voyage avec le texte : une proposition sans son auteur ressemblerait, dans six
+    mois, à quelque chose que quelqu'un a écrit."""
+
+    body: str
+    transition: str
+    model: str
+    #: `false` = aucun modèle branché, plafond atteint, ou point vide. **Pas une erreur** :
+    #: l'atelier fonctionne sans, et le pasteur écrit son point comme il l'a toujours fait.
+    disponible: bool
+
+
+class DiapositiveBody(BaseModel):
+    """Une diapositive composée par le pasteur. `texte_projete` est **le sien** — il coupe, il
+    abrège, il glose entre crochets — et c'est ce que le serveur juge contre le corpus."""
+
+    titre: str = Field(default="", max_length=200)
+    reference: str = Field(min_length=2, max_length=80, examples=["Romains 8:1"])
+    texte_projete: str = Field(default="", max_length=4000)
+
+
+class DeliverableBody(BaseModel):
+    """⚠️ **Aucune case « introduction proposée ».** Le modèle n'a pas de canal de sortie en
+    prose, et un gabarit de document est exactement l'endroit où ce canal se rouvrirait."""
+
+    kind: str = Field(default="deck", pattern="^(deck|note)$")
+    diapositives: list[DiapositiveBody] = Field(default_factory=list, max_length=120)
+
+
+class ControleView(BaseModel):
+    """Le verdict d'une diapositive — **ce que le produit veut montrer**, pas une erreur.
+
+    `version` nomme celle qui reconnaît le texte, et ce n'est pas cosmétique : sur Romains 8:1,
+    reconnaître Ostervald plutôt que la LSG change la doctrine du verset projeté."""
+
+    slide_no: int
+    reference: str
+    projected_text: str
+    verdict: str
+    rationale: str
+    version_id: UUID | None
+
+
+class DeliverableView(BaseModel):
+    """Le dossier de validation. **Aucun fichier n'existe encore** : le contrôle est en amont,
+    parce qu'un fichier produit est un fichier qui circule."""
+
+    id: UUID
+    kind: str
+    format: str
+    validation: str
+    validated_by: UUID | None
+    generated_at: datetime
+    corpus_snapshot: str | None
+    content_fingerprint: str | None
+    controles: list[ControleView]
+
+    @classmethod
+    def from_dto(cls, dto) -> DeliverableView:
+        r = dto.record
+        return cls(
+            id=r.id, kind=r.kind, format=r.format, validation=r.validation,
+            validated_by=r.validated_by, generated_at=r.generated_at,
+            corpus_snapshot=r.corpus_snapshot, content_fingerprint=r.content_fingerprint,
+            controles=[
+                ControleView(
+                    slide_no=c.slide_no, reference=c.reference,
+                    projected_text=c.projected_text, verdict=c.verdict,
+                    rationale=c.rationale, version_id=c.version_id,
+                )
+                for c in dto.controles
+            ],
+        )
+
+
+class ArchiveFromStudyBody(BaseModel):
+    """« J'ai prêché cette préparation. »
+
+    ⚠️ **`preached_on` par défaut = aujourd'hui, jamais `service_date`.** Une préparation datée
+    du dimanche prochain n'a pas été prêchée pour autant."""
+
+    preached_on: date | None = None
+    capture_kind: str = Field(default="saisie", max_length=16)
+
+
+class ArchiveManualBody(BaseModel):
+    """Un sermon sans préparation — prêché ailleurs, ou avant Dorea."""
+
+    reference: str = Field(min_length=2, max_length=80, examples=["Actes 1:1-14"])
+    preached_on: date
+    church_id: UUID | None = None
+    axis_code: str | None = Field(default=None, max_length=40)
+    theme: str | None = Field(default=None, max_length=2000)
+    capture_kind: str = Field(default="import", max_length=16)
+
+
+class ArchiveEntryView(BaseModel):
+    id: UUID
+    preached_on: date
+    reference: str
+    pericope_label: str | None
+    #: NULL = **non rangé**, et c'est un état normal : hors unité curée, il n'y a aucun axe à
+    #: retenir. Le client doit le nommer plutôt que de masquer la ligne.
+    axis_code: str | None
+    theme: str | None
+    capture_kind: str | None
+    preparation_id: UUID | None
+    church_id: UUID | None
+
+    @classmethod
+    def from_dto(cls, dto) -> ArchiveEntryView:
+        r = dto.record
+        return cls(
+            id=r.id, preached_on=r.preached_on, reference=dto.reference,
+            pericope_label=dto.pericope_label, axis_code=r.axis_code, theme=r.theme,
+            capture_kind=r.capture_kind, preparation_id=r.preparation_id,
+            church_id=r.church_id,
+        )
+
+
+class BookCoverageView(BaseModel):
+    """⚠️ **Deux nombres, jamais additionnés.** `passages` compte des lieux distincts —
+    prêcher deux fois le même texte n'élargit pas un canon ; `preachings` compte des
+    événements, parce que deux assemblées ont entendu."""
+
+    book: str
+    passages: int
+    preachings: int
+    last_preached_on: date
+
+
+class AxisTallyView(BaseModel):
+    """Un rayon du rangement. `axis_code` à NULL = **non rangé** — il s'affiche."""
+
+    axis_code: str | None
+    preachings: int
+    last_preached_on: date
+
+
+class CoverageView(BaseModel):
+    """Le parcours d'un prédicateur — **des faits, aucune consigne**.
+
+    ⚠️ Cet écran ne propose jamais de sermon. Un rayon vide se montre, il ne se comble pas :
+    *le signal informe l'homme, l'homme commande la machine*. Aucun score, aucune série,
+    aucun pourcentage de complétude doctrinale — ce serait mesurer la fidélité d'un pasteur,
+    et transformer une aide en performance à tenir.
+
+    ⚠️ **`books_untouched` dit « aucun sermon rangé ici », pas « il n'a jamais prêché cela »**
+    (S38) : un texte peut avoir été prêché sous une autre unité, ou sans axe retenu."""
+
+    books: list[BookCoverageView]
+    axes: list[AxisTallyView]
+    books_untouched: int
+
+    @classmethod
+    def from_dto(cls, dto) -> CoverageView:
+        return cls(
+            books=[
+                BookCoverageView(
+                    book=libelle, passages=c.passages, preachings=c.preachings,
+                    last_preached_on=c.last_preached_on,
+                )
+                for libelle, c in dto.books
+            ],
+            axes=[
+                AxisTallyView(
+                    axis_code=a.axis_code, preachings=a.preachings,
+                    last_preached_on=a.last_preached_on,
+                )
+                for a in dto.axes
+            ],
+            books_untouched=dto.books_untouched,
+        )
 
 
 class OriginalWordView(BaseModel):

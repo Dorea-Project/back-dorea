@@ -441,6 +441,12 @@ class NullVerseResolver:
     async def resolve(self, text: str) -> Reference | None:
         return None
 
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
+    ) -> PlanSuggestion | None:
+        """Sans modèle, le pasteur écrit son point — ce qu'il faisait de toute façon."""
+        return None
+
     async def axes(self, text: str) -> tuple[AxisGloss, ...]:
         return ()
 
@@ -449,6 +455,121 @@ class NullVerseResolver:
 
     async def lever(self, text: str) -> tuple[str, ...]:
         return ()
+
+
+@dataclass(slots=True)
+class PlanSuggestion:
+    """Ce que le modèle propose pour **un point du plan** — dans l'atelier, jamais imprimé.
+
+    ⚠️ **C'est la seule sortie en prose de tout Urim, et elle est enfermée ici.** Le livrable
+    n'imprime que `preparation_element.body` ; cette proposition ne l'atteint que si le pasteur
+    la reprend, c'est-à-dire s'il l'a lue et adoptée. Le patron est celui du dépôt entier :
+    *l'IA propose, l'homme dispose* — et côté Sermon, *rien de non approuvé n'atteint le
+    membre*."""
+
+    #: Le développement proposé pour ce point — quelques phrases, jamais un sermon.
+    body: str
+    #: La phrase qui mène au point suivant. Vide s'il n'y a pas de suivant.
+    transition: str = ""
+    #: Le modèle qui l'a écrite — l'équivalent de `corpus_snapshot`, pour la même raison.
+    model: str = ""
+
+
+class PlanAssistant(Protocol):
+    """L'articulation d'un point, demandée explicitement.
+
+    **Model-optional comme tout le reste** : sans clé, l'adaptateur nul rend `None` et l'atelier
+    fonctionne — le pasteur écrit son point lui-même, ce qu'il faisait de toute façon."""
+
+    async def articuler(
+        self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
+    ) -> PlanSuggestion | None:
+        """⚠️ **Le modèle reçoit le point, le passage, son texte, et les textes que le point
+        cite lui-même — rien d'autre.**
+
+        `appuis` a été ajouté après le premier appel réel : sur un point qui citait Hébreux 9
+        alors qu'on servait Actes 1, le modèle a **complété de mémoire** (« dans le lieu très
+        saint »). Exact, et hors du texte fourni — donc invérifiable pour le pasteur. Lui
+        donner les textes qu'il cite supprime le besoin de combler.
+
+        Pas les pesées (elles sont curées, il les redirait mal), pas les mises en garde (elles
+        s'adressent au prédicateur), pas l'archive. Une invite qui reçoit tout produit une
+        synthèse de tout, et le pasteur ne saurait plus ce qui vient de lui."""
+        ...
+
+
+@dataclass(slots=True)
+class PreachedRecord:
+    """Une prédication **qui a eu lieu** — l'archive, propriété de son auteur.
+
+    Ce n'est ni la préparation (ce que j'avais prévu), ni le transcript (ce que j'ai dit) :
+    c'est un **fait daté**. `preparation_id` est nullable — on peut prêcher sans avoir
+    préparé, et importer un sermon d'avant Dorea.
+
+    ⚠️ **Rien ne s'archive parce qu'une date est passée.** Le Pasteur X a préparé autour de six
+    passages proposés et prêché le Psaume 125, qui n'était dans aucun des six. Une archive
+    remplie par le calendrier aurait menti dès la première semaine — seul celui qui était en
+    chaire sait ce qui a eu lieu."""
+
+    id: UUID
+    author_id: UUID
+    preached_on: date
+    #: NULL = hors église (l'antichambre), comme sur la préparation.
+    church_id: UUID | None = None
+    preparation_id: UUID | None = None
+    pericope_id: UUID | None = None
+    book_id: int | None = None
+    start_ch: int | None = None
+    start_v: int | None = None
+    end_ch: int | None = None
+    end_v: int | None = None
+    #: L'axe **que le pasteur a retenu** — pas le dominant calculé. NULL est un état normal :
+    #: hors unité curée, il n'y a aucun axe à retenir, et le rayon « non rangé » le dit.
+    axis_code: str | None = None
+    theme: str | None = None
+    capture_kind: str | None = None
+
+
+@dataclass(slots=True)
+class BookCoverage:
+    """Un livre, et ce que ce prédicateur y a fait.
+
+    ⚠️ **Deux nombres qui ne se confondent pas** : `passages` compte des **lieux distincts**
+    (prêcher deux fois le même texte n'élargit pas un canon), `preachings` compte des
+    **événements**. Un seul nombre mentirait dans un sens ou dans l'autre."""
+
+    book_id: int
+    passages: int
+    preachings: int
+    last_preached_on: date
+
+
+@dataclass(slots=True)
+class AxisTally:
+    """Un rayon du rangement doctrinal. `axis_code` à NULL = **non rangé**, et ce rayon
+    s'affiche : hors des unités curées il n'y a pas d'axe à retenir, et le cacher ferait
+    croire à une distribution complète."""
+
+    axis_code: str | None
+    preachings: int
+    last_preached_on: date
+
+
+class ArchiveRepository(Protocol):
+    """L'archive de l'auteur. **Clée sur `author_id`**, jamais sur l'église : elle le suit
+    s'il change d'assemblée, et survit à la résiliation."""
+
+    async def add(self, record: PreachedRecord) -> None: ...
+
+    async def list_for(self, author_id: UUID, *, limit: int) -> list[PreachedRecord]: ...
+
+    async def coverage(self, author_id: UUID) -> list[BookCoverage]:
+        """Où ce prédicateur est allé dans l'Écriture — par **passages distincts**."""
+        ...
+
+    async def distribution(self, author_id: UUID) -> list[AxisTally]:
+        """Sous quels loci son travail se range — par **prédications**, pas par passages."""
+        ...
 
 
 class PreacherAuthorization(Protocol):

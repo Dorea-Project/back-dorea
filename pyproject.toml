@@ -16,7 +16,13 @@ dependencies = [
     "argon2-cffi>=23.1.0",
     "structlog>=24.4.0",
     "pypdf>=6.0.0",  # extraction texte des sermons PDF (contexte sermon, S-5)
-    "python-pptx>=1.0.0",  # extraction texte des sermons PPTX (contexte sermon, S-5)
+    # ⚠️ `python-pptx` sert désormais **deux** usages opposés : l'extraction (sermon, S-5) et
+    # l'écriture du deck (urim, livrable). Le plan de retrait de `sermon` supprimerait le
+    # premier ; la dépendance reste, et change seulement de justification.
+    "python-pptx>=1.0.0",  # lecture (sermon S-5) ET écriture des diapositives (urim)
+    # MIT, comme pptx et du même auteur. Poids réel ajouté : ~0,5 Mo — `lxml`, sa seule
+    # dépendance, est déjà tirée par `python-pptx`.
+    "python-docx>=1.1.0",  # écriture de la note du prédicateur (urim, livrable)
 ]
 
 [dependency-groups]
@@ -43,6 +49,14 @@ extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# RUF001-003 signalent les caractères « ambigus » — un `α` grec là où un `a` latin était
+# probablement voulu. La garde est bonne partout ailleurs : elle attrape la lettre cyrillique
+# collée par accident. Ici l'alphabet grec **est** le sujet du module (table de
+# translittération), et chaque lettre y est délibérée. Exempter ce fichier seul, jamais la
+# règle : le jour où un `ο` grec s'égare dans un identifiant, on veut encore l'apprendre.
+"app/contexts/urim/infrastructure/corpus/translitteration.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

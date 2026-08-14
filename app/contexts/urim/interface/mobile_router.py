@@ -10,21 +10,34 @@ couple homilétique impossible ne sont pas des erreurs HTTP : ce sont des issues
 4xx ferait disparaître exactement ce que le produit veut montrer — c'est la raison d'être
 du champ `outcome`.
 
-Le livrable (diapositives, contrôle de citation) n'est **pas** exposé : les étapes 2 à 4
-du chantier restent verrouillées (§11), et une route qui rendrait un fichier non contrôlé
-irait contre la règle qui veut qu'une citation projetée soit vérifiée.
+Le livrable est exposé depuis le 2026-08-13, **et dans le bon ordre** : la soumission se fait
+juger avant qu'un fichier existe. La route de rendu viendra avec les écrivains `.pptx`/`.docx`,
+et ne servira que ce qui porte déjà `conforme` — un fichier produit est un fichier qui circule.
 """
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
-from app.contexts.urim.interface.dependencies import StudyServiceDep
+from app.contexts.urim.deliverable.application.ports import DiapositiveSoumise
+from app.contexts.urim.interface.dependencies import (
+    ArchiveServiceDep,
+    DeliverableServiceDep,
+    StudyServiceDep,
+)
 from app.contexts.urim.interface.schemas import (
+    ArchiveEntryView,
+    ArchiveFromStudyBody,
+    ArchiveManualBody,
+    ArticulationBody,
+    ArticulationView,
     ConcordanceView,
+    CoverageView,
     DecisionBody,
+    DeliverableBody,
+    DeliverableView,
     ElementsBody,
     OpenStudyBody,
     PassageDetailView,
@@ -265,6 +278,263 @@ async def personal_concordance(
     """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
     dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
     return ConcordanceView.from_dto(dto)
+
+
+@router.post(
+    "/studies/{study_id}/articulations",
+    response_model=ArticulationView,
+    summary="Faire articuler un point — dans l'atelier, jamais dans le document",
+)
+async def articuler(
+    study_id: UUID,
+    payload: ArticulationBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> ArticulationView:
+    """**La seule prose que produise Urim, et elle est demandée point par point.**
+
+    Ce qui la rend acceptable n'est pas une promesse mais le chemin des données : le livrable
+    n'imprime que ce que le pasteur a écrit dans son plan. Cette proposition vit dans sa propre
+    table et n'atteint un document que s'il la reprend — donc s'il l'a lue.
+
+    L'invite porte quatre interdits : aucun verset hors du texte fourni, aucun fait historique
+    ou culturel, aucun point ajouté ni conclusion à sa place, aucune illustration — c'est ce
+    que le pasteur apporte, et lui seul.
+
+    Sans modèle, au plafond, ou sur un point vide : `disponible: false`, et rien ne casse."""
+    propose = await service.articuler(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        element_code=payload.element_code,
+        ordinal=payload.ordinal,
+    )
+    if propose is None:
+        return ArticulationView(body="", transition="", model="", disponible=False)
+    return ArticulationView(
+        body=propose.body,
+        transition=propose.transition,
+        model=propose.model,
+        disponible=True,
+    )
+
+
+# ====================================================================== LE LIVRABLE
+#
+# ⚠️ **Le contrôle est en amont du fichier, et il n'existe qu'une route pour l'instant.**
+# Aucun octet n'est produit ici : un fichier produit est un fichier qui circule, et un contrôle
+# d'après coup protège la base de données, pas l'assemblée. La route de rendu viendra avec les
+# écrivains `.pptx`/`.docx`, et ne servira que ce qui porte déjà `conforme`.
+
+
+@router.post(
+    "/studies/{study_id}/deliverable",
+    response_model=DeliverableView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Soumettre ce qui sortira — et le faire juger avant qu'un fichier existe",
+)
+async def submit_deliverable(
+    study_id: UUID,
+    payload: DeliverableBody,
+    actor: CurrentActor,
+    service: DeliverableServiceDep,
+) -> DeliverableView:
+    """**Une citation altérée n'est pas une erreur HTTP.**
+
+    La réponse revient en 201 avec `validation: "rejete"` et, diapositive par diapositive, ce
+    qu'il a écrit et ce que le corpus porte. Un 422 ferait disparaître le seul écran où un
+    verset abîmé se voit avant le dimanche — même raison que les issues du moteur.
+
+    Le texte projeté est jugé contre **toutes les versions détenues**, et le verdict nomme celle
+    qui le reconnaît : un pasteur cite la Bible qu'il a, et sur Romains 8:1 l'Ostervald porte
+    une clause que la LSG omet. Le refuser reviendrait à l'accuser de falsifier un verset qu'il
+    cite mot pour mot.
+
+    Sans une division de son plan, rien n'est produit : le document met en page ce qu'il a
+    écrit, il ne l'écrit pas à sa place."""
+    dto = await service.soumettre(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        kind=payload.kind,
+        diapositives=[
+            DiapositiveSoumise(d.titre, d.reference, d.texte_projete)
+            for d in payload.diapositives
+        ],
+    )
+    return DeliverableView.from_dto(dto)
+
+
+@router.get(
+    "/deliverables/{deliverable_id}",
+    response_model=DeliverableView,
+    summary="Relire un dossier de validation — ce qui est monté à l'écran, et sous quelle version",
+)
+async def get_deliverable(
+    deliverable_id: UUID, actor: CurrentActor, service: DeliverableServiceDep
+) -> DeliverableView:
+    """C'est cette lecture qui dispense de conserver le fichier : `citation_check` garde, par
+    diapositive, la référence et le texte projeté. On sait exactement ce qui a été montré sans
+    garder un octet de binaire."""
+    dto = await service.relire(
+        actor_account_id=actor.account_id, deliverable_id=deliverable_id
+    )
+    return DeliverableView.from_dto(dto)
+
+
+#: Ce qu'un client doit recevoir comme type — les deux formats bureautiques, tels quels.
+_TYPES = {
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+}
+
+
+@router.get(
+    "/deliverables/{deliverable_id}/fichier",
+    response_class=Response,
+    summary="Les octets — et seulement pour ce qui porte déjà « conforme »",
+    responses={200: {"content": {t: {} for t in _TYPES.values()}}},
+)
+async def download_deliverable(
+    deliverable_id: UUID,
+    actor: CurrentActor,
+    service: DeliverableServiceDep,
+    format: str = Query(default="", pattern="^(pdf)?$"),
+) -> Response:
+    """**La première route du dépôt qui ne rend pas du JSON**, et la dernière porte du verrou.
+
+    Un livrable rejeté rend **409**, et c'est le seul endroit où le contrôle devient un refus
+    HTTP : le dossier de validation, lui, revient en 201 avec ses verdicts, parce que c'est ce
+    que le produit veut montrer. Réclamer les octets de ce qui a été rejeté est autre chose —
+    c'est demander précisément ce que le contrôle existe pour ne pas produire.
+
+    **`?format=pdf`** convertit le fichier déjà rendu — jamais une seconde mise en page :
+    deux moteurs pour le même document dérivent, et ils dérivent en silence. Si la
+    conversion échoue ou que LibreOffice manque, **le format natif est servi** avec son
+    type réel : *aucun mur un vendredi soir*. Le client lit le `Content-Type`, pas sa
+    demande.
+
+    ⚠️ **Rien n'est stocké.** Le fichier est produit à la demande et rendu dans la réponse :
+    ranger les préparations privées de tous les prédicateurs derrière une URL publique
+    contredirait la seule garde qui les protège. Ce que le serveur garde, c'est ce qui est monté
+    à l'écran (`citation_check`), pas le binaire."""
+    format_, octets = await service.rendre(
+        actor_account_id=actor.account_id,
+        deliverable_id=deliverable_id,
+        format=format,
+    )
+    return Response(
+        content=octets,
+        media_type=_TYPES[format_],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="preparation-{deliverable_id}.{format_}"'
+            )
+        },
+    )
+
+
+# ====================================================================== L'ARCHIVE
+#
+# `urim_preached` était **lue par l'étage du thème et écrite par personne** : la phrase
+# « vous avez déjà prêché cet axe récemment » n'a jamais atteint quiconque. Ces routes sont
+# l'écrivain qui manquait.
+#
+# L'archive est clée sur **l'auteur** : elle le suit s'il change d'église, et survit à la
+# résiliation. Aucune route ne la lit pour quelqu'un d'autre.
+
+
+@router.post(
+    "/studies/{study_id}/preached",
+    response_model=ArchiveEntryView,
+    status_code=status.HTTP_201_CREATED,
+    summary="J'ai prêché cette préparation — le geste, jamais une déduction",
+)
+async def archive_study(
+    study_id: UUID,
+    payload: ArchiveFromStudyBody,
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+) -> ArchiveEntryView:
+    """**Rien ne s'archive parce qu'une date est passée.**
+
+    Le Pasteur X a préparé autour de six passages proposés et prêché le Psaume 125, qui
+    n'était dans aucun des six. Une archive remplie par le calendrier aurait enregistré un
+    sermon qui n'a jamais eu lieu, sous un axe qu'il n'a pas prêché — et la couverture du
+    canon aurait menti dès la première semaine.
+
+    ⚠️ **L'archive est celle de qui archive.** Deux pasteurs d'une même église se relisent ;
+    si le second prêche à partir du travail du premier, c'est **sa** prédication. Rien ne peut
+    donc salir l'archive d'un autre."""
+    dto = await service.record_from_study(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        preached_on=payload.preached_on,
+        capture_kind=payload.capture_kind,
+    )
+    return ArchiveEntryView.from_dto(dto)
+
+
+@router.post(
+    "/preached",
+    response_model=ArchiveEntryView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Archiver un sermon sans préparation — prêché ailleurs, ou avant Dorea",
+)
+async def archive_manually(
+    payload: ArchiveManualBody,
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+) -> ArchiveEntryView:
+    """On peut prêcher sans avoir préparé, et l'archive doit l'accepter — sinon elle ne
+    mesure que ce qui est passé par l'outil, ce qui n'est pas la même chose que le ministère
+    de quelqu'un.
+
+    La référence est lue **dans la notation du pasteur** (`Hb 2v29`, `Jn14v28`) et vérifiée
+    contre le corpus : `Hb 2v29` est refusée parce qu'*« Hébreux 2 compte 18 versets »* —
+    on dit ce qui manque au corpus, jamais ce qui manque au pasteur."""
+    dto = await service.record_manually(
+        actor_account_id=actor.account_id,
+        reference=payload.reference,
+        preached_on=payload.preached_on,
+        church_id=payload.church_id,
+        axis_code=payload.axis_code,
+        theme=payload.theme,
+        capture_kind=payload.capture_kind,
+    )
+    return ArchiveEntryView.from_dto(dto)
+
+
+@router.get(
+    "/preached",
+    response_model=list[ArchiveEntryView],
+    summary="Mon archive — ce que j'ai prêché, et quand",
+)
+async def list_archive(
+    actor: CurrentActor,
+    service: ArchiveServiceDep,
+    limit: int = Query(default=300, ge=1, le=1000),
+) -> list[ArchiveEntryView]:
+    dtos = await service.list_mine(actor_account_id=actor.account_id, limit=limit)
+    return [ArchiveEntryView.from_dto(d) for d in dtos]
+
+
+@router.get(
+    "/preached/couverture",
+    response_model=CoverageView,
+    summary="Où je suis allé dans l'Écriture, et sous quels loci — des faits, aucune consigne",
+)
+async def coverage(actor: CurrentActor, service: ArchiveServiceDep) -> CoverageView:
+    """**L'archive informe, elle n'interdit rien** — et elle ne propose rien non plus.
+
+    Aucun « vous n'avez pas prêché l'eschatologie depuis quatorze mois, voici un texte » :
+    un moteur qui déduit d'un tableau ce qu'il faut prêcher dimanche décide de la chaire.
+    Aucun score, aucune série, aucun pourcentage de complétude — ce serait mesurer la
+    fidélité d'un homme et transformer une aide en performance à tenir.
+
+    Un pasteur qui lit « pneumatologie : aucun sermon rangé depuis dix-huit mois » comprend
+    seul. C'est la même économie que partout ailleurs : nommer suffit."""
+    dto = await service.coverage(actor_account_id=actor.account_id)
+    return CoverageView.from_dto(dto)
 
 
 @router.get(

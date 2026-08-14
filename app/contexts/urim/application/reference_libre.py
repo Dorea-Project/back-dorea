@@ -112,3 +112,66 @@ def _nom_de_livre(
                     mot for mot in mots[longueur:] if mot not in _SEPARATEURS
                 ]
     return (), mots
+
+
+def references_dans(texte: str, index: CorpusIndex) -> list:
+    """Les références écrites **dans une ligne de plan**, pas dans un champ dédié.
+
+    Les notes réelles ne séparent pas les appuis du propos : « - il est couronné de gloire et
+    d'honneur Hb 2v29 ». On balaie donc la ligne par empans — un nom de livre suivi de ses
+    chiffres — avec la même lecture permissive que la chaîne de textes (`Hb 2v29`, `Jn14v28`).
+
+    ⚠️ **On ne retient que le premier candidat de chaque empan.** `Jn` désigne quatre livres ;
+    trancher ici serait décider à sa place, mais afficher les quatre noierait son point. Le
+    corpus tranche par l'ordre du canon, et le contrôle de référence dira si c'est faux."""
+    trouvees = []
+    mots = texte.split()
+    for debut in range(len(mots)):
+        for taille in (4, 3, 2, 1):
+            fenetre = mots[debut:debut + taille]
+            if not fenetre or not _contigu(fenetre):
+                continue
+            # Un seul mot ne vaut que s'il **colle** lettres et chiffres — `Jn14v28`, la
+            # notation réelle des notes. Sans cette exception on perd la forme la plus
+            # fréquente ; sans la condition, « Jean » seul rouvrirait le piège S35.
+            if len(fenetre) == 1 and not (
+                any(c.isdigit() for c in fenetre[0])
+                and any(c.isalpha() for c in fenetre[0])
+            ):
+                continue
+            lu = lire(" ".join(fenetre), index)
+            if lu.references and lu.references[0].chapter is not None:
+                trouvees.append(lu.references[0])
+                break
+    # Deux empans voisins peuvent rendre la même référence ; on garde l'ordre du pasteur.
+    vues, uniques = set(), []
+    for reference in trouvees:
+        cle = (reference.book, reference.chapter, reference.verse_start)
+        if cle not in vues:
+            vues.add(cle)
+            uniques.append(reference)
+    return uniques
+
+
+def _contigu(fenetre: list[str]) -> bool:
+    """🐛 **S35, et je suis tombé dedans en écrivant ce balayage.**
+
+    Sur *« il a reçu le nom au dessus de tout nom Ph 28v9 »*, la lecture permissive a rendu
+    **« Nombres 28:9 »** : `nom` est un nom de livre autant qu'un mot français, et rien
+    n'exigeait qu'il soit suivi de chiffres. Job, Juges, Actes, Rois tendent le même piège.
+
+    La règle qui referme : **tout ce qui suit le nom de livre doit être un chiffre ou un
+    séparateur de verset.** « nom au dessus » tombe ; « Ph 28v9 » passe."""
+    return all(
+        any(caractere.isdigit() for caractere in mot)
+        or mot.strip(".,;:").lower() in {"v", "vs", "c", "ch"}
+        for mot in fenetre[1:]
+    )
+
+
+def lisible_reference(reference) -> str:
+    if reference.verse_start is None:
+        return f"{reference.book} {reference.chapter}"
+    if reference.verse_end and reference.verse_end != reference.verse_start:
+        return f"{reference.book} {reference.chapter}:{reference.verse_start}-{reference.verse_end}"
+    return f"{reference.book} {reference.chapter}:{reference.verse_start}"

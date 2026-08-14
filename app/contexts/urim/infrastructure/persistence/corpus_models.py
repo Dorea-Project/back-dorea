@@ -210,7 +210,17 @@ class CorpusLemmaModel(Base):
     language: Mapped[str | None] = mapped_column(String, nullable=True)  # 'grc' | 'hbo'
     lemma: Mapped[str] = mapped_column(String)  # υἱοθεσία
     strong_code: Mapped[str | None] = mapped_column(String, nullable=True)  # G5206
+    #: Le sens, **en français** — traduit d'une source publiée, jamais inventé (L1).
     gloss: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: ⚠️ **L'entrée d'origine, mot pour mot.** C'est elle qui rend la traduction
+    #: vérifiable — sans elle, la glose française devient à son tour une source, et
+    #: personne ne relit une définition grecque avant de la redire en chaire.
+    gloss_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: D'où elle vient — `TBESG` (STEPBible, CC BY 4.0). La licence l'exige, et le
+    #: pasteur a le droit de savoir qui définit le mot qu'il va prêcher.
+    gloss_source_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Qui a traduit. L'équivalent de `corpus_snapshot` : un alias de modèle bouge.
+    gloss_model: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class CorpusTokenModel(Base):
