@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
@@ -377,9 +377,22 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
     forms_by_length = tuple(sorted(books_by_form, key=len, reverse=True))
 
     # --- le texte ----------------------------------------------------------------
+    #
+    # ⚠️ **L'ordre est demandé, pas espéré.** `verses_between` promet « dans l'ordre » et se
+    # contentait de l'ordre où la base rendait les lignes — celui du semis, tant que personne
+    # n'écrivait. La renormalisation de `body_norm` a réécrit 4 994 lignes : sous PostgreSQL une
+    # mise à jour crée une nouvelle version du tuple, que le parcours séquentiel peut rendre
+    # ailleurs. Le canon a tenu cette fois ; il n'y avait aucune raison qu'il tienne.
+    #
+    # C'est aussi ce qui rend l'empreinte du texte calculable : un condensé sur un ordre
+    # incertain varierait sans que le corpus varie.
     lignes = (
         await session.execute(
-            select(CorpusVerseModel).where(CorpusVerseModel.version_id == repli.id)
+            select(CorpusVerseModel)
+            .where(CorpusVerseModel.version_id == repli.id)
+            .order_by(
+                CorpusVerseModel.book_id, CorpusVerseModel.chapter, CorpusVerseModel.verse
+            )
         )
     ).scalars().all()
     # L'idf se charge **avant** les versets : il faut peser chaque verset entier, et on ne
@@ -586,6 +599,13 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
             n_pericopes=len(pericopes),
             n_bearings=sum(len(v) for v in bearings.values()),
             derniere_relecture=derniere,
+            texte=_condense(
+                f"{v.book_id}:{v.chapter}:{v.verse} {' '.join(v.sequence)}" for v in verses
+            ),
+            # Trié par token : l'ordre où la base rend l'idf n'engage personne.
+            lexique=_condense(
+                f"{token}={valeur:.12g}" for token, valeur in sorted(idf.items())
+            ),
         ),
         fallback_version_id=repli.id,
         metered_versions=frozenset(v.id for v in versions if v.metered),
@@ -638,6 +658,24 @@ def _libelle_axe(code: str) -> str:
     return _LIBELLES.get(code, code)
 
 
+#: Séparateur de champs du condensé. `\x1f` (US, *unit separator*) ne peut pas sortir du
+#: normaliseur, qui ne rend que `[0-9a-z ]` — sans lui, `("ab", "c")` et `("a", "bc")`
+#: rendraient la même empreinte.
+_SEPARATEUR = b"\x1f"
+
+
+def _condense(morceaux: Iterable[str]) -> str:
+    """Un condensé stable d'une suite de chaînes — **l'ordre reçu fait partie de ce qu'on lit**.
+
+    Le flux est haché au fil de l'eau : ni la concaténation des 31 000 versets en mémoire, ni
+    une liste intermédiaire."""
+    accumulateur = hashlib.sha256()
+    for morceau in morceaux:
+        accumulateur.update(morceau.encode())
+        accumulateur.update(_SEPARATEUR)
+    return accumulateur.hexdigest()[:16]
+
+
 def _empreinte(
     *,
     versions: tuple[str, ...],
@@ -645,15 +683,50 @@ def _empreinte(
     n_pericopes: int,
     n_bearings: int,
     derniere_relecture: datetime | None,
+    texte: str,
+    lexique: str,
 ) -> str:
     """L'empreinte de ce qui a été lu — deux corpus identiques la partagent.
 
     Elle entre dans `StudyState.corpus_snapshot` et fait partie de la clé du déterminisme :
-    rejouer une préparation contre un corpus modifié doit se voir, pas se deviner."""
+    rejouer une préparation contre un corpus modifié doit se voir, pas se deviner.
+
+    ---
+
+    🔴 **Elle disait « ce qui a été lu » et ne lisait que cinq nombres.**
+
+    Le jour où `body_norm` a été renormalisé — la ligature `œ` rendue au mot qu'elle coupait,
+    4 994 versets réécrits et 43 tokens de l'idf déplacés — **aucun de ces cinq nombres n'a
+    bougé.** Même nombre de versions, de versets, de péricopes, de pesées ; même date de
+    relecture. Les préparations menées avant se seraient rejouées contre un corpus qui répond
+    autrement, avec `corpus_drifted` à faux : la dérive était invisible exactement là où elle
+    compte le plus, sur le texte contre lequel le moteur apparie.
+
+    Un compte voit qu'on **ajoute** au corpus. Il ne voit pas qu'on le **corrige**. Ce sont
+    deux façons différentes de changer, et la seconde est la plus discrète.
+
+    D'où les deux condensés :
+
+        texte     `body_norm` de la version servie, verset par verset, référence comprise
+        lexique   l'idf entière — la balance, sans laquelle le texte ne pèse rien
+
+    **Les deux, et pas seulement le texte.** L'appariement lit `verse.body_norm` *et* pèse
+    avec l'idf ; refaire l'idf seule (un lissage changé, un lexique élargi) suffit à changer
+    quel verset sort en tête, sans qu'un caractère du texte ne bouge.
+
+    ⚠️ **Un faux positif de dérive coûte aussi cher qu'un faux négatif** : un drapeau qui se
+    lève sans raison apprend à ne plus le regarder. C'est pourquoi le chargeur **ordonne** sa
+    requête de versets — sans quoi l'empreinte varierait au gré du plan d'exécution — et
+    pourquoi les idf entrent en `%.12g` plutôt qu'en `repr` : bien au-delà de tout écart qui
+    voudrait dire quelque chose, et à l'abri du dernier bit d'un flottant.
+
+    Les cinq nombres restent : ils ne coûtent rien et ils nomment la dérive dans le message,
+    là où deux condensés ne diraient que « ce n'est plus le même »."""
     graine = "|".join((
         ",".join(versions),
         str(n_verses), str(n_pericopes), str(n_bearings),
         derniere_relecture.isoformat() if derniere_relecture else "-",
+        texte, lexique,
     ))
     return hashlib.sha256(graine.encode()).hexdigest()[:16]
 
