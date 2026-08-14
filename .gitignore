@@ -47,3 +47,6 @@ data/urim_caveats_ancienne_invite.json
 # `urim_seed_version.py` et déjà dépliés en base. Même règle que la LSG brute.
 data/*_raw.json
 data/*_raw.xml
+# Les verdicts du contre-interrogatoire : une trace de reprise, pas une source. La base
+# fera foi quand les worktrees auront fusionne et que ce sera une table.
+data/urim_contre_interrogatoire.json
