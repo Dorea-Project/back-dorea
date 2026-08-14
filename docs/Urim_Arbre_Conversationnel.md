@@ -257,6 +257,37 @@ pastilles sont des raccourcis, jamais des barreaux* — et `POST /decisions` acc
 n'importe quelle unité du corpus par son identifiant. Effet de bord non négligeable : la réponse
 de cet écran passait près du mégaoctet, sur un téléphone à Abidjan.
 
+**Le plafond a révélé ce qui manquait à la sélection : la pertinence.** L'étalement canonique ne
+connaît que la diversité, et le dossier que le modèle avait proposé pour la saisie disparaissait
+dès qu'un axe était choisi. Sur *« on prie pour les malades et rien ne change »*, il trouvait
+**2 Corinthiens 12:7-10** — l'écharde non retirée, trois prières sans réponse, présentée comme
+une grâce : le garde-fou même de cette intention, que le dépôt cite lui-même. Le texte *porte*
+l'axe sans en être le sujet, donc il concourait avec plus de mille autres pour six places
+tirées au compas : **une chance sur mille sept cents**.
+
+Mesuré avant d'être branché : les passages proposés tombent presque toujours dans des unités
+curées qui portent les axes suggérés — l'intersection n'est pas rare, elle est quasi totale.
+
+**Réparé — la moitié des places au dossier, l'autre au canon.** Dans chaque groupe, les unités
+que le modèle a désignées passent en tête et prennent **trois places sur six** ; l'étalement
+garde les trois autres. Deux gardes rendent ce biais acceptable :
+
+- **le quota par groupe** — quoi que le modèle corrobore, il ne peut affamer aucune force. Les
+  résistants ont leurs six places, et il arrive qu'il en remonte un (« Le contrôle des
+  constellations » résiste à l'anthropologie) ;
+- **une proposition vague ne corrobore rien** — `Job 38:1-42` recouvre sept unités, on ne sait
+  pas laquelle il visait. C'est la règle de l'exploration : *quand plusieurs unités couvrent la
+  demande, la curation ne s'attache à aucune.*
+
+    « on prie pour les malades »   AVEC : L'experience mystique de Paul (2 Co 12:7-10)
+                                          Conseils pour la priere et la guerison (Jc 5)
+                                  SANS : La force militaire des Rubenites
+                                          L'annonce de la mort de Saul et de Jonathan
+
+Et le motif le dit — *« Celles que votre formulation désignait sont en tête »* : un ordre qui
+cesse d'être neutre doit s'annoncer, sinon le pasteur croit lire le canon là où il lit une
+pertinence supposée.
+
 **Un étage entier était injoignable, et avec lui la protection de S26/S37.** Trouvé en marchant
 un sermon protestant — *« le baptême du Saint-Esprit, une obligation »*. `shape_homiletic.applies()`
 exige `subject_matter is None`, et la décision écrivait `plan_source` **et** `subject_matter`

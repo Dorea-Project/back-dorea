@@ -79,6 +79,23 @@ SIGNATURE_GLOSE = "ia-mistral"
 #: *avertit* là où cet écran demande de **choisir**.
 PAR_GROUPE = 6
 
+#: ⚠️ **La moitié au modèle, l'autre au canon — et la moitié est la garantie.**
+#:
+#: Le dossier que le modèle a proposé pour la saisie est le seul signal de **pertinence** dont
+#: cet étage dispose : l'étalement canonique, lui, ne connaît que la diversité. Sur « on prie
+#: pour les malades », le modèle trouve 2 Corinthiens 12:7-10 — l'écharde non retirée, le
+#: garde-fou même de cette intention — quand l'étalement lui laissait une chance sur mille sept
+#: cents de sortir.
+#:
+#: Lui donner **tout** le groupe rendrait la diversité canonique négociable : un dossier groupé
+#: sur le Nouveau Testament effacerait la Loi et les Prophètes d'un écran entier. Trois places
+#: sur six : le modèle remonte ce qu'il a trouvé, le canon garde de quoi le contredire.
+#:
+#: La propriété de sûreté tient au **quota par groupe**, pas ici : quoi que le modèle corrobore,
+#: il ne peut affamer aucune force — les résistants ont leurs six places, et il arrive qu'il en
+#: remonte un (« Le contrôle des constellations » résiste à l'anthropologie).
+PAR_GROUPE_CORROBORES = PAR_GROUPE // 2
+
 
 class WeighConviction:
     """Le chemin inversé. Il ne trouve pas un texte : il en propose, et il en explique."""
@@ -216,7 +233,8 @@ class WeighConviction:
                 state=state,
             )
 
-        retenus = _echantillon(sites)
+        corrobores = _corrobores(state, deps)
+        retenus = _echantillon(sites, corrobores)
         options = tuple(
             Option(
                 code=f"texte:{site.pericope_id}",
@@ -230,13 +248,39 @@ class WeighConviction:
         )
         return StageResult(
             outcome=Outcome.AWAIT,
-            rationale=_motif_des_textes(sites, retenus, state),
+            rationale=_motif_des_textes(
+                sites, retenus, state,
+                designes=any(s.pericope_id in corrobores for s in retenus),
+            ),
             state=state,
             options=options,
         )
 
 
-def _echantillon(sites: tuple[BearingSite, ...]) -> tuple[BearingSite, ...]:
+def _corrobores(state: StudyState, deps: EngineDeps) -> frozenset:
+    """Les unités que le **dossier du modèle** désigne, et elles seules.
+
+    ⚠️ **Une seule unité, ou rien.** `Job 38:1-42` — un chapitre entier — recouvre **sept**
+    unités curées, `1 Jean 4:7-21` en recouvre trois : les retenir laisserait une proposition
+    paresseuse manger tout le quota, et surtout on ne saurait pas laquelle le modèle visait.
+    C'est la règle que l'exploration tient déjà : *quand plusieurs unités couvrent la demande,
+    la curation ne s'attache à aucune.* Une proposition précise corrobore, une proposition vague
+    ne dit pas laquelle.
+
+    Déterministe et rejouable : les passages proposés sont mémorisés à la bordure, et
+    `pericopes_for` ne lit que le corpus. Sans modèle branché, l'ensemble est vide et la
+    sélection redevient exactement ce qu'elle était."""
+    designees = set()
+    for propose in state.suggested_passages:
+        couvrantes = list(deps.corpus.pericopes_for(propose.reference))
+        if len(couvrantes) == 1:
+            designees.add(couvrantes[0].id)
+    return frozenset(designees)
+
+
+def _echantillon(
+    sites: tuple[BearingSite, ...], corrobores: frozenset = frozenset()
+) -> tuple[BearingSite, ...]:
     """Un échantillon **par groupe**, à quota égal — et l'ordre du canon préservé.
 
     Les trois groupes sont traités séparément et reçoivent le même nombre de places : c'est ce
@@ -251,8 +295,25 @@ def _echantillon(sites: tuple[BearingSite, ...]) -> tuple[BearingSite, ...]:
     return tuple(
         site
         for groupe in (*par_force.values(), inconnues)
-        for site in _etaler(groupe, PAR_GROUPE)
+        for site in _choisir(groupe, corrobores)
     )
+
+
+def _choisir(
+    groupe: tuple[BearingSite, ...], corrobores: frozenset
+) -> tuple[BearingSite, ...]:
+    """Les places du groupe : la moitié à ce que le modèle a désigné, le reste au canon.
+
+    ⚠️ **Rien n'est réordonné tant que tout tient à l'écran.** Un groupe entièrement montré n'a
+    pas de tête : remonter quelque chose n'y apprendrait rien et ferait bouger un ordre —
+    celui du canon — que le pasteur peut vouloir lire tel quel."""
+    if len(groupe) <= PAR_GROUPE:
+        return groupe
+
+    tete = tuple(s for s in groupe if s.pericope_id in corrobores)[:PAR_GROUPE_CORROBORES]
+    pris = {id(s) for s in tete}
+    reste = tuple(s for s in groupe if id(s) not in pris)
+    return (*tete, *_etaler(reste, PAR_GROUPE - len(tete)))
 
 
 def _etaler(sites: tuple[BearingSite, ...], plafond: int) -> tuple[BearingSite, ...]:
@@ -318,7 +379,10 @@ def _motif_des_axes(
 
 
 def _motif_des_textes(
-    sites: tuple[BearingSite, ...], retenus: tuple[BearingSite, ...], state: StudyState
+    sites: tuple[BearingSite, ...],
+    retenus: tuple[BearingSite, ...],
+    state: StudyState,
+    designes: bool = False,
 ) -> str:
     """⚠️ **On écourte, on ne dissimule pas.**
 
@@ -334,6 +398,10 @@ def _motif_des_textes(
             f" En voici {len(retenus)}, réparties sur le canon — un livre ne parle qu'une "
             "fois, et le choix reste ouvert à toute référence que vous donnerez."
         )
+    if designes:
+        # L'ordre cesse d'être neutre dès qu'un dossier le remonte : le dire est le minimum,
+        # sans quoi le pasteur croit lire le canon là où il lit une pertinence supposée.
+        motif += " Celles que votre formulation désignait sont en tête."
     if resistants:
         # Annoncé, jamais glissé en bas de liste : c'est la partie qu'un pasteur pressé
         # sauterait, et c'est celle qui le protège.
