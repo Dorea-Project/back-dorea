@@ -32,6 +32,17 @@ class UnsupportedSermonFormatError(SermonError):
     http_status = 422
 
 
+class SermonFileTypeMismatchError(SermonError):
+    """Les octets déposés ne sont pas ceux du format déclaré (DOREA-024, côté sermon).
+
+    Le `kind` est **déclaré par le client** : il dit ce qu'il veut. Recouper les premiers
+    octets empêche d'envoyer un fichier arbitraire dans le parseur d'un format qu'il n'est
+    pas — et, le jour où l'extraction se facture (S-6), de faire payer ce mensonge."""
+
+    code = "SER_FILE_TYPE_MISMATCH"
+    http_status = 415
+
+
 class SermonFileTooComplexError(SermonError):
     """Le fichier déposé coûte trop cher à ouvrir (DOREA-011).
 
