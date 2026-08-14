@@ -64,10 +64,12 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusDoctrinalBearingModel,
     CorpusPericopeModel,
     CorpusVerseModel,
+    CorpusVersionModel,
 )
 from app.core.config import get_settings
 from app.core.database import async_session_factory
 from scripts.urim_curate_pericopes import CONCURRENCE, ESSAIS, INTERVALLE, Cadence
+from scripts.urim_ecarts import VERSION_DE_CURATION
 from scripts.urim_seed_books import BOOKS
 
 _FORCES = ("dominant", "porte", "resiste", "absent")
@@ -193,14 +195,35 @@ async def peser(livre_voulu: str | None, limite: int | None) -> None:
         }
         unites = list((await s.execute(select(CorpusPericopeModel))).scalars())
 
+        # 🔴 **Nommer la version, parce que la clé ne la porte pas.**
+        #
+        # Ce dictionnaire est indexé sur (livre, chapitre, verset) : les quatre traductions du
+        # corpus écrivent sur la même clé, et la dernière lue gagne. Sans ce filtre, le texte
+        # servi au modèle est décidé par l'ordre physique de la table — aujourd'hui le Martin
+        # 1744, demain ce qu'on aura semé en dernier.
+        #
+        # Une pesée n'est pas seulement fausse dans ce cas : elle est **fausse au second
+        # degré**. Elle dit qu'un locus domine *à cause de telle formule*, et le motif qu'elle
+        # écrit cite un français que le pasteur ne verra jamais, puisque Urim lui affiche la
+        # Segond. Le lecteur ne pourrait pas la contredire, seulement ne pas la comprendre.
+        #
+        # ⚠️ Les 45 530 pesées en base ont été écrites sous les xid 5084-5212, Darby est entrée
+        # à 5407 : elles ont lu de la Segond pure et **rien n'est à refaire**. Le calendrier les
+        # a sauvées, pas le code.
         versets: dict[tuple[int, int, int], str] = {}
         for rang, chapitre, verset, corps in await s.execute(
             select(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter,
                 CorpusVerseModel.verse, CorpusVerseModel.body,
             )
+            .join(CorpusVersionModel, CorpusVersionModel.id == CorpusVerseModel.version_id)
+            .where(CorpusVersionModel.code == VERSION_DE_CURATION)
         ):
             versets[(rang, chapitre, verset)] = corps
+        # Un corpus non chargé donnerait des invites au passage vide, et le modèle pèserait dix
+        # loci sur rien du tout — une panne qui ne se voit qu'à la relecture des motifs.
+        if not versets:
+            raise SystemExit(f"  aucun verset en {VERSION_DE_CURATION} — corpus non chargé.")
 
     a_faire = [
         u for u in sorted(unites, key=lambda u: (u.book_id, u.start_ch, u.start_v))

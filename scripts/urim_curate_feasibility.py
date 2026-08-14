@@ -51,10 +51,12 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusPlanSourceModel,
     CorpusSubjectMatterModel,
     CorpusVerseModel,
+    CorpusVersionModel,
 )
 from app.core.config import get_settings
 from app.core.database import async_session_factory
 from scripts.urim_curate_pericopes import CONCURRENCE, ESSAIS, INTERVALLE, Cadence
+from scripts.urim_ecarts import VERSION_DE_CURATION
 from scripts.urim_seed_books import BOOKS
 
 _RISQUES = ("faible", "moyen", "eleve")
@@ -159,14 +161,33 @@ async def evaluer(livre_voulu: str | None, limite: int | None) -> None:
         }
         unites = list((await s.execute(select(CorpusPericopeModel))).scalars())
 
+        # 🔴 **Nommer la version, parce que la clé ne la porte pas.**
+        #
+        # Les quatre traductions du corpus partagent la clé (livre, chapitre, verset) : sans ce
+        # filtre, la dernière lue écrase les trois autres et c'est l'ordre physique de la table
+        # qui choisit le texte servi au modèle.
+        #
+        # Ici le dégât aurait été le plus silencieux des trois lots. Une faisabilité ne cite
+        # rien et n'écrit aucun motif : elle rend dix-huit `oui/non`. Aucun détecteur de
+        # `urim_ecarts.py` ne peut la contredire — pas de citation à comparer, pas de tournure à
+        # compter. Elle serait entrée fausse et serait restée vraie pour tout le monde.
+        #
+        # ⚠️ Les 81 943 lignes en base ont été écrites sous les xid 4739-5267, Darby est entrée
+        # à 5407 : elles ont lu de la Segond pure et **rien n'est à refaire**.
         versets: dict[tuple[int, int, int], str] = {}
         for rang, chapitre, verset, corps in await s.execute(
             select(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter,
                 CorpusVerseModel.verse, CorpusVerseModel.body,
             )
+            .join(CorpusVersionModel, CorpusVersionModel.id == CorpusVerseModel.version_id)
+            .where(CorpusVersionModel.code == VERSION_DE_CURATION)
         ):
             versets[(rang, chapitre, verset)] = corps
+        # Sur un corpus non chargé, le modèle jugerait dix-huit formes de sermon sur un passage
+        # vide — et rendrait dix-huit verdicts qu'aucune relecture ne saurait attraper.
+        if not versets:
+            raise SystemExit(f"  aucun verset en {VERSION_DE_CURATION} — corpus non chargé.")
 
     a_faire = [
         u for u in sorted(unites, key=lambda u: (u.book_id, u.start_ch, u.start_v))
