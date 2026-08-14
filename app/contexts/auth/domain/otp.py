@@ -28,6 +28,11 @@ class OtpPurpose(StrEnum):
     NEW_DEVICE = "new_device"  # connexion depuis un appareil inconnu
     CHANGE_PHONE = "change_phone"  # membre — changement de numéro
     CHANGE_PASSWORD = "change_password"  # membre — changement de code secret
+    #: ⚠️ **Distinct de `CHANGE_PASSWORD`, et ce n'est pas un détail.** Celui-ci s'obtient
+    #: SANS être connecté — c'est tout son objet. Réutiliser le même motif laisserait rejouer
+    #: dans un contexte anonyme un code émis pour un porteur déjà authentifié : le motif est
+    #: précisément ce qui empêche un OTP de voyager d'une porte à l'autre.
+    RESET_SECRET_CODE = "reset_secret_code"  # membre — code secret oublié
 
 
 class OtpChallenge(Entity):

@@ -10,7 +10,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.deps import DbSession, SettingsDep
 from app.contexts.auth.application.actor import Actor
-from app.contexts.auth.application.commands.account_security import ChangePassword, ChangePhone
+from app.contexts.auth.application.commands.account_security import (
+    ChangePassword,
+    ChangePhone,
+    ResetSecretCode,
+)
 from app.contexts.auth.application.commands.login import Login
 from app.contexts.auth.application.commands.refresh_token import RefreshToken
 from app.contexts.auth.application.commands.register_member import RegisterMember
@@ -176,5 +180,28 @@ def get_change_phone_command(otp: OtpServiceDep, session: DbSession) -> ChangePh
     return ChangePhone(SqlAccountSecurityRepository(session), otp)
 
 
+def get_reset_secret_code_command(
+    credentials: CredentialsRepositoryDep,
+    hasher: PasswordHasherDep,
+    tokens: TokenServiceDep,
+    otp: OtpServiceDep,
+    session: DbSession,
+) -> ResetSecretCode:
+    """⚠️ **Aucune dépendance à un acteur** — c'est la seule commande sensible qui s'exécute
+    sans `CurrentActor`, et c'est tout son objet : celui qui a oublié son code ne peut pas
+    prouver qui il est autrement que par le SMS."""
+    return ResetSecretCode(
+        credentials,
+        SqlAccountSecurityRepository(session),
+        SqlDeviceRepository(session),
+        otp,
+        hasher,
+        tokens,
+        clock=lambda: datetime.now(UTC),
+        hash_algo_version=HASH_ALGO_VERSION,
+    )
+
+
 ChangePasswordDep = Annotated[ChangePassword, Depends(get_change_password_command)]
 ChangePhoneDep = Annotated[ChangePhone, Depends(get_change_phone_command)]
+ResetSecretCodeDep = Annotated[ResetSecretCode, Depends(get_reset_secret_code_command)]

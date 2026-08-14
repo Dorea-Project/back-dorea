@@ -40,6 +40,21 @@ class RegisterConfirmRequest(BaseModel):
     device_id: str = _DEVICE_ID
 
 
+class ResetSecretCodeRequest(BaseModel):
+    """Le numéro, et rien d'autre — c'est tout ce que possède quelqu'un enfermé dehors."""
+
+    phone_number: str = Field(examples=["+2250700000001"])
+
+
+class ResetSecretCodeConfirm(BaseModel):
+    phone_number: str = Field(examples=["+2250700000001"])
+    otp: str = Field(examples=["123456"])
+    new_secret_code: str = Field(
+        examples=["4321"], description="Nouveau PIN (4 à 6 chiffres)"
+    )
+    device_id: str = _DEVICE_ID
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

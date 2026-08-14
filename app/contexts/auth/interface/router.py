@@ -11,6 +11,7 @@ from app.contexts.auth.interface.dependencies import (
     MobileDeviceRevocationDep,
     RefreshTokenDep,
     RegisterMemberDep,
+    ResetSecretCodeDep,
     VerifyDeviceLoginDep,
 )
 from app.contexts.auth.interface.schemas import (
@@ -20,6 +21,8 @@ from app.contexts.auth.interface.schemas import (
     RefreshRequest,
     RegisterConfirmRequest,
     RegisterRequest,
+    ResetSecretCodeConfirm,
+    ResetSecretCodeRequest,
     TokenResponse,
     VerifyDeviceRequest,
 )
@@ -83,6 +86,40 @@ async def verify_device(
     pair = await command.execute(
         phone_number=payload.phone_number,
         otp=payload.otp,
+        device_id=payload.device_id,
+    )
+    return TokenResponse.from_pair(pair)
+
+
+@router.post(
+    "/reset-secret-code/request",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Code secret oublié — demander un OTP SMS",
+)
+async def reset_secret_code_request(
+    payload: ResetSecretCodeRequest, command: ResetSecretCodeDep
+) -> None:
+    """⚠️ **Toujours 202**, que le numéro soit connu ou non.
+
+    Un 404 sur un numéro inconnu ferait de cette route un annuaire : on saurait qui est
+    inscrit chez Dorea en essayant des numéros. Le silence est la réponse."""
+    await command.request(phone_number=payload.phone_number)
+
+
+@router.post(
+    "/reset-secret-code/confirm",
+    response_model=TokenResponse,
+    summary="Code secret oublié — poser un nouveau code et se connecter",
+)
+async def reset_secret_code_confirm(
+    payload: ResetSecretCodeConfirm, command: ResetSecretCodeDep
+) -> TokenResponse:
+    """Les autres appareils sont révoqués : changer la serrure laisse rarement les anciennes
+    clés en circulation. Celui-ci vient de prouver sa possession du numéro — il reste."""
+    pair = await command.confirm(
+        phone_number=payload.phone_number,
+        otp=payload.otp,
+        new_secret_code=payload.new_secret_code,
         device_id=payload.device_id,
     )
     return TokenResponse.from_pair(pair)
