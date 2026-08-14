@@ -44,6 +44,7 @@ from app.contexts.watch.application.contact_loop import (
 )
 from app.contexts.watch.application.declare_gesture import DeclareGesture
 from app.contexts.watch.application.declare_link import DeclareLink
+from app.contexts.watch.application.deposit_gratitude import DepositGratitude
 from app.contexts.watch.application.designate_referent import DesignateReferent
 from app.contexts.watch.application.fire_checks import FireDueChecks
 from app.contexts.watch.application.fraternal_react import SuggestFraternalReacts
@@ -422,6 +423,14 @@ async def get_declare_gesture(session: DbSession) -> DeclareGesture:
     )
 
 
+async def get_deposit_gratitude(session: DbSession) -> DepositGratitude:
+    """« Mon fils a retrouvé du travail. » — le signe de vie, à la première personne.
+
+    Ni signaux ni store : un dépôt de reconnaissance n'ouvre, ne ferme et ne retient aucun cas.
+    Il entre au journal, et c'est l'interpreter qui décide s'il annote un cas déjà ouvert."""
+    return DepositGratitude(build_intake(session), clock=_now, id_factory=uuid4)
+
+
 async def get_my_cases(session: DbSession) -> ListMyCases:
     return ListMyCases(build_signals(session))
 
@@ -509,6 +518,7 @@ async def get_pending_attempts(session: DbSession) -> PendingAttempts:
 
 RaiseConcernDep = Annotated[RaiseConcern, Depends(get_raise_concern)]
 DeclareGestureDep = Annotated[DeclareGesture, Depends(get_declare_gesture)]
+DepositGratitudeDep = Annotated[DepositGratitude, Depends(get_deposit_gratitude)]
 DeclareLinkDep = Annotated[DeclareLink, Depends(get_declare_link)]
 FraternalReactsDep = Annotated[
     SuggestFraternalReacts, Depends(get_fraternal_reacts)

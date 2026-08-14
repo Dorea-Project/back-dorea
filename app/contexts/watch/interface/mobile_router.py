@@ -20,6 +20,7 @@ from app.contexts.watch.interface.dependencies import (
     CloseCaseDep,
     DeclareGestureDep,
     DeclareLinkDep,
+    DepositGratitudeDep,
     FraternalReactsDep,
     ListMyCasesDep,
     PendingAttemptsDep,
@@ -37,8 +38,10 @@ from app.contexts.watch.interface.schemas import (
     ConcernAckView,
     DeclareGestureBody,
     DeclareLinkBody,
+    DepositGratitudeBody,
     FraternalReactListView,
     GestureListView,
+    GratitudeDepositedView,
     LinkAckView,
     NuanceListView,
     PendingAttemptListView,
@@ -114,6 +117,34 @@ async def declare_gesture(
         gesture=payload.gesture,
     )
     return ConcernAckView(message=ack.message)
+
+
+@router.post(
+    "/tenants/{tenant_id}/gratitude",
+    response_model=GratitudeDepositedView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Déposer un sujet de reconnaissance — la seule parole du membre qui dit que ça va",
+)
+async def deposit_gratitude(
+    tenant_id: UUID,
+    payload: DepositGratitudeBody,
+    actor: CurrentActor,
+    command: DepositGratitudeDep,
+) -> GratitudeDepositedView:
+    """**Aucun identifiant de sujet dans la route** : on ne rend pas grâce à la place de quelqu'un.
+
+    Le texte entre au journal et n'en ressort pas : le responsable lira « a déposé un sujet de
+    reconnaissance le 12 avril », jamais ce qui a été écrit. Ce que ça change pour lui est
+    considérable et tient en une ligne — il ouvrira son appel autrement.
+
+    R0 — venue de `/api/mobile/sermons/…`, où l'ancienne route reste en alias déprécié le temps
+    que le client suive. Ce déplacement était la condition pour que `sermon` puisse disparaître
+    sans emporter avec lui la seule parole du membre qui dise que ça va.
+    """
+    accepted = await command.execute(
+        actor_account_id=actor.account_id, tenant_id=tenant_id, subject=payload.subject
+    )
+    return GratitudeDepositedView(is_life_sign=accepted)
 
 
 @router.post(

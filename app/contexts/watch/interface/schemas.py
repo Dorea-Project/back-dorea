@@ -1,8 +1,18 @@
 """Schémas d'entrée/sortie du moteur de veille.
 
-Un seul corps, et il est **volontairement pauvre** : la personne, et une nuance choisie dans une
-liste fermée. Il n'y a aucun champ de texte libre, et il ne faut jamais en ajouter — un champ
-libre sur quelqu'un devient une fiche, et il survivra à celui qui l'a écrite.
+Les corps de ce module sont **volontairement pauvres** : la personne, et une nuance choisie dans
+une liste fermée. **Aucun champ de texte libre sur quelqu'un**, et il ne faut jamais en ajouter —
+un champ libre sur quelqu'un devient une fiche, et il survivra à celui qui l'a écrite.
+
+⚠️ **La règle porte sur « sur quelqu'un », et l'exception le prouve.** `DepositGratitudeBody`
+(R0) a un champ libre, et c'est légitime parce qu'il est **à la première personne** : le sujet du
+fait *est* son auteur, il n'existe aucun chemin pour en désigner un autre. C'est l'asymétrie que
+le registre des sources énonce déjà — *« une reconnaissance ne se dépose qu'à la première
+personne »* — et c'est ce qui sépare une parole d'une fiche.
+
+Le partage est donc net, et il vaut mieux que « pas de texte libre » : **on écrit librement sur
+soi, jamais sur autrui.** Qui voudra ajouter un champ libre ici doit répondre d'abord à *qui en
+est le sujet ?* — et si la réponse est quelqu'un d'autre, la réponse est non.
 """
 
 from datetime import datetime
@@ -10,6 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.contexts.watch.application.deposit_gratitude import MAX_LENGTH as MAX_GRATITUDE_LENGTH
 from app.contexts.watch.domain.concern import NUANCE_LABELS, Nuance
 from app.contexts.watch.domain.contact import ContactChannel, ContactResult
 from app.contexts.watch.domain.gesture import GESTURE_LABELS, GestureKind
@@ -330,3 +341,35 @@ class CaseContextView(BaseModel):
                 for s in dto.segments
             ],
         )
+
+
+# --- Le signe de vie (R0, venu de `sermon`) -----------------------------------------------------
+
+
+class DepositGratitudeBody(BaseModel):
+    """Ce pour quoi la personne rend grâce. **Un champ, et rien autour.**
+
+    Pas de destinataire, pas de visibilité à régler, pas de bouton pour le partager : il n'existe
+    ni mur ni fil des reconnaissances. Une reconnaissance est adressée à Dieu, pas à une audience —
+    et un compteur de reconnaissances serait exactement la boucle d'habitude que le produit refuse
+    de fabriquer.
+
+    Le seul texte libre de ce module, et l'en-tête dit pourquoi il a le droit d'y être : **son
+    sujet est son auteur.**
+    """
+
+    subject: str = Field(
+        min_length=1,
+        max_length=MAX_GRATITUDE_LENGTH,
+        examples=["Mon fils a retrouvé du travail."],
+    )
+
+
+class GratitudeDepositedView(BaseModel):
+    """Ce que le membre reçoit en retour : un accusé, pas une publication.
+
+    `is_life_sign` dit seulement si le moteur a retenu le geste comme signe de vie. Il vaut False
+    quand aucun cas n'était ouvert — c'est-à-dire quand tout allait déjà bien, et l'application
+    n'a rien de plus à en dire."""
+
+    is_life_sign: bool
