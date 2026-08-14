@@ -71,10 +71,12 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusExaminationModel,
     CorpusPericopeModel,
     CorpusVerseModel,
+    CorpusVersionModel,
 )
 from app.core.config import get_settings
 from app.core.database import async_session_factory
 from scripts.urim_curate_pericopes import CONCURRENCE, ESSAIS, INTERVALLE, Cadence
+from scripts.urim_ecarts import VERSION_DE_CURATION
 from scripts.urim_seed_books import BOOKS
 
 _ESPECES = ("exegetique", "confessionnel")
@@ -311,14 +313,36 @@ async def curer(livre_voulu: str | None, limite: int | None, purge: bool) -> Non
         ):
             pesees.setdefault(unite_id, []).append((axe, force, motif))
 
+        # 🔴 **Le filtre de version, dont l'absence n'aurait rien signalé du tout.**
+        #
+        # Ce dictionnaire est indexé sur (livre, chapitre, verset) **sans la version**. Le
+        # corpus en porte quatre — LSG, Darby, Ostervald, Martin 1744 — et chacune écrit sur la
+        # clé de la précédente : le texte servi au modèle devenait un panachage que seul l'ordre
+        # physique de la table décidait, pendant que `source_ref` signait « LSG 1910 » dessous.
+        #
+        # ⚠️ **Ce lot-ci a été épargné par le calendrier, pas par le code.** Les numéros de
+        # transaction le disent sans reconstitution : les 2 392 mises en garde ont été écrites
+        # sous les xid 5378-5422, Darby est entrée en base à 5407, Ostervald à 5427, Martin à
+        # 5451. La lecture des versets précède la première écriture — le modèle n'a donc vu que
+        # la Segond, et rien n'est à refaire. C'est la relance suivante qui aurait servi du
+        # français de 1744, et un `--purge` aurait retourné les 4 508 unités du corpus.
+        #
+        # C'est le même défaut que D5 avait déjà payé dans `urim_ecarts.py` : **ajouter une
+        # traduction au corpus casse en silence tout ce qui lit les versets sans se nommer.**
         versets: dict[tuple[int, int, int], str] = {}
         for rang, chapitre, verset, corps in await s.execute(
             select(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter,
                 CorpusVerseModel.verse, CorpusVerseModel.body,
             )
+            .join(CorpusVersionModel, CorpusVersionModel.id == CorpusVerseModel.version_id)
+            .where(CorpusVersionModel.code == VERSION_DE_CURATION)
         ):
             versets[(rang, chapitre, verset)] = corps
+        # Sans elle, `corps` serait vide sur chaque invite et le modèle rendrait des mises en
+        # garde sur un passage qu'il n'a pas lu — une panne qui coûte un lot entier en silence.
+        if not versets:
+            raise SystemExit(f"  aucun verset en {VERSION_DE_CURATION} — corpus non chargé.")
 
     a_faire = [
         u for u in sorted(unites, key=lambda u: (u.book_id, u.start_ch, u.start_v))

@@ -58,9 +58,11 @@ from app.contexts.urim.application.curation import SIGNATAIRE_IA
 from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusPericopeModel,
     CorpusVerseModel,
+    CorpusVersionModel,
 )
 from app.core.config import get_settings
 from app.core.database import async_session_factory
+from scripts.urim_ecarts import VERSION_DE_CURATION
 from scripts.urim_seed_books import BOOKS
 
 NS = UUID(str(uuid5(NAMESPACE_URL, "dorea:urim:corpus")))
@@ -215,17 +217,39 @@ async def curer(livre_voulu: str | None, limite: int | None) -> None:
             )
         }
 
+        # 🔴 **Nommer la version — et ici l'absence de filtre ne panache pas, elle empile.**
+        #
+        # Les trois autres lots rangent les versets dans un dictionnaire : les quatre
+        # traductions du corpus s'y écrasent l'une l'autre et il en reste une, arbitraire. Ce
+        # script-ci **accumule dans une liste**, triée par (livre, chapitre, verset) sans la
+        # version. Le chapitre servi au modèle serait donc le verset 1 quatre fois — Segond,
+        # Darby, Ostervald, Martin — puis le verset 2 quatre fois, et ainsi de suite.
+        #
+        # Ce qu'on lui demande est un **découpage en péricopes** : où le mouvement du texte
+        # change. Sur un chapitre lu quatre fois de suite, la réponse n'est pas approximative,
+        # elle n'a plus d'objet — et elle deviendrait la borne de toute la curation en aval,
+        # puisque pesées, mises en garde et faisabilités se posent sur ces unités-là.
+        #
+        # ⚠️ Les 4 561 unités en base ont été découpées sous les xid 4739-4833, Darby est entrée
+        # à 5407 : elles ont lu de la Segond pure et **rien n'est à refaire**.
         chapitres: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
         lignes = await s.execute(
             select(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter,
                 CorpusVerseModel.verse, CorpusVerseModel.body,
-            ).order_by(
+            )
+            .join(CorpusVersionModel, CorpusVersionModel.id == CorpusVerseModel.version_id)
+            .where(CorpusVersionModel.code == VERSION_DE_CURATION)
+            .order_by(
                 CorpusVerseModel.book_id, CorpusVerseModel.chapter, CorpusVerseModel.verse
             )
         )
         for rang, chapitre, verset, corps in lignes:
             chapitres[(rang, chapitre)].append((verset, corps))
+        # Un corpus non chargé ne rendrait aucun chapitre : le script annoncerait sereinement
+        # « 0 a decouper » et sortirait, comme s'il avait fini.
+        if not chapitres:
+            raise SystemExit(f"  aucun verset en {VERSION_DE_CURATION} — corpus non chargé.")
 
     a_faire = [
         cle for cle in sorted(chapitres)

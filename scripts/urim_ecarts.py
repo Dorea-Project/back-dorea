@@ -72,9 +72,13 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
 from app.core.database import async_session_factory
 from scripts.urim_seed_books import BOOKS
 
-#: La version **contre laquelle la curation a été écrite**. Toute vérification doit la nommer :
-#: le corpus porte désormais trois traductions, et comparer une citation à la mauvaise revient
-#: à accuser d'invention un verset recopié mot pour mot.
+#: La version **contre laquelle la curation est écrite**. Le corpus porte quatre traductions —
+#: Segond, Darby, Ostervald, Martin 1744 — qui partagent la clé (livre, chapitre, verset).
+#:
+#: Ce que ce nom doit à D5 : comparer une citation à la mauvaise traduction revient à accuser
+#: d'invention un verset recopié mot pour mot. Ce que les quatre lots de curation lui doivent
+#: depuis : **écrire** la curation contre la mauvaise traduction, ce qui ne se rattrape plus
+#: par un détecteur. La constante vit ici parce qu'elle y est née ; elle appartient aux deux.
 VERSION_DE_CURATION = "LSG"
 
 #: Une formule qui revient sur au moins tant d'unités n'est plus une lecture, c'est un moule.
