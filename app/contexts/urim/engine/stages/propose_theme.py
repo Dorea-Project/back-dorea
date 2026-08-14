@@ -55,9 +55,15 @@ posent ainsi —, sans unité curée `bear_axes` dégrade sans retenir d'axe, et
 s'applique pas. La branche est un garde-fou, pas un comportement observable ; le corriger valait
 quand même mieux que laisser une phrase fausse attendre son jour.
 
-Ce que la découverte dit vraiment est plus grave que la formulation : **sur un passage non curé —
-soit 99,77 % de l'Écriture aujourd'hui — le pipeline s'arrête à la pesée doctrinale.** Le pasteur
-reçoit son texte et rien après. Ce n'est pas un défaut du moteur, c'est la curation qui manque.
+Ce que la découverte dit vraiment est plus grave que la formulation : **hors unité curée, le
+pipeline s'arrête à la pesée doctrinale.** Le pasteur reçoit son texte et rien après.
+
+⚠️ **Mise à jour du 2026-08-13 — ce n'est plus la curation qui manque, c'est un bouton.** La
+phrase disait « soit 99,77 % de l'Écriture aujourd'hui » : le corpus l'a rattrapée, 4 561 unités
+couvrent désormais les 66 livres et toutes portent leurs pesées. Le chemin qui menait là est
+donc passé du cas ordinaire au cas de **« Mes bornes »** — `pericope_id` retombe à `None`, et
+S22 se propage. Le tour rendu à cet endroit est réparé et gardé
+(`docs/Urim_Arbre_Conversationnel.md`, mur n°2) ; la branche, elle, reste vivante.
 """
 
 from __future__ import annotations

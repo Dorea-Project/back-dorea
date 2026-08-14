@@ -191,6 +191,11 @@ c'est la même règle que les versions indisponibles : *elle informe, elle ne ra
 
 ## 6. Les quatre trous — ce que la maquette promet et que le moteur ne sait pas encore faire
 
+> **Le territoire est cartographié à côté.** `docs/Urim_Arbre_Conversationnel.md` liste les
+> 13 cellules qui rendent un tour, ce que chacune affiche, et comment l'atteindre — et il porte
+> les deux murs trouvés en la marchant : la liste épuisée, et le « voici » au-dessus de rien.
+> Ce document-ci reste le contrat ; celui-là dit ce que le pasteur reçoit vraiment.
+
 **Trou 1 — l'option ne dit pas sa dominance.** La maquette groupe les quatre unités en *« en
 fait son sujet »* et *« le soutient »*. `OptionView` porte `code`, `label`, `rationale`, `origin`
 — **et rien qui distingue les deux**. Le client ne peut pas fabriquer ce groupe ; il le devinerait

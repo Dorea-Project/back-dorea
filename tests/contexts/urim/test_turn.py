@@ -38,6 +38,8 @@ class _Vue:
         self.outcome = "await_decision"
         self.rationale = "Ni nom de livre, ni phrase des Écritures."
         self.options = [_Option("axe:ecclesiologie")]
+        #: Où en est la préparation — lu par les deux tours qui n'offrent rien, pour situer.
+        self.resolved = None
         self.bearings = []
         self.caveats = []
         self.couples = []

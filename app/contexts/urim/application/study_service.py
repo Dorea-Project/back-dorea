@@ -476,7 +476,34 @@ class UrimStudyService:
         if stage == "shape_homiletic":
             if ":" not in option:
                 raise OptionInconnueError(f"« {option} » n'est pas un couple plan x matière.")
-            record.plan_source, record.subject_matter = option.split(":", 1)
+            plan, matiere = option.split(":", 1)
+            # 🔴 **Le couple n'était pas vérifié, et l'étage ne le vérifiait plus non plus.**
+            #
+            # `shape_homiletic.applies()` exige `subject_matter is None` ; en écrivant les deux
+            # champs d'un coup, cette ligne empêchait l'étage de se ré-exécuter — donc sa
+            # validation et son refus motivé n'étaient plus jamais atteints. `abracadabra:
+            # sur-mesure` traversait tout et ressortait dans le thème rendu au pasteur :
+            # « pneumatologie, en abracadabra sur-mesure ».
+            #
+            # La vérification se fait donc ici, comme pour les unités et les références — et
+            # avec le **motif de la curation** quand le couple existe mais ne tient pas : il
+            # apprend quelque chose du texte, là où « option inconnue » ne dit rien (S19).
+            couples = self.index.couples.get(record.pericope_id, ())
+            choisi = next(
+                (c for c in couples
+                 if c.plan_source == plan and c.subject_matter == matiere),
+                None,
+            )
+            if choisi is None:
+                raise OptionInconnueError(
+                    f"« {option} » n'a pas été relu sur cette unité littéraire."
+                )
+            if not choisi.feasible:
+                raise OptionInconnueError(
+                    choisi.refusal_reason
+                    or f"« {option} » n'est pas faisable sur cette unité littéraire."
+                )
+            record.plan_source, record.subject_matter = plan, matiere
             return
 
         if stage == "weigh_conviction":
@@ -484,7 +511,7 @@ class UrimStudyService:
             # Le déduire de la forme (« ça ressemble à un UUID donc c'est un texte ») aurait
             # marché et se serait cassé au premier axe nommé comme un identifiant.
             if option.startswith("axe:"):
-                record.axis_code = option.removeprefix("axe:")
+                record.axis_code = self._verifier_axe(option.removeprefix("axe:"))
                 return
             if option.startswith("texte:"):
                 try:
@@ -528,7 +555,7 @@ class UrimStudyService:
             raise OptionInconnueError(f"« {option} » n'est pas une option de cet étage.")
 
         if stage == "bear_axes":
-            record.axis_code = option
+            record.axis_code = self._verifier_axe(option)
             return
 
         if stage == "propose_theme":
@@ -536,6 +563,26 @@ class UrimStudyService:
             return
 
         raise OptionInconnueError(f"L'étage « {stage} » n'attend aucune décision.")
+
+    def _verifier_axe(self, code: str) -> str:
+        """L'axe retenu est-il un locus **que ce corpus connaît** ?
+
+        🔴 Deux étages écrivent `axis_code` — `weigh_conviction` par `axe:<locus>` et
+        `bear_axes` par le code nu — et **aucun des deux ne vérifiait**. `abracadabra` devenait
+        l'axe doctrinal de la préparation, puis le thème rendu au pasteur. C'est la même famille
+        de trou que le couple plan x matière, à quinze lignes d'écart : une décision appliquée
+        sans demander au corpus si elle existe.
+
+        ⚠️ **La garde porte sur les dix loci, pas sur ce que l'unité porte.** Un texte peut être
+        prêché sur un axe qu'il *soutient* sans en faire son sujet — c'est même la seule porte
+        de sortie du pasteur dont l'angle n'est pas celui que le corpus a jugé dominant. La
+        fermer ici déciderait à sa place, et cet étage existe pour ne pas le faire."""
+        connus = {axe.code for axe in self.index.axes}
+        if code not in connus:
+            raise OptionInconnueError(
+                f"« {code} » n'est pas un des axes doctrinaux de ce corpus."
+            )
+        return code
 
     def _reference_depuis_libelle(self, texte: str) -> Reference | None:
         """« 1 Jean 3:16 » → Reference. Le libellé le plus long gagne.

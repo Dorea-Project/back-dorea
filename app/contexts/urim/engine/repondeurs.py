@@ -81,8 +81,13 @@ def _adresse_personnelle(saisie: str) -> bool:
     return bool(mots & _PRONOMS_DE_LA_PERSONNE) and bool(mots & _ETATS_INTERIEURS)
 
 
-def _situer(ancre: str | None) -> str:
-    """Où en est la préparation, dit en une incise — ou rien si elle n'a pas commencé."""
+def situer(ancre: str | None) -> str:
+    """Où en est la préparation, dit en une incise — ou rien si elle n'a pas commencé.
+
+    ⚠️ **Publique, et utilisée hors d'ici.** Le tour s'en sert aux deux endroits où il n'a
+    rien à proposer (`interface/turn.py`) : un pasteur devant un écran qui ne lui offre rien
+    a le même besoin que celui dont la phrase n'a pas abouti — savoir où en est son travail.
+    Deux formulations de la même incise auraient dérivé au premier correctif."""
     return f" Nous en sommes à {ancre}." if ancre else ""
 
 
@@ -96,12 +101,12 @@ def repondre_hors_champ(saisie: str, ancre: str | None = None) -> str:
     if _adresse_personnelle(saisie):
         return (
             "Je ne suis pas quelqu'un — je suis l'atelier où vous préparez vos prédications, "
-            "à partir de l'Écriture." + _situer(ancre)
+            "à partir de l'Écriture." + situer(ancre)
         )
     return (
         "Je ne sais pas conseiller sur les personnes ni sur la conduite d'une assemblée. "
         "Ce que je sais faire, c'est ouvrir un texte avec vous : si un passage vous vient "
-        "pour cette situation, donnez-le-moi." + _situer(ancre)
+        "pour cette situation, donnez-le-moi." + situer(ancre)
     )
 
 
@@ -112,6 +117,6 @@ def repondre_indechiffrable(saisie: str, ancre: str | None = None) -> str:
     été parfaitement comprise ; elle ne nous était pas destinée. Faire porter l'échec à celui
     qui parlait de sa voiture serait lui reprocher un accident d'appareil."""
     return (
-        "Je n'ai rien reçu qui concerne la préparation." + _situer(ancre)
+        "Je n'ai rien reçu qui concerne la préparation." + situer(ancre)
         + " Reprenez quand vous voulez."
     )

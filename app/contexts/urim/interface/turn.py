@@ -20,9 +20,9 @@ contredire.
 Le contrat veut `say`, `why` et `ask` là où le moteur ne produit qu'un `rationale`. On ne
 découpe pas cette phrase — un découpage se casserait au premier motif reformulé.
 
-    say    déterministe, par étage — ce qu'Urim vient de faire
+    say    déterministe, choisi sur L'ÉCRAN — ce qu'Urim vient de faire
     why    LE MOTIF DU MOTEUR, tel quel — jamais réécrit
-    ask    déterministe, et seulement quand le moteur attend une décision
+    ask    déterministe, et seulement quand le pasteur a quelque chose à faire
 
 C'est le même partage que les deux répondeurs `hors_champ` et `indechiffrable` : la voix du
 produit est écrite en français, une fois, et relue ; ce qui vient du raisonnement traverse
@@ -31,6 +31,16 @@ intact.
 ⚠️ **`why` n'est jamais nul, et c'est une règle du produit.** *« Chaque réponse porte son filet
 doré. C'est ce qui sépare un atelier d'un oracle. »* Un tour sans motif serait une conclusion
 sans provenance — la seule chose qu'Urim s'interdit.
+
+## La règle que ce module tient, et qui n'était écrite nulle part
+
+> **Aucun tour ne se termine par un mur.** Après chaque tour, le pasteur a quelque chose à
+> faire : des options à toucher, une barre de saisie ouverte, ou une passerelle nommée.
+
+C'est la même règle que `Outcome.DEGRADE` côté moteur — *aucun mur un vendredi soir* — et elle
+se perdait ici, à la présentation, là où personne ne la cherchait. Deux murs se fabriquaient
+dans ce fichier : un choix demandé sur une liste entièrement écartée, et un « voici » posé
+au-dessus de zéro bloc. `scripts/urim_banc_arbre.py` marche l'arbre et les nomme.
 """
 
 from __future__ import annotations
@@ -39,50 +49,146 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-#: ⚠️ **Ce qu'Urim vient de faire, par étage — et rien de plus.**
+from app.contexts.urim.engine.repondeurs import situer
+
+#: **L'écran où rien n'est à regarder**, et celui où tout ce qui était offert a été écarté.
+#: Deux formes qui ne sont pas des types de bloc — ce sont les deux façons qu'a un tour de
+#: n'avoir rien à montrer, et ce sont les deux endroits où l'on fabriquait un mur.
+FORME_RIEN = "rien"
+FORME_EPUISE = "epuise"
+
+#: ⚠️ **La phrase suit l'écran, pas le nom de l'étage.**
 #:
-#: Ces phrases sont déterministes pour la même raison que celles des répondeurs : le modèle n'a
-#: aucun canal de sortie en prose, et lui en ouvrir un pour annoncer ce que le moteur a fait
-#: serait payer un appel pour une phrase qu'on peut écrire une fois.
+#: 🔴 Une table indexée sur le seul nom de l'étage disait faux dès qu'un étage servait plus
+#: d'un écran — et ils le font tous. Trois prises, marchées contre le corpus réel :
 #:
-#: `ask` ne sert que lorsque le moteur **attend** une décision. Un étage qui continue ne pose
-#: aucune question, et une question sans attente ferait croire au pasteur qu'il doit répondre.
-_PHRASES: dict[str, tuple[str, str]] = {
-    "route_entry": (
-        "Je lis votre saisie avant tout le reste.",
-        "Est-ce bien de cela que vous voulez parler ?",
-    ),
-    "weigh_conviction": (
-        "Votre phrase touche plusieurs endroits de la doctrine.",
-        "Sur lequel prêchez-vous ?",
-    ),
-    "resolve_passage": (
-        "Plusieurs textes traitent ce sujet — aucun ne s'impose seul.",
+#:     weigh_conviction   « Sur lequel prêchez-vous ? » posé devant quatre péricopes
+#:     bear_axes          « Voici ce que ce texte porte » posé devant un écran VIDE
+#:     bear_axes          deux axes à choisir, et aucune question posée
+#:
+#: Le deuxième est le tour **ordinaire**, pas un cas limite : sur 99,77 % de l'Écriture rien
+#: n'est encore curé, la pesée dégrade, et le pipeline s'arrête là. Le `say` promettait alors
+#: un contenu que les blocs n'avaient pas — la forme exacte d'un mur.
+#:
+#: L'écran, lui, ne peut pas mentir : c'est ce que le pasteur a réellement sous les yeux.
+#: Les phrases restent déterministes pour la raison des répondeurs — le modèle n'a aucun canal
+#: de sortie en prose, et lui en ouvrir un pour annoncer ce que le moteur vient de faire serait
+#: payer un appel pour une phrase qu'on écrit une fois.
+_PAR_ECRAN: dict[str, tuple[str, str]] = {
+    "units": (
+        "Voici les textes relus qui disent quelque chose de cet axe.",
         "Lequel ouvrons-nous ?",
     ),
-    "bound_pericope": (
+    "bounds": (
         "Vos bornes ne coïncident pas avec l'unité relue.",
         "Lesquelles gardons-nous ?",
     ),
-    "bear_axes": (
+    # ⚠️ Ces trois écrans-là n'arrivent **qu'avec les mains vides** : dès que l'étage offre un
+    # choix, c'est lui qui parle. Leur question n'est donc pas décorative — c'est la seule
+    # chose qui reste à faire au pasteur, et sans elle le tour est un cul-de-sac poli.
+    "bearings": (
         "Voici ce que ce texte porte — et ce à quoi il résiste.",
-        "",
+        "Ouvrez un autre passage, ou travaillez celui-ci tel quel.",
     ),
-    "shape_homiletic": (
+    "feasibility": (
         "Voici les plans que ce texte peut tenir, et ceux qu'il refuse.",
-        "Lequel voulez-vous suivre ?",
+        "Travaillez le texte tel quel — le plan reste le vôtre.",
     ),
-    "propose_theme": (
+    "theme": (
         "Un thème, jamais un titre — le titre, c'est votre voix.",
-        "",
+        "Réécrivez-le, c'est votre sermon — ou écrivez vos points.",
     ),
-    "serve_corpus": (
-        "Le texte est servi, avec ce que la curation en dit.",
-        "",
+    "chips": ("Voici ce que je peux vous proposer ici.", "Lequel retenez-vous ?"),
+    FORME_RIEN: (
+        "Je n'ai rien de plus à vous montrer sur ce point.",
+        "Donnez-moi un passage, ou reprenez votre sujet en clair — les deux entrent par le "
+        "même champ.",
+    ),
+    FORME_EPUISE: (
+        "Je n'ai plus de proposition neuve ici — celles que je savais offrir sont reléguées "
+        "plus bas.",
+        "Reprenez l'une d'elles, ou donnez-moi une référence : j'ouvre le passage et je "
+        "repars de là.",
     ),
 }
 
-_SAY_PAR_DEFAUT = "Voici où nous en sommes."
+#: Ce que l'étage sait dire de mieux que l'écran seul — **et rien d'autre**.
+#:
+#: Des pastilles ne disent pas d'elles-mêmes de quoi elles sont faites : dix loci, deux
+#: lectures d'entrée, six passages à égalité et deux axes dominants ont la même forme. Là
+#: seulement, l'étage tranche. Partout ailleurs l'écran suffit, et une entrée de plus serait
+#: une phrase de plus à relire pour rien.
+_PAR_ETAGE: dict[tuple[str, str], tuple[str, str]] = {
+    ("route_entry", "chips"): (
+        "Je lis votre saisie avant tout le reste.",
+        "Est-ce bien de cela que vous voulez parler ?",
+    ),
+    ("route_entry", FORME_RIEN): (
+        "Je ne sais pas quoi ouvrir avec cette saisie.",
+        "Réécrivez-la comme elle vous vient : un sujet, une référence ou une phrase du "
+        "texte — les trois entrent par le même champ.",
+    ),
+    ("weigh_conviction", "chips"): (
+        "Votre phrase touche plusieurs endroits de la doctrine.",
+        "Sur lequel prêchez-vous ?",
+    ),
+    # ⚠️ **Le tour du pasteur dont le sujet n'a pas de locus.** Les dix loci sont la
+    # dogmatique de CE corpus, pas la mesure de ce qui se prêche : une intention mariale,
+    # une fête liturgique, une question de discipline n'y tiennent dans aucun. Quand ils
+    # sont tous écartés, le produit doit nommer **sa** limite — jamais reprocher au pasteur
+    # d'avoir tout repoussé, et surtout jamais arbitrer sa tradition.
+    #
+    # La passerelle est vérifiée avant d'être promise : « Luc 1:28 » donné à la main ouvre
+    # l'unité entière de l'Annonciation, ses dix pesées et ses deux mises en garde.
+    ("weigh_conviction", FORME_EPUISE): (
+        "Ces dix axes sont ce que la dogmatique de ce corpus sait nommer — un sujet peut "
+        "n'entrer dans aucun.",
+        "Donnez-moi un texte, même un seul verset : je l'ouvre entier, avec ce qui en a "
+        "été relu.",
+    ),
+    ("weigh_conviction", FORME_RIEN): (
+        "Sur cet angle, la curation n'a encore relu aucun texte.",
+        "Donnez-moi une référence si vous savez déjà où aller, ou reprenez un autre angle.",
+    ),
+    ("resolve_passage", "chips"): (
+        "Plusieurs textes portent cette formulation — aucun ne s'impose seul.",
+        "Lequel visiez-vous ?",
+    ),
+    ("resolve_passage", FORME_RIEN): (
+        "Je n'ai pas su ouvrir le passage que vous nommez.",
+        "Vérifiez le nom du livre, ou dites-moi votre sujet en clair.",
+    ),
+    ("bear_axes", "chips"): (
+        "Plusieurs axes disent quelque chose de ce texte, au même rang.",
+        "Lequel prêchez-vous ?",
+    ),
+    # 🔴 **Le mur le plus fréquent du produit**, et il ne se voyait qu'en marchant : le
+    # `say` annonçait « voici ce que ce texte porte » au-dessus de zéro bloc.
+    ("bear_axes", FORME_RIEN): (
+        "Le texte est là, entier — ce qui manque ici, c'est la relecture, pas l'Écriture.",
+        "Travaillez-le tel quel, ou donnez-moi un autre passage : je dirai ce qui en a "
+        "été relu.",
+    ),
+    ("shape_homiletic", "chips"): (
+        "Voici les plans que ce texte peut tenir, et ceux qu'il refuse.",
+        "Lequel voulez-vous suivre ?",
+    ),
+    # Le refus de l'étage 6 : tous les couples relus sont écartés. Ils restent affichés avec
+    # leur motif — *les cacher laisserait croire qu'on n'y a pas pensé* —, et le tour dit ce
+    # qui reste possible plutôt que de s'arrêter sur le refus.
+    ("shape_homiletic", "feasibility"): (
+        "Aucun de ces plans ne tient sur cette unité — ils restent affichés avec leur motif.",
+        "Travaillez le texte tel quel : le plan reste le vôtre.",
+    ),
+    ("shape_homiletic", FORME_RIEN): (
+        "Aucune mise en forme n'a encore été relue sur cette unité.",
+        "Travaillez le texte tel quel — le plan reste le vôtre.",
+    ),
+}
+
+#: Le dernier recours : un `kind` de bloc ajouté demain, qu'aucune table ne connaît encore.
+#: Il dégrade en une phrase vraie plutôt qu'en une phrase vide (§5.5).
+_FAUTE_DE_MIEUX = ("Voici où nous en sommes.", "")
 
 
 class ChipItem(BaseModel):
@@ -241,14 +347,18 @@ def _pastilles(options: list) -> list[ChipItem]:
     ]
 
 
-def _blocs(vue, etage: str) -> list[Block]:
+def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
     """Les blocs que cet étage a de quoi remplir — jamais un bloc vide.
 
     L'ordre est celui de l'écran, de haut en bas, et il est fixé ici : le client rend ce qu'on
-    lui donne dans l'ordre où on le lui donne."""
+    lui donne dans l'ordre où on le lui donne.
+
+    ⚠️ **Les trois branches d'options testent les vivantes, jamais `vue.options`.** 🔴 Elles
+    testaient la liste entière : le pasteur qui avait écarté les dix loci recevait donc un
+    bloc `chips` **vide**, sous une question qui restait posée — un choix demandé sur zéro
+    proposition. C'était le mur, et il tenait à un mot."""
     blocs: list[Block] = []
 
-    vivantes = [o for o in vue.options if not o.dismissed]
     pesees = [o for o in vivantes if o.strength]
 
     if pesees:
@@ -271,16 +381,16 @@ def _blocs(vue, etage: str) -> list[Block]:
         # pastilles : elles n'ont rien de relu, et les mêler aux unités le laisserait croire.
         if autres := [o for o in vivantes if not o.strength]:
             blocs.append(ChipsBlock(items=_pastilles(autres)))
-    elif etage == "bound_pericope" and vue.options:
+    elif etage == "bound_pericope" and vivantes:
         blocs.append(BoundsBlock(
-            items=_pastilles(vue.options),
+            items=_pastilles(vivantes),
             consequence=(
                 "Si vous gardez vos bornes, je ne pourrai plus vous alerter sur un risque "
                 "de proof-texting."
             ),
         ))
-    elif vue.options:
-        blocs.append(ChipsBlock(items=_pastilles(vue.options)))
+    elif vivantes:
+        blocs.append(ChipsBlock(items=_pastilles(vivantes)))
 
     if vue.bearings:
         blocs.append(BearingsBlock(
@@ -321,24 +431,66 @@ def _blocs(vue, etage: str) -> list[Block]:
     return blocs
 
 
+#: Une sortie, pas un écran : `actions` accompagne le thème, il ne le remplace pas.
+_DECOR = frozenset({"actions"})
+
+
+def _forme(vue, blocs: list[Block], vivantes: list) -> str:
+    """**Ce que le pasteur a sous les yeux**, dit en un mot.
+
+    L'ordre des questions est la règle. *Ai-je proposé quelque chose qui a tout été écarté ?*
+    d'abord — sinon la question « lequel ? » resterait posée sur une liste vidée. *Y a-t-il
+    quoi que ce soit à regarder ?* ensuite.
+
+    ⚠️ **Le bloc qui parle n'est pas toujours le premier.** Quand l'étage offre un choix, c'est
+    lui : `_blocs` place toujours les options en tête. Quand il n'offre rien, la tête est du
+    **décor ambiant** — les pesées de l'unité accompagnent tous les tours qui suivent —, et
+    c'est le bloc le plus avancé qui dit ce qui vient d'arriver. 🔴 Sans cette distinction, le
+    dernier tour de la maquette annonçait « voici ce que ce texte porte » au-dessus du thème
+    qu'il venait de proposer."""
+    if vue.options and not vivantes:
+        return FORME_EPUISE
+    parlants = [b for b in blocs if b.kind not in _DECOR]
+    if not parlants:
+        return FORME_RIEN
+    return parlants[0].kind if vivantes else parlants[-1].kind
+
+
 def construire_tour(vue) -> TurnView:
     """La présentation conversationnelle de ce que la vue porte déjà.
 
-    ⚠️ **`expects` vient de l'issue, jamais de l'étage.** Un même étage attend une décision ou
-    n'attend rien selon ce que le corpus lui a donné — coder l'attente dans la table des
-    phrases ferait poser une question là où le moteur n'attend personne, et le pasteur
-    répondrait à un tour qui a déjà continué."""
-    etage = vue.trace[-1].stage_code if vue.trace else "route_entry"
-    say, ask = _PHRASES.get(etage, (_SAY_PAR_DEFAUT, ""))
+    ⚠️ **`expects` vient de l'issue ET de ce qui reste à choisir.** Un même étage attend une
+    décision ou n'attend rien selon ce que le corpus lui a donné — et il n'attend plus rien
+    quand tout ce qu'il proposait a été écarté. 🔴 `expects: choice` sur zéro pastille disait
+    au client d'ouvrir un sélecteur vide : le moteur attendait encore, l'écran n'offrait plus
+    rien, et le pasteur n'avait aucun geste possible.
 
-    attend = vue.outcome == "await_decision"
+    ⚠️ **`ask` accompagne ce qu'on peut faire, pas l'issue.** Une question posée au-dessus d'une
+    liste de pastilles alors que le moteur a déjà continué ferait répondre le pasteur à un tour
+    passé — d'où la garde d'origine. Mais un tour qui n'offre **rien à toucher** doit poser la
+    sienne : la saisie est alors le seul geste possible, et un tour qui ne la nomme pas est un
+    cul-de-sac poli.
+    """
+    etage = vue.trace[-1].stage_code if vue.trace else "route_entry"
+    vivantes = [o for o in vue.options if not o.dismissed]
+    blocs = _blocs(vue, etage, vivantes)
+    forme = _forme(vue, blocs, vivantes)
+
+    say, ask = _PAR_ETAGE.get(
+        (etage, forme), _PAR_ECRAN.get(forme, _FAUTE_DE_MIEUX)
+    )
+    sans_rien = forme in (FORME_RIEN, FORME_EPUISE)
+    attend = vue.outcome == "await_decision" and bool(vivantes)
+
     return TurnView(
-        say=say,
+        # Où en est la préparation, aux deux seuls tours qui n'offrent rien — c'est le seul
+        # service qu'un tour vide puisse rendre, et c'est l'incise des répondeurs.
+        say=say + (situer(vue.resolved) if sans_rien else ""),
         # Le motif du moteur, tel quel. C'est le filet doré, et il ne se réécrit pas.
         why=vue.rationale,
-        ask=ask if attend else "",
+        ask=ask if attend or not vivantes else "",
         expects="choice" if attend else "text",
         stage_code=etage,
         signature=vue.curation_reviewed_by,
-        blocks=_blocs(vue, etage),
+        blocks=blocs,
     )

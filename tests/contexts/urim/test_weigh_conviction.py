@@ -19,7 +19,7 @@ from app.contexts.urim.engine.deps import (
     NullConvictionReader,
 )
 from app.contexts.urim.engine.outcomes import Outcome
-from app.contexts.urim.engine.stages.weigh_conviction import WeighConviction
+from app.contexts.urim.engine.stages.weigh_conviction import PAR_GROUPE, WeighConviction
 from app.contexts.urim.engine.state import Bounds, EntryMode, Reference, StudyState
 
 DIX = tuple(
@@ -35,11 +35,11 @@ DIX = tuple(
 )
 
 
-def _site(nom: str, force: str) -> BearingSite:
+def _site(nom: str, force: str, livre: str = "Romains") -> BearingSite:
     return BearingSite(
         pericope_id=uuid4(),
         label=nom,
-        bounds=Bounds(start=Reference("Romains", 8, 1), end=Reference("Romains", 8, 11)),
+        bounds=Bounds(start=Reference(livre, 8, 1), end=Reference(livre, 8, 11)),
         strength=force,
         rationale=f"motif de {nom}",
     )
@@ -249,6 +249,109 @@ def test_le_chemin_inverse_est_deterministe():
     }
 
     assert len(vues) == 1
+
+
+# ================================================== 5. le déversoir, et ce qu'il enterrait
+
+
+#: Le corpus réel, en petit : 4 070 unités qui *portent* l'anthropologie, cinq qui lui
+#: résistent. Le premier texte qui résistait arrivait en **4 298ᵉ** position.
+def _comme_l_anthropologie() -> tuple[BearingSite, ...]:
+    livres = ("Genèse", "Exode", "Psaumes", "Ésaïe", "Matthieu", "Romains", "Apocalypse")
+    portants = tuple(
+        _site(f"porte {n}", "porte", livres[n % len(livres)]) for n in range(400)
+    )
+    resistants = tuple(_site(f"resiste {n}", "resiste", "Job") for n in range(5))
+    return (*portants, *resistants)
+
+
+def test_les_textes_qui_resistent_ne_sont_jamais_evinces():
+    """🔴 **Le garde-fou était enterré sous quatre mille textes.**
+
+    `sites_by_axis` trie par force, donc les résistants arrivent en queue : sur l'anthropologie,
+    le premier tombait en 4 298ᵉ position. Le contrat dit *« elles sont affichées au même rang,
+    exprès »* — l'ordre disait le contraire, et c'est la seule protection du mode conviction.
+
+    Le quota **identique** par groupe est ce qui rend la règle mécanique : un groupe pléthorique
+    ne peut plus prendre la place d'un groupe rare."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+
+    options = WeighConviction().execute(_etat(axis="anthropologie"), _deps(doctrine)).options
+
+    resistants = [o for o in options if o.strength == "resiste"]
+    assert len(resistants) == 5, "des textes qui résistent ont été évincés"
+    assert len(options) <= 3 * PAR_GROUPE
+
+
+def test_le_quota_est_le_meme_pour_les_trois_groupes():
+    """« Au même rang » cesse d'être une intention pour devenir une soustraction."""
+    sites = (
+        *(_site(f"d{n}", "dominant", "Genèse") for n in range(50)),
+        *(_site(f"p{n}", "porte", "Exode") for n in range(50)),
+        *(_site(f"r{n}", "resiste", "Job") for n in range(50)),
+    )
+
+    options = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites))).options
+
+    for force in ("dominant", "porte", "resiste"):
+        assert sum(1 for o in options if o.strength == force) == PAR_GROUPE
+
+
+def test_l_echantillon_s_etale_sur_le_canon_au_lieu_de_prendre_le_debut():
+    """Prendre les six premiers rendait six chapitres voisins de la Genèse.
+
+    C'est la mécanique de `_resistent_ailleurs`, et pour la même raison : le pasteur doit
+    recevoir un texte de la Loi, un des Prophètes, un des Épîtres — pas une bibliographie d'un
+    seul livre."""
+    livres = ("Genèse", "Exode", "Psaumes", "Ésaïe", "Matthieu", "Romains", "Apocalypse")
+    sites = tuple(
+        _site(f"u{n}", "dominant", livres[n // 10]) for n in range(10 * len(livres))
+    )
+
+    resultat = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites)))
+
+    montres = {o.label.split(" —")[0] for o in resultat.options}
+    assert len(montres) == PAR_GROUPE
+    # Six livres distincts sur les sept : aucun ne parle deux fois tant qu'il en reste d'autres.
+    assert len(montres) == len({o.label for o in resultat.options})
+
+
+def test_l_echantillon_reste_deterministe():
+    """La condition du moteur : même corpus, même axe, mêmes six textes. Aucun tirage."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+    deps = _deps(doctrine)
+
+    vues = {
+        tuple(o.code for o in WeighConviction().execute(_etat(axis="x"), deps).options)
+        for _ in range(20)
+    }
+
+    assert len(vues) == 1
+
+
+def test_le_compte_reel_voyage_avec_l_echantillon():
+    """⚠️ **On écourte, on ne dissimule pas** — la règle de la concordance.
+
+    Un extrait présenté comme un tout ferait conclure d'un échantillon, et la conclusion
+    porterait ici sur ce que l'Écriture dit d'un axe."""
+    doctrine = _Doctrine(_comme_l_anthropologie())
+
+    motif = WeighConviction().execute(_etat(axis="x"), _deps(doctrine)).rationale
+
+    assert "405" in motif, "le compte réel a disparu"
+    assert "En voici" in motif
+    assert "5 sur 5" not in motif  # les cinq résistants sont tous montrés
+
+
+def test_sous_le_plafond_rien_n_est_retire_ni_annonce():
+    """Le cas ordinaire ne doit pas hériter du vocabulaire de l'exception : quatre unités
+    restent quatre unités, sans phrase sur un échantillon qui n'a pas eu lieu."""
+    sites = tuple(_site(f"u{n}", "dominant") for n in range(4))
+
+    resultat = WeighConviction().execute(_etat(axis="x"), _deps(_Doctrine(sites)))
+
+    assert len(resultat.options) == 4
+    assert "En voici" not in resultat.rationale
 
 
 def test_les_options_de_texte_portent_un_identifiant_utilisable():
