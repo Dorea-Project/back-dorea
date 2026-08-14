@@ -24,6 +24,29 @@ pas. Le détecteur ne s'en sert que pour des **proportions** de tokens connus, j
 égalité stricte — il encaisse ce bruit. Un résolveur qui aurait besoin de l'égalité devra ajouter
 sa propre variante, sans toucher à celle-ci.
 
+---
+
+🔴 **Pourquoi œ et æ sont dépliés *à la main*, alors que NFKD déplie déjà des ligatures.**
+
+NFKD ne défait que les ligatures dites *de compatibilité* — celles qu'un typographe a nouées et
+qu'Unicode n'a admises que pour la conversion : `ﬁ → fi`, `ﬂ → fl`, `ĳ → ij`. Mais `œ` et `æ` sont
+des **lettres**, pas des ligatures de compatibilité : Unicode ne leur donne aucune décomposition,
+et NFKD les rend intactes. Elles tombaient donc dans `_NON_MOT`, qui ne connaît que `[0-9a-z]` et
+traite tout le reste en **frontière de mot**.
+
+    « de tout son cœur »   →   `de tout son c ur`
+
+Le dégât n'est pas un accent perdu, qui se rattraperait au rappel. C'est que le mot est **remplacé
+par deux mots qui n'existent pas** : sur la Segond, `cœur` (772 versets) disparaissait au profit
+d'un `c` et d'un `ur` que rien ne distingue plus d'un vrai mot rare. Or `CorpusIdfModel` existe
+pour dire *« les mots fréquents ne discriminent rien »* : deux fragments à idf moyen sont
+exactement le poison de cette table — ils désignent des versets au lieu de n'en désigner aucun.
+Vingt-trois mots français y passaient (`œuvre`, `sœur`, `bœuf`, `œil`, `vœu`, `mœurs`…), et `œil`
+gonflait au passage le pronom `il`.
+
+`ß` n'est pas dépliée : Unicode ne la décompose pas non plus, mais aucun corpus servi ici n'en
+porte, et une règle sans cas est une règle que personne ne saura relire.
+
 Fonctions **pures**, sans dépendance : ni corpus, ni horloge, ni configuration.
 """
 
@@ -43,6 +66,10 @@ _ELISION = re.compile(
     "`]"        # accent grave, tapé par erreur à la place de l'apostrophe
 )
 
+#: Les lettres soudées qu'Unicode refuse de décomposer — dépliées **avant** tout le reste, sinon
+#: `_NON_MOT` les prend pour de la ponctuation et coupe le mot en deux.
+_SOUDEES = str.maketrans({"œ": "oe", "Œ": "OE", "æ": "ae", "Æ": "AE"})
+
 #: Tout le reste de la ponctuation devient une frontière de mot.
 _NON_MOT = re.compile(r"[^0-9a-z]+")
 
@@ -50,14 +77,15 @@ _ESPACES = re.compile(r"\s+")
 
 
 def normalize(text: str) -> str:
-    """Minuscules, sans accents, sans apostrophes, ponctuation réduite à des espaces.
+    """Minuscules, sans accents, sans apostrophes, lettres soudées dépliées, ponctuation réduite
+    à des espaces.
 
     Le résultat est **stable** : deux saisies qui ne diffèrent que par la casse, les accents ou
     la ponctuation rendent exactement la même chaîne. C'est ce qui permet au déterminisme du
     moteur de tenir sur une entrée humaine."""
     sans_accent = "".join(
         caractere
-        for caractere in unicodedata.normalize("NFKD", text)
+        for caractere in unicodedata.normalize("NFKD", text.translate(_SOUDEES))
         if not unicodedata.combining(caractere)
     )
     colle = _ELISION.sub("", sans_accent.lower())
