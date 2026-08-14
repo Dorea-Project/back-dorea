@@ -13,15 +13,29 @@ il y a quelque chose à dire — et c'est le produit qui doit le dire, au moment
 
 Les témoins ne sont donc pas des préférences, ce sont des angles :
 
-    Segond 1910   équilibrée, la norme des assemblées   · proche du Texte Reçu
+    Segond 1910   équilibrée, la norme des assemblées   · ÉCLECTIQUE
     Darby         formelle, serre l'original            · TEXTE CRITIQUE
     Martin 1744   ancienne, tradition genevoise         · TEXTE REÇU
     Ostervald     révisée 1996, encore lue en chaire    · TEXTE REÇU
 
-Darby contre les autres fait remonter les divergences Texte Reçu / texte critique **toutes
-seules**, sans apparat, sans modèle, sans rien inventer. C'est la seule approche honnête des
-variantes dont ce produit dispose : on n'affirme pas qu'un manuscrit porte ceci — on montre que
-deux traducteurs ont lu autrement, et le pasteur vérifie des deux yeux.
+⚠️ **Ce tableau a été corrigé, et la correction vaut d'être lue.** Il portait « Segond 1910 ·
+proche du Texte Reçu », et l'on en concluait que *« Darby contre les trois autres fait remonter
+les divergences Texte Reçu / texte critique toutes seules »*. C'est faux sur les deux points.
+
+La Segond omet la clause de Romains 8:1 et le comma johanneum **comme Darby**, et lit « celui
+qui » en 1 Timothée 3:16 là où les trois autres lisent « Dieu » : la ligne de partage sépare
+{Segond, Darby} de {Ostervald, Martin}, pas Darby des trois autres. Et « Darby seul » rend
+surtout, dans le Nouveau Testament, *« aisé »* contre *« facile »* — son style formel, pas une
+édition.
+
+⇒ **Ces quatre témoins ne peuvent pas servir à signaler des variantes**, et `urim_collisions.py`
+ne le prétend plus : il décrit qui lit avec qui, jamais pourquoi. Ce que le semis pose ici,
+c'est `text_family`, un **fait affiché à côté de chaque traducteur**, dont le produit ne tire
+aucune conclusion. Les variantes restent à `urim_corpus_textual_variant`, remplie depuis un
+apparat critique par un humain qui signe.
+
+Ce que la comparaison donne, elle le donne pour de bon : on n'affirme pas qu'un manuscrit porte
+ceci — on montre que deux traducteurs ont lu autrement, et le pasteur vérifie des deux yeux.
 
 Ostervald ne sert pas le même office que Martin, bien que les deux suivent le Texte Reçu :
 Martin est un témoin d'archive, Ostervald est **la traduction que beaucoup d'assemblées
@@ -103,6 +117,12 @@ class Version:
     code: str            # le code du dépôt
     label: str
     genre: str           # 'formelle' | 'dynamique'
+    #: L'édition dont ce témoin part — `texte_recu` | `critique` | `eclectique`. **Un fait,
+    #: affiché à côté de lui, dont le produit ne tire aucune conclusion** : le détecteur de
+    #: collisions décrit qui lit avec qui, jamais pourquoi. Sans cette colonne au semis, une
+    #: version re-semée reviendrait au défaut `eclectique` et le pasteur lirait « Darby —
+    #: éclectique », ce qui est faux.
+    famille: str
     pourquoi: str
 
     @property
@@ -115,13 +135,14 @@ class Version:
 CATALOGUE = {
     "darby": Version(
         "darby_raw.json", "https://api.getbible.net/v2/darby.json", "getbible",
-        "DARBY", "Darby (français)", "formelle",
+        "DARBY", "Darby (français)", "formelle", "critique",
         "serre l'original sur un texte critique — le contraste utile a la Segond",
     ),
     "martin": Version(
         "martin_raw.json", "https://api.getbible.net/v2/martin.json", "getbible",
-        "MARTIN", "Martin (1744)", "formelle",
-        "temoin du Texte Recu : sa divergence d'avec Darby EST le signal de variante",
+        "MARTIN", "Martin (1744)", "formelle", "texte_recu",
+        "le francais de 1744 : la ou elle est SEULE a diverger, c'est le plus souvent sa "
+        "langue et non le sens — et c'est une information sur la prise, pas un defaut",
     ),
     # Domaine public verifie a trois adresses qui ne se recopient pas : l'en-tete OSIS du
     # fichier lui-meme (`<rights>Public Domain</rights>`), le registre find.bible/FRAOST
@@ -131,7 +152,7 @@ CATALOGUE = {
         "ostervald_raw.xml",
         "https://raw.githubusercontent.com/seven1m/open-bibles/master/fra-ostervald.osis.xml",
         "osis",
-        "OST", "Ostervald (revision 1996)", "formelle",
+        "OST", "Ostervald (revision 1996)", "formelle", "texte_recu",
         "la traduction que beaucoup d'assemblees evangeliques francophones lisent encore : "
         "l'ecart se voit dans la formulation que le pasteur reconnait",
     ),
@@ -426,6 +447,7 @@ async def semer(version: Version, purge: bool) -> None:
             id=version.id, code=version.code, language="fr", label=version.label,
             translation_kind=version.genre, license_kind="domaine_public", provider=None,
             offline_allowed=True, metered=False, versification="standard",
+            text_family=version.famille,
         ))
         # ⚠️ La version doit exister **avant** les versets : l'insertion en masse est un ordre
         # SQL direct, elle ne déclenche pas l'écriture de l'objet ORM encore en attente, et la
