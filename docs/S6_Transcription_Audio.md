@@ -739,9 +739,9 @@ Cette note appelle du code. Elle le nomme, et elle s'arrête.
 
 ## 10. Questions ouvertes — à trancher par un humain
 
-### 10.0 Le tri — sur trente et un points, **un seul bloque aujourd'hui**
+### 10.0 Le tri — sur trente-trois points, **plus aucun ne bloque** (14/08)
 
-Vingt-deux décisions et neuf questions font une liste intimidante, et c'est trompeur. Passées au
+Vingt-quatre décisions et neuf questions font une liste intimidante, et c'est trompeur. Passées au
 crible, la plupart ne sont pas des arbitrages : ce sont des **conséquences** de choses déjà tranchées
 ailleurs dans le dépôt, ou des constatations que la vérification du code a confirmées. Le tri
 importe plus que la liste — **une fausse décision consomme la même attention qu'une vraie.**
@@ -750,28 +750,30 @@ importe plus que la liste — **une fausse décision consomme la même attention
 | :-- | --: | :-- | :-- |
 | **Déjà tranché ailleurs** — la note ne fait que le reporter | 10 | **D5** (`TranscriptionPort`, spec capture §4) · **D8** (précédent `media/video.py`) · **D9** (`language_hints`, §4) · **D10-D11** (couverture 30 %, *« partiel jamais un silence »*, §10.5) · **D12** (S36) · **D13** (pilier 2) · **D14** (M9-1) · **D15** (Plan_Urim_Producteur, 05/08) · **D2** (*« côté église, donc côté payant »*, commit `da4d2ef`) | ⛔ **personne** — c'est écrit |
 | **Conséquence ou constatation** — l'arithmétique ou le code tranche seul | 7 | **D1** (chaîne `entry_origin` vérifiée entière) · **D3** · **D7** (`sermon_max_bytes` existe) · **D8bis** (exigence, pas choix) · **D16** · **D18** · **D19** (découle de D18) | ⛔ **personne** |
-| **Décision d'ingénierie** — la mienne, contestable, tracée | 5 | **D4** (unité = la capture, pas la minute) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) · **D20** (pas de détour par une API) · **D21** (le point de départ, §5bis) | ✅ **prise** — **D17, D20, D21** seront confirmés ou réfutés par la mesure |
+| **Décision d'ingénierie** — la mienne, contestable, tracée | 7 | **D4** (unité = la capture) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) · **D20** (pas de détour par une API) · **D21** (le point de départ, §5bis) · **D22** (on ne démolit pas avant d'avoir remplacé) · **D23** (informer est le plancher) | ✅ **prises** — **D17, D20, D21** seront confirmés ou réfutés par la mesure |
 | **Ne se décide pas — se mesure** | 2 | **Q3** (quel modèle) · **Q9** (les seuils) | 📏 **l'audio**, ligne 2 du §9 |
 | **Vraie décision humaine, différable** | 5 | **Q1** (souveraineté → exploitation) · **Q2** (qui paie) · **Q5** (rétention négociable) · **Q6** (quelles langues promettre) · **Q8** (qui a la capture) | ⏳ **après l'audio** |
-| **Vraie décision humaine, à LANCER maintenant** | 1 | **Q4** (information de l'assemblée, 7 pays) | ⚠️ **délai externe non compressible** — la décision peut attendre, **l'instruction non** |
-| 🔴 **Bloquante aujourd'hui** | **1** | **Q7** | 🔴 **vous, cette semaine** |
+| **Instruction externe à LANCER** — le plancher est répondu (**D23**) | 1 | **Q4** → éclatée en **Q4a** (consentement) · **Q4b** (registre) · **Q4c** (effacement) | ⚠️ **délai non compressible** — seules ces trois-là changent le produit |
+| ✅ **Répondue le 14/08** | 1 | **Q7** → **D22** (§10.2) | ✅ **plus bloquante** |
+| 🔴 **Bloquant aujourd'hui** | **0** | — | **rien n'attend une décision pour avancer** |
 
 **Trois choses que ce tri fait apparaître :**
 
-1. **Q7 est le seul verrou de la semaine.** Tant qu'elle n'est pas tranchée, on ne sait pas si
-   `sermon` se démolit (R0→R4, du travail disponible tout de suite) ou se prolonge. Tout le reste
-   attend soit l'audio, soit rien ;
+1. **Plus rien n'attend une décision pour avancer.** Q7 était le verrou de la semaine ; elle est
+   répondue (**D22**, §10.2), et sa réponse est qu'il n'y avait pas d'arbitrage — seulement une
+   moitié de règle qui manquait. **Le chantier réellement débloqué n'est pas R1, c'est le corpus** ;
 2. **Q1 a changé de nature le 13/08.** Ce n'était pas une décision d'argent — et depuis les poids
    ouverts, elle ne l'est plus du tout : au-delà de ~300 églises le GPU souverain est **le moins
    cher des deux**. Ce qui reste à décider n'est pas *« peut-on se le permettre ? »* mais
    *« qui tient la machine la nuit du dimanche ? »*. **C'est une question d'exploitation, et elle
    n'a pas le même destinataire** ;
-3. **Q4 est la seule dont l'horloge tourne déjà.** Instruire une obligation légale dans sept pays
-   prend des semaines qu'aucune décision ne compresse — même remarque que le plan Finance fait sur
-   le mobile money. La lancer maintenant ne coûte rien et ne présume de rien.
+3. **Q4 est la seule dont l'horloge tourne, et elle a rétréci.** Son plancher se répondait seul
+   (**D23** : informer ne dépend d'aucune réponse juridique) ; ce qui reste, ce sont **Q4a-b-c**,
+   et elles seules changent le produit. Instruire dans sept pays prend des semaines qu'aucune
+   décision ne compresse — même remarque que le plan Finance fait sur le mobile money.
 
-> ⚠️ **Et le tri est lui-même un constat sur ce dépôt.** **Dix-sept points sur trente et un** étaient
-> déjà résolus avant que cette note les écrive, et **cinq de plus** ne demandent qu'un ingénieur.
+> ⚠️ **Et le tri est lui-même un constat sur ce dépôt.** **Dix-sept points sur trente-trois** étaient
+> déjà résolus avant que cette note les écrive, et **sept de plus** ne demandent qu'un ingénieur.
 > C'est bon signe — les specs tiennent, et une question neuve trouve le plus souvent sa réponse dans
 > une règle existante. C'est aussi **R1**, la dispersion : une note qui dramatise en *décisions* ce
 > que le dépôt avait déjà tranché fabrique du travail de lecture, pas du travail. **Le tri appartient
@@ -788,16 +790,86 @@ importe plus que la liste — **une fausse décision consomme la même attention
 | **Q1** | **Souveraineté — et elle ne coûte plus rien à partir d'une certaine taille.** Accepte-t-on qu'un culte ivoirien complet, voix de l'assemblée comprises, transite par un serveur américain ou européen ? Et la dictée par les serveurs de Google (**D1**) ? | Ce n'était pas un arbitrage de prix, et ça l'est encore moins depuis §2.2bis : les poids ouverts sont en **Apache 2.0**, et au-delà de ~300 églises **le GPU souverain est le moins cher des deux**. La question qui reste est celle de l'**exploitation** — qui tient la machine, la nuit du dimanche |
 | **Q2** | **Qui paie, et combien de cultes.** Quelle offre de `Tenant_Subscription` ouvre l'audio du dimanche, et à quel `ceiling` mensuel (**D2, D4**) ? | L'abonnement d'église est une **note de design non implémentée**. Tant qu'elle l'est, **D3** (ouverture par configuration) tient lieu de réponse |
 | **Q3** | **Le modèle, et sa qualité réelle en français ivoirien.** *(point ouvert n° 1 de la spec de capture)* | Se mesure, ne se choisit pas — ligne **2** du §9. **D21** (§5bis) donne le **point de départ** et nomme d'avance ce qui le renverserait ; le port (**D5**) existe pour que ce départ reste réversible. ⚠️ Un pari nommé n'est pas une réponse : c'est ce que la mesure doit avoir à réfuter |
-| **Q4** | **L'information de l'assemblée.** Faut-il prévenir les fidèles qu'un culte est enregistré, et est-ce une obligation légale dans les 7 pays ? *(point ouvert n° 5 de la spec de capture)* | Question de droit, à instruire pays par pays. ⚠️ La rétention J+7 et la purge datée sont une **atténuation**, pas une réponse |
+| **Q4** | **L'information de l'assemblée.** Faut-il prévenir les fidèles qu'un culte est enregistré, et est-ce une obligation légale dans les 7 pays ? *(point ouvert n° 5 de la spec de capture)* | ✅ **Le plancher est répondu le 14/08 — voir §10.2 et D23.** *On informe, et on n'attend pas.* **Trois sous-questions restent, et elles seules changent le produit** : consentement (opt-in) en plus de l'information ? registre des enregistrements ? droit à l'effacement d'un culte contenant sa voix ? ⚠️ Celles-là demandent un juriste, pays par pays |
 | **Q5** | **La rétention J+7 est-elle négociable ?** Un pasteur peut-il demander à garder son audio plus longtemps, et en porter la responsabilité ? | Arbitrage entre son usage (retranscrire un jour mieux) et les voix de la salle, qui n'ont rien demandé |
 | **Q6** | **Les langues locales — jusqu'où va la promesse, langue par langue ?** (**§5.3, D19**) La question a changé de nature le 13/08 : ce n'est plus *« accepte-t-on de dire non ? »* mais *« à partir de quel taux d'erreur mesuré dit-on oui, et pour laquelle ? »* | Le dioula (93 h d'entraînement) et le baoulé (**8 h**) ne se décident pas ensemble. ⚠️ Et une décision de plus, qui n'est pas technique : **est-il acceptable de proposer une transcription médiocre dans la langue de quelqu'un**, ou vaut-il mieux ne rien proposer que mal ? |
-| **Q7** | ⚠️ **La plus urgente. Accepte-t-on qu'aucune transcription du culte ne sorte tant que le chantier 10 est gelé** (**D15**, §8) — ou faut-il rouvrir le retrait de `sermon`, décidé le 05/08 et non commencé, pour livrer plus tôt un producteur qu'on a jugé moins bien gardé ? | C'est un arbitrage **délai contre rigueur**, déjà posé par le plan de retrait : *« un producteur médiocre disponible aujourd'hui contre un producteur rigoureux disponible plus tard — un bon échange, à condition de le faire les yeux ouverts »*. Cette note **ne le rouvre pas**, elle en chiffre le prix |
+| **Q7** | **Accepte-t-on qu'aucune transcription du culte ne sorte tant que le chantier 10 est gelé** (**D15**, §8) — ou faut-il rouvrir le retrait de `sermon`, décidé le 05/08 et non commencé, pour livrer plus tôt un producteur jugé moins bien gardé ? | ✅ **Répondue le 14/08 — voir §10.2 et D22.** *Ne pas rouvrir la décision, ne pas démolir non plus.* **L'arbitrage « délai contre rigueur » n'en était pas un** : il ne se pose que si l'on démolit avant de remplacer, et rien n'y oblige |
 | **Q8** | **Qui décide qu'une église a la capture**, et donc qu'on ne retranscrit pas son culte une seconde fois ? | Dépend du dégel du chantier 10 et de la façon dont les deux produits se vendent (ADR-007 les destine à se séparer) |
 | **Q9** | **Le seuil de confiance et les 30 % de couverture** : quelles valeurs ? | Des paris, aujourd'hui. Se calibrent sur les trois cultes réels de la ligne **2** du §9 — pas avant |
 
+### 10.2 Les deux réponses du 14/08 — **plus rien ne bloque cette semaine**
+
+#### Q7 — ne pas rouvrir la décision, **et ne pas démolir non plus**
+
+Les deux ne sont pas contradictoires, et c'est ce que le plan du 05/08 n'avait pas séparé.
+
+**Pourquoi ne pas rouvrir.** L'argument du retrait est l'**inversion des protections** — l'atelier
+rigoureux sert l'artefact que personne ne voit, le digesteur sans garde alimente ce que toute
+l'église lit. Cet argument ne dépend pas du calendrier, donc il ne se périme pas. Et livrer S-6
+dans `sermon` l'aggraverait : ce serait donner un transcript **non mesuré** au producteur le plus
+faible.
+
+**Pourquoi ne pas démolir pour autant.** Le chantier 11 (publication) dépend du 6 (moteur assemblé),
+qui dépend du corpus. Démolir maintenant laisse l'église **sans aucun producteur** jusqu'à ce que
+le corpus soit semé. Le plan présente l'échange comme *« un producteur médiocre disponible
+aujourd'hui contre un producteur rigoureux disponible plus tard »* — mais **ce n'est un échange que
+si l'on démolit avant de remplacer, et rien n'y oblige.**
+
+Et le producteur médiocre n'est pas dangereux au sens strict : le digest passe par l'**approbation
+du pasteur** avant d'atteindre un membre (pilier 2). Le garde est faible côté modèle ; il existe
+côté humain.
+
+> ✅ **D22 — la règle du plan était « on relocalise avant de démolir ». Voici la moitié qui manquait :
+> on ne démolit pas avant d'avoir remplacé.**
+
+| Lot | Quand | Pourquoi |
+| :-- | :-- | :-- |
+| **R0** — reconnaissance → `watch` | ✅ **fait** | sans regret : préserve une capacité qui mourrait autrement |
+| **R1** — présence déclarée → `attendance` | quand la question de surface est tranchée | *qui* demande « étais-tu au culte ? » une fois le compagnon parti (§8) |
+| **R2** — capsules → port d'Urim | quand le **chantier 11** existe | sinon : un port sans appelant dans Urim — l'orphelin, en miroir |
+| **R3 · R4** — compagnon, démolition | **quand Urim publie**, pas avant | démolir le seul producteur avant son remplaçant |
+
+⚠️ **Conséquence sur la semaine :** le chantier réellement débloqué n'est pas R1 — c'est le
+**corpus** (chantier 1), libéré par **D-A** le 06/08, et dont tout le reste dépend.
+
+#### Q4 — le plancher se répond seul ; trois sous-questions restent
+
+**Ce qui ne demande aucun juriste : on informe, et on n'attend pas.** Un enregistrement de culte
+capte les voix de gens qui n'ont rien signé — la spec de capture le dit elle-même : *un témoignage
+donné au micro du prédicateur peut passer*.
+
+> ✅ **D23 — informer l'assemblée est le PLANCHER, pas la conclusion.** Aucune juridiction
+> n'exigera jamais d'informer *moins*. C'est donc la seule action dont la justesse **ne dépend pas
+> de la réponse juridique**, et elle peut partir aujourd'hui.
+
+Concrètement, et ça ne coûte presque rien : une phrase dans les annonces avant le culte, et une
+mention visible dans l'application quand une capture est active. **Une information, pas un
+formulaire de consentement** — ce n'est pas la même chose, et confondre les deux fabrique une
+friction que rien n'impose encore.
+
+Deux mesures déjà spécifiées valent d'être gardées pour la même raison : la **purge J+7** et
+`audio_purged_at` **daté** (§4.3). Ce sont exactement les atténuations que la plupart des régimes
+demandent, et elles sont gratuites — sur une donnée qu'on détruit pour tenir une promesse, savoir
+*quand* elle a disparu est ce qu'on voudra prouver.
+
+**Ce qui demande vraiment un juriste, et que cette note ne tranche pas :**
+
+| # | Question | Ce qu'elle changerait |
+| :-- | :-- | :-- |
+| **Q4a** | Un **consentement** (opt-in) est-il requis **en plus** de l'information ? | un écran de recueil, et un culte non enregistrable si quelqu'un refuse |
+| **Q4b** | Faut-il tenir un **registre** des enregistrements ? | une table et une surface d'export |
+| **Q4c** | Une personne peut-elle exiger l'**effacement** d'un culte contenant sa voix — et que devient le transcript déjà produit ? | ⚠️ **la plus lourde** : elle touche `urim_transcript_segment` et `urim_cited_verse`, donc le Retour lui-même |
+
+**Seules ces trois-là changent le produit.** À instruire en commençant par la **Côte d'Ivoire**,
+pays du pilote — c'est là que le premier enregistrement aura lieu.
+
+> **Q4 cesse donc d'être bloquante et redevient ce qu'elle est : une instruction à lancer.** On agit
+> au plancher aujourd'hui, on ajuste quand le juriste répond. Ce qui restait vraiment ouvert, c'était
+> Q4a-b-c — **pas *« faut-il prévenir les gens ? »***.
+
 ---
 
-*Note de conception — fait foi sur les décisions **D1 à D21**. `Dorea_Urim_Architecture_Transcription.md`
+*Note de conception — fait foi sur les décisions **D1 à D23**. `Dorea_Urim_Architecture_Transcription.md`
 et `Dorea_Urim_Capture_et_Retour.md` font foi sur la capture ; `Plan_Urim_Producteur.md` sur le
 retrait de `sermon` et sur l'ordre des chantiers ; `Sermon_Companion.md` sur l'état d'avant ce
 retrait. **Aucun code n'a été écrit.***
