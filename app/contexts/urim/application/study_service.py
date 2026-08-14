@@ -48,9 +48,11 @@ from app.contexts.urim.application.reference_libre import (
 )
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
 from app.contexts.urim.domain.errors import (
+    ElementInconnuError,
     OptionInconnueError,
     PreparationIntrouvableError,
 )
+from app.contexts.urim.domain.squelette import CODES, code_canonique
 from app.contexts.urim.engine.deps import (
     ConvictionReader,
     EngineDeps,
@@ -573,9 +575,24 @@ class UrimStudyService:
     ) -> StudyDTO:
         record = await self._charger(study_id)
         await self._ensure_owner_or_preacher(actor_account_id, record)
-        # Champs **libres**. Le squelette (Braga ou autre) propose un ordre ; il n'impose
-        # aucun contenu, et un élément vide reste un état normal.
-        await self.studies.set_elements(study_id, list(elements))
+        # Le **contenu** reste libre — le squelette propose un ordre, il n'impose aucun texte,
+        # et un élément vide est un état normal. Ce qui est fermé, c'est le **code de section**.
+        #
+        # ⚠️ **On canonise avant de refuser.** `Divisions`, `POINT`, `sous point`, `Intro`
+        # retombent sur leur code : sans cela, fermer la liste ne ferait que déplacer le
+        # problème — au lieu d'un verrou contourné par une majuscule, un plan refusé pour la
+        # même majuscule.
+        retenus: list[ElementRecord] = []
+        for element in elements:
+            code = code_canonique(element.element_code)
+            if code is None:
+                raise ElementInconnuError(
+                    f"« {element.element_code} » n'est pas une section connue. "
+                    f"Sections acceptées : {', '.join(CODES)}.",
+                    details={"element_code": element.element_code, "connus": list(CODES)},
+                )
+            retenus.append(ElementRecord(code, element.ordinal, element.body))
+        await self.studies.set_elements(study_id, retenus)
         return await self._rejouer(record, persist=False)
 
     async def articuler(

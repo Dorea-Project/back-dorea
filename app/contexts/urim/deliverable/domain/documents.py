@@ -59,35 +59,25 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-#: Les dix éléments du squelette (Braga) — l'ordre que la spec fixe, et que l'écran propose.
-ELEMENTS = (
-    "titre",
-    "introduction",
-    "proposition",
-    "phrase_interrogative",
-    "phrase_de_transition",
-    "divisions",
-    "subdivisions",
-    "illustrations",
-    "application",
-    "conclusion",
+from app.contexts.urim.domain.squelette import (
+    ELEMENTS,
+    ELEMENTS_OBSERVES,
+    POINT_CENTRAL,
 )
 
-#: Ce que les prédications réelles portent **en plus**, et que Braga ne nomme pas
-#: (`docs/temoins/`). Elles ne ferment rien : la colonne reste libre. Elles existent pour que
-#: l'écran les **propose**, plutôt que de laisser un pasteur inventer un code par section.
-ELEMENTS_OBSERVES = (
-    "objectif",       # « Objectif : favorisant un retour aux fondamentaux » (Saint-Esprit)
-    "contexte",       # datation, auteur, visée du livre — systématique en introduction
-    "definitions",    # « Définition : A- un signe dans la Bible · B- la prière » (Signes)
-    "nb",             # l'application immédiate, posée avant le plan (Signes)
-    "temoignage",     # « Mon Témoignage » (Signes)
-)
-
-#: **Le seuil du livrable** — un point du plan, écrit par lui. Voir l'en-tête : ce n'est pas la
-#: `proposition` (aucun témoin n'en contient) ni le `theme` (le moteur le remplit d'office).
-POINT_CENTRAL = "divisions"
-
+#: Réexportés : le livrable s'en sert, il ne les possède pas. Le squelette appartient à la
+#: **préparation** — `PUT /elements` l'écrit bien avant qu'un document existe.
+__all__ = [
+    "ELEMENTS",
+    "ELEMENTS_OBSERVES",
+    "POINT_CENTRAL",
+    "Deck",
+    "Diapositive",
+    "MotOriginal",
+    "Note",
+    "mots_communs",
+    "point_central_renseigne",
+]
 
 @dataclass(frozen=True, slots=True)
 class Diapositive:

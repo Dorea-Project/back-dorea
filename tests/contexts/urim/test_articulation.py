@@ -84,9 +84,15 @@ class _StudiesAvecPlan(_Studies):
         super().__init__()
         self._elements = list(elements)
         self.articulations: dict[tuple, tuple[str, PlanSuggestion]] = {}
+        #: Ce que le service a **effectivement** écrit — la fermeture des codes s'y lit.
+        self.elements_ecrits: list[ElementRecord] = []
 
     async def list_elements(self, study_id):
         return self._elements
+
+    async def set_elements(self, study_id, elements):
+        self.elements_ecrits = list(elements)
+        self._elements = list(elements)
 
     async def save_plan_suggestion(
         self, study_id, element_code, ordinal, input_hash, suggestion, at

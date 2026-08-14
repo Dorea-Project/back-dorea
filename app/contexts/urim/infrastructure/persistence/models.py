@@ -129,6 +129,25 @@ class UrimPreparationElementModel(Base):
 
     __tablename__ = "urim_preparation_element"
 
+    __table_args__ = (
+        # ⚠️ **La liste est fermée en base, pas seulement au service.** Une garde applicative
+        # tombe au premier second chemin d'écriture — un import, un script de reprise. Et le
+        # verrou du livrable s'adosse à `divisions` : un code qui dérive lui refuserait son
+        # document alors qu'il a écrit son plan.
+        #
+        # Quinze et non dix : les dix de Braga **plus** les cinq que les prédications réelles
+        # portent (`docs/temoins/`). Fermer aux dix aurait refusé à trois pasteurs sur trois
+        # des sections qu'ils tiennent depuis toujours.
+        CheckConstraint(
+            "element_code IN ("
+            "'titre','introduction','proposition','phrase_interrogative',"
+            "'phrase_de_transition','divisions','subdivisions','illustrations',"
+            "'application','conclusion',"
+            "'objectif','contexte','definitions','nb','temoignage')",
+            name="element_code_connu",
+        ),
+    )
+
     preparation_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
     )

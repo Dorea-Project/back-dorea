@@ -600,8 +600,18 @@ Ce qui **est** vérifié : la conversion reçoit les octets déjà rendus et leu
 un livrable rejeté ne se convertit pas davantage. Le chemin réel se vérifie au premier
 `docker build`.
 
-**Ce qui reste** : la fermeture des dix codes Braga (§9.4), qui touche une route déjà en
-service, et les décisions du lexique ([`Urim_Lexique_Strong.md`](Urim_Lexique_Strong.md)).
+✅ **La liste des codes est fermée** (2026-08-14) — `app/contexts/urim/domain/squelette.py`,
+migration `b6c7d8e9f0a1`. **Quinze et non dix** : les dix de Braga plus les cinq que les
+témoins portent. Fermer aux dix aurait refusé à trois pasteurs sur trois des sections qu'ils
+tiennent depuis toujours — le même défaut que le seuil adossé à la `proposition`.
+
+⚠️ **Fermer seul aurait déplacé le problème** : au lieu d'un verrou contourné par une
+majuscule, un plan **refusé** pour la même majuscule. Le service canonise donc d'abord —
+`Divisions`, `POINT`, `sous point`, `Intro`, `ccl` retombent sur leur code — et ce qui reste
+est refusé **en nommant la liste**. La table était vide : aucune reprise, aucun client cassé.
+
+**Ce qui reste** : les décisions du lexique
+([`Urim_Lexique_Strong.md`](Urim_Lexique_Strong.md)) et la réécriture de l'invite de curation.
 
 ⚠️ **`uv` n'étant pas dans le `PATH`, `python-docx` a été installé par `pip` et déclaré dans
 `pyproject.toml` ; `uv.lock` reste en retard** (il ignore déjà `python-pptx` et `pypdf`). Le
@@ -735,7 +745,7 @@ Elle s'arrête ici. Voici ce qu'il faudra écrire, pour que personne ne le déco
 | 1 | **`kind IN ('deck','note')` + `format IN ('pptx','docx','pdf')`**, et un `CHECK` qui interdit *deck × docx* et *note × pptx* | `docx` est aujourd'hui **interdit par la contrainte** ; et une seule colonne ne peut pas dire à la fois *quel document* et *sous quel encodage* — or c'est la frontière du §3 qu'on perdrait dans la trace (§3.2). Table jamais écrite : aucune reprise |
 | 2 | `deliverable` : **+ `validated_by`, `validated_at`**, et un `CHECK` — `validation = 'conforme'` ⇒ les deux `NOT NULL` | §7 : une validation sans signataire n'est pas une validation |
 | 3 | `deliverable` : **+ `corpus_snapshot`, + `content_fingerprint`** | §7 |
-| 4 | **Fermer la liste des dix codes Braga** — `preparation_element.element_code` est aujourd'hui un texte libre, sans `CHECK` ni validation | §1.3 bis : le seuil s'adosse au code `proposition`. Une liste ouverte le rend contournable par une majuscule, **et refuse un pasteur qui avait pourtant écrit son point central**. Même patron que les dix `doctrinal_axis` et les trois `plan_source` : des codes de référence semés par la migration |
+| 4 | ✅ **Fait le 2026-08-14 — quinze codes, pas dix.** `CHECK element_code_connu` + canonisation au service | §1.3 bis : le seuil s'adosse au code `proposition`. Une liste ouverte le rend contournable par une majuscule, **et refuse un pasteur qui avait pourtant écrit son point central**. Même patron que les dix `doctrinal_axis` et les trois `plan_source` : des codes de référence semés par la migration |
 
 ⚠️ **Le delta 4 déborde le livrable et doit être traité comme tel.** Il touche une route déjà en
 service (`PUT /studies/{id}/elements`) : fermer la liste rendra invalide tout `element_code` qu'un

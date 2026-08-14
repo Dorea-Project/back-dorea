@@ -43,6 +43,21 @@ class CurationInvalideError(UrimError):
     http_status = 422
 
 
+class ElementInconnuError(UrimError):
+    """Une section de plan dont le code n'est pas de la liste.
+
+    ⚠️ **Le motif nomme les sections acceptées.** Un refus qui dit seulement « code invalide »
+    laisse un pasteur devant un formulaire qu'il ne peut pas remplir — et la liste est courte
+    assez pour tenir dans la phrase.
+
+    On n'arrive ici qu'après canonisation : `Divisions`, `POINT`, `Intro`, `sous point` sont
+    déjà retombés sur leur code. Ce qui est refusé est ce qu'on ne sait vraiment pas ranger, et
+    ranger au hasard serait pire — la section disparaîtrait sous une autre."""
+
+    code = "URI_ELEMENT_UNKNOWN"
+    http_status = 422
+
+
 class LivrableSansPlanError(UrimError):
     """**Le refus qui porte la règle centrale du livrable.**
 
