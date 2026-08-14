@@ -124,7 +124,7 @@ def _empreinte_de_la_demande(chemin: str, lisible: str) -> str:
 
 def _marquer_les_ecartees(
     options, stage_code: str, ecartees: list[tuple[str, str]]
-) -> tuple[tuple[str, str, str, str, bool], ...]:
+) -> tuple[tuple[str, str, str, str, bool, str | None, str | None], ...]:
     """Les options écartées **restent**, marquées et reléguées en fin de liste.
 
     Les retirer serait plus simple à écrire et faux à lire : le pasteur ne saurait plus ce
@@ -135,7 +135,7 @@ def _marquer_les_ecartees(
     offerte par deux étages, et l'écarter à l'un ne dit rien de l'autre."""
     repoussees = {code for etage, code in ecartees if etage == stage_code}
     rendues = tuple(
-        (o.code, o.label, o.rationale, o.origin, o.code in repoussees, o.strength)
+        (o.code, o.label, o.rationale, o.origin, o.code in repoussees, o.strength, o.signature)
         for o in options
     )
     # Tri **stable** : l'ordre du moteur est une décision d'étage, on ne fait que descendre

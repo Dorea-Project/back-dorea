@@ -202,6 +202,12 @@ class ChipItem(BaseModel):
     origin: str = "moteur"
     selected: bool = False
 
+    #: ⚠️ **Qui a écrit ce libellé**, quand ce n'est pas le corpus — `ia-mistral`, le mot du
+    #: bandeau. `origin` dit d'où vient la **proposition**, celle-ci dit qui l'a **habillée** :
+    #: les dix loci viennent tous de la dogmatique, et trois d'entre eux portent la phrase du
+    #: pasteur écrite par un modèle. Les confondre reviendrait à dire que l'axe est généré.
+    signature: str | None = None
+
 
 class ChipsBlock(BaseModel):
     """Un choix qui se touche.
@@ -373,7 +379,7 @@ def _pastilles(options: list) -> list[ChipItem]:
     return [
         ChipItem(
             code=o.code, label=o.label, hint=o.rationale[:80],
-            origin=o.origin, selected=False,
+            origin=o.origin, selected=False, signature=o.signature,
         )
         for o in options
         if not o.dismissed

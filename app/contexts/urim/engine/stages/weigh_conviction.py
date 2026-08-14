@@ -56,6 +56,11 @@ _CE_QUE_LE_TEXTE_FAIT = {
     "resiste": "⚠ ce texte le complique ou le contredit",
 }
 
+#: Le mot de `reviewed_by`, et pas un synonyme : le client connaît déjà « ia-mistral » par le
+#: bandeau de l'unité littéraire. Deux vocabulaires pour la même question — *qui a écrit ça ?* —
+#: lui feraient traiter deux fois le même cas.
+SIGNATURE_GLOSE = "ia-mistral"
+
 #: ⚠️ **Combien de textes par groupe — et le même nombre pour les trois.**
 #:
 #: 🔴 L'étage servait **toutes** les unités de l'axe : 4 302 sur l'anthropologie, 3 971 sur la
@@ -126,6 +131,10 @@ class WeighConviction:
         options = tuple(
             Option(
                 code=f"axe:{axe.code}",
+                # ⚠️ La signature suit **le libellé**, pas l'option : les dix loci viennent tous
+                # du corpus, seuls certains sont habillés. Un client qui marquerait l'option
+                # entière dirait que l'axe est généré, ce qui est faux.
+                signature=SIGNATURE_GLOSE if gloses.get(axe.code) else None,
                 label=(
                     gloses[axe.code].title if axe.code in gloses else ""
                 ) or axe.label,

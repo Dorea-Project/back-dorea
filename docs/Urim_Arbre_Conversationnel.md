@@ -295,11 +295,39 @@ axe doctrinal, exactement comme `shape_homiletic` acceptait n'importe quel coupl
 famille de trou, au même endroit du code — la bordure qui applique une décision sans demander au
 corpus si elle existe.
 
-**La glose peut adopter la thèse du pasteur.** Sur cette même saisie, le modèle a rebaptisé
-*pneumatologie* en **« L'effusion obligatoire »**, puis **« L'effusion nécessaire »** au passage
-suivant. `code` reste le locus, donc rien n'est faussé en aval — mais l'écran renvoie au pasteur
-sa conviction promue au rang d'axe doctrinal. À regarder : la glose est censée parler sa langue,
-pas ratifier sa thèse.
+**La glose, mesurée avant d'être jugée — et le soupçon était à moitié faux.** Sur la saisie
+protestante, le modèle avait rebaptisé *pneumatologie* en **« L'effusion obligatoire »**, puis
+**« L'effusion nécessaire »** au passage suivant. J'en avais conclu que la glose *ratifiait la
+thèse*. Huit saisies, trois appels chacune, zéro échec de transport :
+
+| | |
+| :-- | :-- |
+| titres **qui tranchent** | 3 sur 17 — et **tous** sur des saisies qui portaient déjà leur thèse |
+| titres instables d'un appel à l'autre | 5 sur 17, variantes synonymes (« déification » / « divinisation ») |
+| saisies neutres | titres neutres : « La prière sans réponse », « L'Église sans amour », « Le poids du péché » |
+
+**Le modèle fait écho, il n'invente pas.** L'invite le lui demande explicitement — *« dans la
+langue du pasteur et non celle de l'école »* — et elle porte déjà une garde, mais une seule :
+*« le titre nomme un ANGLE DE PRÉDICATION, jamais l'état de celui qui écrit »*. Elle interdit de
+**diagnostiquer le pasteur**. Elle ne dit rien de **reprendre sa thèse**, et c'est là que la
+mesure a déplacé le problème.
+
+Le vrai défaut n'est pas la formulation : `AxisGloss` a décidé que cet écran parle la langue du
+pasteur, et c'est juste. Le défaut est que **sept libellés viennent du corpus et trois du
+modèle, et que rien ne les distinguait** — `origin` valait `locus` pour les dix. Le pasteur lit
+*« voici les dix axes de la dogmatique »*, et l'un d'eux s'appelle « L'effusion obligatoire ».
+
+**Réparé** — `Option.signature`, remontée jusqu'à `ChipItem`. C'est §5.4 appliqué là où il
+manquait (*pour que rien de généré ne se confonde avec une relecture*), avec le mot de
+`reviewed_by` pour que le client n'ait qu'un vocabulaire :
+
+    [locus] Théologie propre — Dieu
+    [locus] L'effusion obligatoire        <- ia-mistral
+    [locus] La grâce indispensable        <- ia-mistral
+    [locus] Ecclésiologie — l'Église
+
+⚠️ `origin` et `signature` répondent à deux questions et les confondre dirait faux : l'axe vient
+de la dogmatique dans les dix cas, seul son **habit** est généré.
 
 **La relecture est un écran que personne n'avait cartographié.** `GET /studies/{id}` rejoue les
 huit étages sur un état déjà décidé : les étages qui rendaient la main ne s'appliquent plus, et

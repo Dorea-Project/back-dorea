@@ -57,9 +57,14 @@ def _dto(**kw) -> StudyDTO:
         outcome="await_decision",
         rationale="Laquelle prêchez-vous ?",
         trace=(("route_entry", "Lu comme une intention."),),
+        # `(code, libellé, motif, origine, écartée, force, signature)` — la signature dit qui a
+        # écrit le **libellé** : ici le corpus pour l'axe, personne pour le passage proposé.
         options=(
-            ("axe:christologie", "Christologie", "Disponible.", "locus", False, None),
-            ("Hébreux 13:1-2", "Hébreux 13:1-2", "Traite ce sujet.", "sens", False, None),
+            ("axe:christologie", "Christologie", "Disponible.", "locus", False, None, None),
+            (
+                "Hébreux 13:1-2", "Hébreux 13:1-2", "Traite ce sujet.", "sens", False,
+                None, None,
+            ),
         ),
         verses=(VerseServed("Hébreux 13:1", "Persévérez dans l'amour fraternel."),),
         elements=(ElementRecord("introduction", 0, None),),

@@ -56,6 +56,25 @@ class Option:
     #: jamais un synonyme.
     strength: str | None = None
 
+    #: ⚠️ **Qui a écrit ce libellé** — `None` quand il vient du corpus, `ia-mistral` quand un
+    #: modèle l'a habillé.
+    #:
+    #: 🔴 Sur l'écran des dix loci, sept libellés viennent de la dogmatique et trois du modèle
+    #: — et rien ne les distinguait : `origin` valait `locus` pour les dix. Le pasteur lisait
+    #: *« voici les dix axes »*, et l'un d'eux s'appelait « L'effusion obligatoire », c'est-à-dire
+    #: sa propre thèse sous l'apparence d'une catégorie du corpus.
+    #:
+    #: Mesuré avant d'être corrigé : le modèle n'invente aucune thèse, il **fait écho** à la
+    #: saisie — les trois seuls titres qui tranchaient sortaient de saisies qui portaient déjà
+    #: leur thèse. Ce n'est donc pas la formulation qu'il faut changer (`AxisGloss` a décidé que
+    #: cet écran parle la langue du pasteur, et c'est juste) : c'est **de dire lequel est
+    #: habillé**.
+    #:
+    #: C'est §5.4 du contrat, appliqué là où il manquait — *pour que rien de généré ne se
+    #: confonde avec une relecture* —, et le mot est celui de `reviewed_by` pour que le client
+    #: n'ait qu'un vocabulaire à connaître.
+    signature: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class StageResult:

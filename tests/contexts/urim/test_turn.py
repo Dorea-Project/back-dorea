@@ -20,7 +20,11 @@ class _Trace:
 
 class _Option:
     def __init__(
-        self, code: str, dismissed: bool = False, strength: str | None = None
+        self,
+        code: str,
+        dismissed: bool = False,
+        strength: str | None = None,
+        signature: str | None = None,
     ) -> None:
         self.code = code
         self.label = f"libellé {code}"
@@ -28,6 +32,8 @@ class _Option:
         self.origin = "locus"
         self.dismissed = dismissed
         self.strength = strength
+        #: Qui a écrit le **libellé** — `None` = le corpus, `ia-mistral` = une glose.
+        self.signature = signature
 
 
 class _Pesee:
@@ -114,6 +120,41 @@ def test_l_origine_ne_se_perd_pas() -> None:
     """§5.3 — deux options côte à côte ne valent pas la même chose."""
     pastilles = construire_tour(_Vue()).blocks[0]
     assert pastilles.items[0].origin == "locus"
+
+
+def test_un_libelle_habille_par_le_modele_porte_sa_signature() -> None:
+    """🔴 **Sept libellés du corpus et trois du modèle, indiscernables.**
+
+    Sur l'écran des dix loci, le pasteur lit *« voici les dix axes de la dogmatique »* — et
+    l'un d'eux s'appelle « L'effusion obligatoire », c'est-à-dire sa propre thèse sous
+    l'apparence d'une catégorie du corpus. `origin` valait `locus` pour les dix.
+
+    Mesuré avant d'être corrigé : le modèle **fait écho** à la saisie, il n'invente aucune
+    thèse. Ce n'est donc pas la formulation qu'on change — cet écran doit parler la langue du
+    pasteur — c'est qu'on dit **lequel est habillé**. §5.4, là où il manquait."""
+    vue = _Vue(options=[
+        _Option("axe:pneumatologie", signature="ia-mistral"),
+        _Option("axe:angelologie"),
+    ])
+
+    habille, brut = construire_tour(vue).blocks[0].items
+
+    assert habille.signature == "ia-mistral"
+    assert brut.signature is None, "un libellé du corpus ne se signe pas"
+
+
+def test_la_signature_du_libelle_ne_dit_rien_de_la_provenance_de_l_option() -> None:
+    """⚠️ Les deux champs répondent à deux questions, et les confondre dirait faux.
+
+    `origin` : d'où vient la **proposition** — les dix loci viennent tous de la dogmatique.
+    `signature` : qui a écrit le **libellé**. Un client qui lirait la signature comme une
+    origine annoncerait au pasteur que l'axe lui-même est généré."""
+    vue = _Vue(options=[_Option("axe:pneumatologie", signature="ia-mistral")])
+
+    (pastille,) = construire_tour(vue).blocks[0].items
+
+    assert pastille.origin == "locus"
+    assert pastille.signature == "ia-mistral"
 
 
 def test_la_signature_est_portee_jusqu_au_tour() -> None:
