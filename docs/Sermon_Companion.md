@@ -63,10 +63,26 @@ une alerte « sans nouvelles ». Un scan reste roi.
 | **S-3** | **Le compagnon** | `CompanionSession`, « as-tu vécu le culte ? », branches oui/non, arbre déterministe | ✅ fait |
 | **S-4** | **Présence déclarée** | le « oui » → présent au culte du jour (source `declared`, additive) | ✅ fait |
 | **S-5** | **Ingestion PDF / PPTX** | extracteurs pypdf / python-pptx derrière le port | ✅ fait |
-| **S-6** | Ingestion audio | transcription STT (le plus lourd) | à faire |
+| **S-6** | Ingestion audio | transcription STT (le plus lourd) | ⏳ **conçu, non construit** — `docs/S6_Transcription_Audio.md` |
 
 Le **texte d'abord** : PDF/PPTX/audio ne sont que des adaptateurs derrière **un seul port
 d'extraction** (l'IA ne voit que du texte) — ajoutés sans refonte du domaine.
+
+> ⏳ **S-6 — conçu le 2026-08-13, non construit : `docs/S6_Transcription_Audio.md`.** La note tranche
+> le modèle économique avant la technique (une heure d'audio coûte **120 à 720 fois** une ouverture
+> de préparation, soit 7,5 % de l'offre Standard par église et par mois), le port `Transcriber` +
+> `NullTranscriber`, la rétention de l'audio (**J+7** pour le culte, **jamais écrit** pour la dictée
+> de préparation), et la langue — *le mode de panne n'est pas le silence, c'est l'invention, et
+> elle vient du décodeur* (d'où un décodeur **CTC**, qui échoue de façon visible). Les poids ouverts
+> **Apache 2.0** couvrent le dioula et le baoulé, et rendent l'auto-hébergement moins cher que
+> l'API au-delà de ~300 églises. **Dix-neuf décisions, neuf questions ouvertes.**
+>
+> ⚠️ **Et elle recommande de ne PAS le construire ici** (**D15**). `docs/Plan_Urim_Producteur.md`
+> (05/08/2026) révoque **D-B / S32**, décide le retrait du contexte `sermon` et note que *« S-6 et
+> `urim/capture` étaient le même travail »* — le lot y est renommé **chantier 10 · Capture**. Écrire
+> le lot le plus lourd du module dans le contexte dont la démolition est décidée irait contre la
+> règle de ce plan : *« on relocalise avant de démolir »*. Les décisions de la note sont **portables
+> telles quelles** vers `urim` (**D16**). L'arbitrage délai ↔ rigueur reste ouvert — **Q7**.
 
 ### État livré (S-0, 2026-07-18)
 
