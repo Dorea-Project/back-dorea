@@ -35,10 +35,10 @@ import unicodedata
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.config import Settings  # noqa: E402
+from app.core.config import Settings
 
 SOURCE = "TBESG (STEPBible, CC BY 4.0)"
 

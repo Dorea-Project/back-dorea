@@ -35,11 +35,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.contexts.urim.adapters.mistral import MistralAssistant  # noqa: E402
-from app.core.config import Settings  # noqa: E402
+from app.contexts.urim.adapters.mistral import MistralAssistant
+from app.core.config import Settings
 
 #: Combien de gloses par appel. Assez pour que le coût soit raisonnable, assez peu pour qu'une
 #: réponse mal formée ne coûte que son lot.
