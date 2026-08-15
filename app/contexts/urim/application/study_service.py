@@ -267,6 +267,32 @@ def _est_une_impasse_de_recherche(run) -> bool:
     )
 
 
+def _a_etabli_un_fait(run) -> bool:
+    """Le moteur a-t-il **dit quelque chose** sur ce que le pasteur a écrit ?
+
+    C'est la même frontière que `_est_une_impasse_de_recherche`, prise par l'autre bout. Là-bas :
+    *« je ne connais pas de livre nommé Zorobabel » est un fait sur l'orthographe, et y répondre
+    par des passages thématiques noierait la seule information utile.* La règle valait pour les
+    suggestions ; elle ne s'appliquait pas à la résolution assistée, qui **écrasait** le fait au
+    lieu de le noyer.
+
+        Hebreux 2:29  -> « Hebreux 2 compte 18 versets » puis, en silence, Hebreux 2:9
+        Zorobabel 3:5 -> un refus AVEC `resolved = Esdras 3:5` enregistre derriere
+
+    Un refus de l'étage 0 y entre aussi, et même quand il porte sur du charabia : la trouvaille
+    devient alors une option qu'aucun étage n'offre, ce qui est strictement plus sûr que de la
+    poser comme résolue.
+
+    Ailleurs — citation de mémoire, paraphrase, personnage nommé autrement que dans la
+    traduction — le moteur n'a **rien** à dire, et la résolution assistée garde tout son sens."""
+    if not run.results or run.results[-1].outcome is not Outcome.REFUSE:
+        return False
+    dernier = run.state.trace[-1].stage_code if run.state.trace else ""
+    if dernier == "route_entry":
+        return True
+    return dernier == "resolve_passage" and run.state.entry_mode is EntryMode.REFERENCE
+
+
 def _chapitre_verset(reference: str) -> tuple[int, int]:
     """« Romains 8:1 » → `(8, 1)`. Le libellé vient d'être fabriqué par `_texte_servi`, donc
     sa forme est connue — c'est le seul endroit où l'on peut se permettre de le relire."""
@@ -1147,8 +1173,16 @@ class UrimStudyService:
             if trouve is not None and IndexedCorpusReader(self.index).check_reference(
                 trouve
             ).exists:
-                provenance = "ia"
-                run = moteur.run(etat.with_(resolved=trouve))
+                if _a_etabli_un_fait(run):
+                    # 🔴 **Elle propose, elle ne résout pas.** Écraser un fait par une
+                    # correction plausible est ce que l'étage 0 s'interdit nommément : *le
+                    # calcul propose, la personne dispose*. Le motif garde son fait, l'étage
+                    # rend la main avec la trouvaille en option, et rien n'est enregistré au
+                    # nom d'un pasteur qui n'a rien choisi.
+                    run = moteur.run(etat.with_(suggested_reference=trouve))
+                else:
+                    provenance = "ia"
+                    run = moteur.run(etat.with_(resolved=trouve))
 
         # ⚠️ **Le risque ne se lève qu'APRÈS le verdict, et seulement s'il n'y a pas de texte.**
         #

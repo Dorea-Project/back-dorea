@@ -26,7 +26,13 @@ from app.contexts.urim.engine import (
     StudyState,
 )
 from app.contexts.urim.engine.errors import StagePrerequisiteError
-from app.contexts.urim.engine.stages.resolve_passage import ECART_NET, PAS_UNE_CITATION
+from app.contexts.urim.engine.stages.resolve_passage import (
+    ECART_NET,
+    ORIGINE_CORRECTION,
+    ORIGINE_LETTRE,
+    ORIGINE_SENS,
+    PAS_UNE_CITATION,
+)
 
 ROM_8_1 = Reference(book="Romains", chapter=8, verse_start=1)
 ROM_8_34 = Reference(book="Romains", chapter=8, verse_start=34)
@@ -152,6 +158,62 @@ def test_aucun_candidat_valide_donne_un_refus_qui_dit_ce_qui_a_ete_ecarte():
 
     assert resultat.outcome is Outcome.REFUSE
     assert "13 versets" in resultat.rationale
+
+
+# --- Le fait reste, la correction devient un geste ---------------------------------------------
+
+
+def test_la_correction_du_modele_est_une_option_et_le_fait_reste_le_motif():
+    """🔴 **La bordure posait la trouvaille comme résolue, et le fait disparaissait.**
+
+    `Hébreux 2:29` — une note réelle du Pasteur X, dans un chapitre qui compte 18 versets —
+    rendait `Hébreux 2:9` et l'écran du bornage. Le pasteur demandait le verset 29, recevait le
+    verset 9, et perdait la seule information utile : celle qu'Urim savait donner depuis le
+    premier jour et n'avait jamais pu dire.
+
+    *Le calcul propose, la personne dispose* — la règle de l'étage 0, appliquée ici."""
+    corpus = _Corpus(
+        candidats=(COR_5_17,), inexistants={COR_5_17: "1 Corinthiens 5 compte 13 versets"}
+    )
+    etat = _state(EntryMode.REFERENCE, "1 Corinthiens 5:17").with_(
+        suggested_reference=ROM_8_1
+    )
+
+    resultat = _executer(etat, corpus)
+
+    assert resultat.outcome is Outcome.AWAIT
+    assert "13 versets" in resultat.rationale, "le fait a été effacé par la correction"
+    assert _codes(resultat) == ["Romains 8:1"]
+    assert resultat.state.resolved is None, "une proposition ne résout pas"
+
+
+def test_la_correction_ne_se_confond_pas_avec_un_texte_sur_le_sujet():
+    """⚠️ « Trouvé dans vos mots », « traite votre sujet » et « je crois que vous vouliez écrire
+    ceci » ne se valent pas. Confondre la troisième avec `sens` ferait croire au pasteur qu'on
+    lui propose un texte sur son thème, alors qu'on lui propose une correction de frappe."""
+    corpus = _Corpus(
+        candidats=(COR_5_17,), inexistants={COR_5_17: "13 versets"}
+    )
+    etat = _state(EntryMode.REFERENCE, "1 Corinthiens 5:17").with_(
+        suggested_reference=ROM_8_1
+    )
+
+    (option,) = _executer(etat, corpus).options
+
+    assert option.origin == ORIGINE_CORRECTION
+    assert option.origin not in (ORIGINE_SENS, ORIGINE_LETTRE)
+
+
+def test_sans_correction_proposee_le_refus_reste_un_refus():
+    """La garde ne doit rien changer quand le modèle n'a rien trouvé — ou n'est pas branché."""
+    corpus = _Corpus(
+        candidats=(COR_5_17,), inexistants={COR_5_17: "1 Corinthiens 5 compte 13 versets"}
+    )
+
+    resultat = _executer(_state(EntryMode.REFERENCE, "1 Corinthiens 5:17"), corpus)
+
+    assert resultat.outcome is Outcome.REFUSE
+    assert not resultat.options
 
 
 # --- S24 : plusieurs livres portent le même nom ------------------------------------------------

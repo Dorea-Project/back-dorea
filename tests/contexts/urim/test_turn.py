@@ -122,6 +122,23 @@ def test_l_origine_ne_se_perd_pas() -> None:
     assert pastilles.items[0].origin == "locus"
 
 
+def test_l_ecran_d_une_correction_ne_parle_pas_des_textes_a_egalite() -> None:
+    """🔴 Le mur n°2, en plus petit — et il repointe partout où un écran est neuf.
+
+    Une correction est une pastille comme les autres, donc elle héritait de la phrase de
+    l'étage : *« Plusieurs textes portent cette formulation — aucun ne s'impose seul »*
+    au-dessus d'une seule proposition, qui ne porte aucune formulation. La forme suit ce dont
+    l'écran parle, pas le bloc qui l'affiche."""
+    vue = _Vue(trace=[_Trace("resolve_passage")], options=[_Option("Hébreux 2:9")])
+    vue.options[0].origin = "correction"
+
+    tour = construire_tour(vue)
+
+    assert "Plusieurs textes" not in tour.say
+    assert "proche de ce que vous avez écrit" in tour.say
+    assert tour.ask == "Est-ce celle-là ?"
+
+
 def test_un_libelle_habille_par_le_modele_porte_sa_signature() -> None:
     """🔴 **Sept libellés du corpus et trois du modèle, indiscernables.**
 
