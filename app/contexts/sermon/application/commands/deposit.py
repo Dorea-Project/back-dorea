@@ -18,6 +18,7 @@ from app.contexts.iam.domain.permissions import Permission
 from app.contexts.sermon.application.dtos import SermonDTO
 from app.contexts.sermon.application.mapping import to_sermon_dto
 from app.contexts.sermon.application.ports import SermonDigester, SermonTextExtractor
+from app.contexts.sermon.application.upload_guard import ensure_declared_kind
 from app.contexts.sermon.domain.aggregates import Sermon
 from app.contexts.sermon.domain.enums import SermonSourceKind
 from app.contexts.sermon.domain.errors import UnsupportedSermonFormatError
@@ -73,6 +74,10 @@ class DepositSermon:
         await self._ensure_publisher(actor_account_id, tenant_id)
         if self._extractor is None:
             raise UnsupportedSermonFormatError("L'extraction de fichiers n'est pas configurée.")
+        # DOREA-024 — le `kind` est **déclaré** par le client ; on recoupe les octets avant de
+        # les confier au parseur. Ici et pas dans l'adaptateur : le contrôle doit tenir pour
+        # tout extracteur branché derrière le port, y compris celui qui se facturera (S-6).
+        ensure_declared_kind(data, kind)
         text = await self._extractor.extract(data, kind=kind)
         return await self._deposit(
             actor_account_id=actor_account_id, tenant_id=tenant_id, title=title,

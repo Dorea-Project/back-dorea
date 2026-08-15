@@ -83,7 +83,9 @@ async def upload_sermon(
     settings: SettingsDep,
     reference: str | None = None,
 ) -> SermonView:
-    # Lecture **bornée** du fichier (anti-DoS mémoire) avant extraction/parsing.
+    # Lecture **bornée** du fichier (anti-DoS mémoire) avant extraction/parsing. Le `kind` est
+    # ici **déclaré** : les octets sont recoupés contre lui en amont du parseur, dans le use case
+    # (`application/upload_guard.ensure_declared_kind`) — après l'autorisation, avant l'extraction.
     data = await read_body_capped(request, max_bytes=settings.sermon_max_bytes)
     dto = await command.execute_file(
         actor_account_id=actor.account_id,
