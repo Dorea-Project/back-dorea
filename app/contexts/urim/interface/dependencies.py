@@ -45,6 +45,9 @@ from app.contexts.urim.infrastructure.corpus.index import (
 from app.contexts.urim.infrastructure.persistence.archive_repository import (
     SqlArchiveRepository,
 )
+from app.contexts.urim.infrastructure.persistence.citation_ailleurs import (
+    SqlCitationAilleurs,
+)
 from app.contexts.urim.infrastructure.persistence.curation_repository import (
     SqlCurationRepository,
 )
@@ -106,6 +109,9 @@ def get_study_service(
         index=index,
         clock=_now,
         resolver=build_verse_resolver(get_settings()),
+        # La seconde passe sur les autres versions détenues — avant le modèle, parce
+        # qu'une citation que le corpus possède n'a pas à être devinée.
+        ailleurs=SqlCitationAilleurs(session, index),
     )
 
 

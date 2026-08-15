@@ -68,6 +68,49 @@ _ANCRAGE_MAX = 25
 _SUITE_MINIMUM = 2
 
 
+#: En deçà, deux mots doivent être **identiques**. Sur trois lettres, une substitution rapproche
+#: `foi` et `roi`, `pere` et `mere` : la tolérance y ferait plus de dégâts qu'elle n'en répare.
+_LONGUEUR_TOLERANCE = 4
+
+
+def _meme_mot(a: str, b: str) -> bool:
+    """Deux mots que la citation de mémoire confond — **une lettre d'écart, pas deux**.
+
+    ⚠️ **C'est la seule imprécision autorisée de tout le détecteur, et elle vient d'un cas
+    réel.** « l'amour ne perir jamais » est 1 Corinthiens 13:8 mot pour mot, à une lettre près :
+    `perir` pour `périt`. Or la faute tombe **au milieu** de quatre mots, et coupe la seule
+    suite mesurable en deux — la citation marquait 0,424 quand le seuil est à 0,45.
+
+    Plus la saisie est courte, plus une faute coûte : sur Jean 3:16 récité de mémoire, il reste
+    des suites longues de part et d'autre ; sur quatre mots, il ne reste rien.
+
+    La distance d'édition de 1 couvre exactement ce qu'un doigt fait — une lettre changée,
+    ajoutée ou oubliée. Deux serait un autre mot."""
+    if a == b:
+        return True
+    if len(a) < _LONGUEUR_TOLERANCE or len(b) < _LONGUEUR_TOLERANCE:
+        return False
+    if abs(len(a) - len(b)) > 1:
+        return False
+
+    # Une passe, sans matrice : on avance de front et on s'autorise **un** décrochage.
+    court, long = (a, b) if len(a) <= len(b) else (b, a)
+    i = j = 0
+    ecarts = 0
+    while i < len(court) and j < len(long):
+        if court[i] == long[j]:
+            i += 1
+            j += 1
+            continue
+        ecarts += 1
+        if ecarts > 1:
+            return False
+        if len(court) == len(long):
+            i += 1  # substitution
+        j += 1      # insertion dans le plus long
+    return ecarts + (len(long) - j) + (len(court) - i) <= 1
+
+
 def _suites_communes(
     saisie: tuple[str, ...], verset: tuple[str, ...]
 ) -> tuple[str, ...]:
@@ -96,7 +139,7 @@ def _suites_communes(
             while (
                 depart + courant < len(saisie)
                 and rang + courant < len(verset)
-                and saisie[depart + courant] == verset[rang + courant]
+                and _meme_mot(saisie[depart + courant], verset[rang + courant])
             ):
                 courant += 1
             longueur = max(longueur, courant)

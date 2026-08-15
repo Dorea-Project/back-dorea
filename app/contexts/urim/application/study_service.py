@@ -27,9 +27,11 @@ from app.contexts.urim.application.conversation import Ecran, conduire, lire_la_
 from app.contexts.urim.application.ports import (
     AssistedResolver,
     AucuneSortie,
+    CitationAilleursReader,
     CollisionSeen,
     ConcordanceDTO,
     ElementRecord,
+    NullCitationAilleurs,
     NullVerseResolver,
     PassageDetailDTO,
     PlanSuggestion,
@@ -71,7 +73,7 @@ from app.contexts.urim.engine.pipeline import UrimEngine
 from app.contexts.urim.engine.stages.bound_pericope import EN_UN_SEUL, TEL_QUEL
 from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
-from app.contexts.urim.engine.stages.route_entry import REFORMULER
+from app.contexts.urim.engine.stages.route_entry import CITATION_AFFINITY, REFORMULER
 from app.contexts.urim.engine.state import (
     AxisGloss,
     Bounds,
@@ -355,6 +357,9 @@ class UrimStudyService:
     conviction: ConvictionReader = field(default_factory=NullConvictionReader)
     #: L'IA de la bordure. Sans clé, `NullVerseResolver` — et Urim tourne entier.
     resolver: AssistedResolver = field(default_factory=NullVerseResolver)
+    #: La seconde passe sur les versions que l'index ne charge pas. `NullCitationAilleurs`
+    #: est un état de production : sans elle, on retrouve le comportement d'avant.
+    ailleurs: CitationAilleursReader = field(default_factory=NullCitationAilleurs)
     #: La sortie du quota personnel. `AucuneSortie` **est** l'état de production tant que la
     #: facturation n'existe pas — voir `UnlimitedTierPort`.
     tier: UnlimitedTierPort = field(default_factory=AucuneSortie)
@@ -1398,6 +1403,7 @@ class UrimStudyService:
             entry_mode=EntryMode(record.entry_mode) if record.entry_mode else None,
             raw_input=record.raw_input,
             entry_origin=EntryOrigin(record.entry_origin or EntryOrigin.TYPED.value),
+            citation_version=record.citation_version,
             resolved=resolu,
             bounds=self._bornes(record),
             pericope_id=record.pericope_id,
@@ -1431,6 +1437,29 @@ class UrimStudyService:
         # bas, qui écrit `ia` au lieu de `moteur` : ni le moteur ni le pasteur n'a tranché, et
         # confondre les trois effacerait la seule chose que cette colonne existe pour porter.
         provenance = chosen_by
+        #: L'identifiant de la version où la citation a été reconnue — `None` tant qu'aucune
+        #: ne l'a été, ce qui reste le cas courant.
+        version_reconnue: UUID | None = None
+        # ⚠️ **Le corpus avant le modèle.** L'index ne porte qu'une version ; une citation
+        # tirée d'une autre traduction détenue n'y est pas, et le détecteur la lit alors comme
+        # une intention. Cas mesuré : « l'amour ne perir jamais » est Darby mot pour mot, quand
+        # Segond dit « la charité ». Aller la chercher coûte une requête ; la deviner coûterait
+        # un appel de modèle, et rendrait moins sûr ce que le corpus sait déjà.
+        if persist and record.resolved_ref is None and run.state.resolved is None:
+            ailleurs = await self.ailleurs.retrouver(decouper(record.raw_input))
+            if ailleurs is not None and ailleurs.score >= CITATION_AFFINITY:
+                provenance = "moteur"
+                # La version est **écrite avant le rejeu**, pas après : c'est elle que l'étage
+                # d'entrée lit pour dire ce qu'il a fait. Écrite après, le premier motif aurait
+                # differé de tous les suivants.
+                record.citation_version = ailleurs.version
+                version_reconnue = ailleurs.version_id
+                run = moteur.run(
+                    etat.with_(
+                        resolved=ailleurs.reference, citation_version=ailleurs.version
+                    )
+                )
+
         if persist and record.resolved_ref is None and run.state.resolved is None:
             sollicite = True
             trouve = await assiste.resolve(_lisible(record.raw_input))
@@ -1533,6 +1562,7 @@ class UrimStudyService:
                     candidates=[_afficher(final.resolved) or ""],
                     chosen_ref=record.resolved_ref,
                     chosen_by=provenance or "moteur",
+                    version_detected=version_reconnue,
                     at=maintenant,
                 )
 

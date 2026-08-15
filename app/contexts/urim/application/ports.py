@@ -10,6 +10,7 @@ bougé doit se **voir**, pas se deviner.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
@@ -35,6 +36,9 @@ class PreparationRecord:
     raw_input: str
     entry_mode: str | None = None
     entry_origin: str | None = None
+    #: La version dans laquelle la citation a été reconnue, quand l'index ne la portait
+    #: pas. Stockée pour que l'étage d'entrée donne le même motif à chaque relecture.
+    citation_version: str | None = None
     corpus_snapshot: str | None = None
 
     #: Le choix du pasteur à l'étage 1, sérialisé « livre|ch|vs|ve ». Le format est un
@@ -400,6 +404,7 @@ class StudyRepository(Protocol):
         chosen_ref: str | None,
         chosen_by: str | None,
         at: datetime,
+        version_detected: UUID | None = None,
     ) -> None:
         """Trace d'une résolution — `chosen_by` dit **qui** a tranché, moteur ou pasteur.
 
@@ -532,6 +537,40 @@ class NullVerseResolver:
     async def aiguiller(self, text: str) -> str | None:
         """Sans modèle, aucun tour ne se classe — et l'appelant le **dit** plutôt que de le
         faire passer pour un message indéchiffrable. Voir `repondre_sans_lecture`."""
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class CitationTrouvee:
+    """Une citation retrouvée **dans une version que l'index ne porte pas**.
+
+    `version` voyage avec la référence, et ce n'est pas décoratif : sur 1 Corinthiens 13:8,
+    Darby dit « l'amour » là où Segond dit « la charité ». Savoir *dans quelle Bible* la phrase
+    du pasteur a été reconnue, c'est savoir laquelle il a sous la main."""
+
+    reference: Reference
+    version: str
+    #: L'identifiant, à côté du libellé : le libellé se lit, l'identifiant se range dans
+    #: `version_detected` — la colonne prévue pour ce fait depuis la migration d'origine,
+    #: et restée vide jusqu'ici faute d'avoir quoi que ce soit à y mettre.
+    version_id: UUID
+    score: float
+
+
+class CitationAilleursReader(Protocol):
+    """Chercher la saisie dans les autres versions détenues — **la seconde passe**.
+
+    L'index ne charge que la version de repli : une phrase citée d'une autre traduction n'y
+    est simplement pas. Ce port va la chercher en base, et **avant le modèle** — une citation
+    que le corpus possède n'a pas à être devinée."""
+
+    async def retrouver(self, mots: Sequence[str]) -> CitationTrouvee | None: ...
+
+
+class NullCitationAilleurs:
+    """Aucune seconde passe — l'index seul, comme avant. État de production légitime."""
+
+    async def retrouver(self, mots: Sequence[str]) -> CitationTrouvee | None:
         return None
 
 

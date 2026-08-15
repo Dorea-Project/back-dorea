@@ -135,9 +135,16 @@ class _Studies:
     async def save(self, record): self.records[record.id] = record
 
     async def record_attempt(
-        self, *, study_id, input_hash, candidates, chosen_ref, chosen_by, at
+        self, *, study_id, input_hash, candidates, chosen_ref, chosen_by, at,
+        version_detected=None,
     ) -> None:
-        self.attempts.append({"chosen_ref": chosen_ref, "chosen_by": chosen_by})
+        self.attempts.append({
+            "chosen_ref": chosen_ref,
+            "chosen_by": chosen_by,
+            # La version reconnue ailleurs que dans l'index. `None` partout ici : ces
+            # préparations se résolvent dans la version de repli, ce qui est le cas courant.
+            "version_detected": version_detected,
+        })
 
     async def set_elements(self, study_id, elements): ...
 
