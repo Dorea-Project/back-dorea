@@ -71,6 +71,7 @@ class SqlStudyRepository:
             entry_mode=record.entry_mode,
             raw_input=record.raw_input,
             entry_origin=record.entry_origin,
+            citation_version=record.citation_version,
             corpus_snapshot=record.corpus_snapshot,
             pericope_id=record.pericope_id,
             version_id=record.version_id,
@@ -96,6 +97,7 @@ class SqlStudyRepository:
             raw_input=row.raw_input,
             entry_mode=row.entry_mode,
             entry_origin=row.entry_origin,
+            citation_version=row.citation_version,
             corpus_snapshot=row.corpus_snapshot,
             resolved_ref=await self._dernier_choix(study_id),
             pericope_id=row.pericope_id,
@@ -121,6 +123,7 @@ class SqlStudyRepository:
             return
         row.entry_mode = record.entry_mode
         row.entry_origin = record.entry_origin
+        row.citation_version = record.citation_version
         row.pericope_id = record.pericope_id
         row.version_id = record.version_id
         row.axis_code = record.axis_code
@@ -162,6 +165,7 @@ class SqlStudyRepository:
         chosen_ref: str | None,
         chosen_by: str | None,
         at: datetime,
+        version_detected: UUID | None = None,
     ) -> None:
         self._s.add(UrimResolutionAttemptModel(
             id=uuid4(),
@@ -170,6 +174,7 @@ class SqlStudyRepository:
             candidates=candidates,
             chosen_ref=chosen_ref,
             chosen_by=chosen_by,
+            version_detected=version_detected,
             attempted_at=at,
         ))
         await self._s.flush()

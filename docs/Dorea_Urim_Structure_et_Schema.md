@@ -438,6 +438,19 @@ CREATE TABLE urim.preparation (
     -- ne se corrige pas comme une faute de frappe, et sans cette colonne on ne peut pas le
     -- distinguer après coup. Reflète `StudyState.entry_origin` (TYPED | DICTATED).
     entry_origin        text,
+    -- ⚠ Colonne AJOUTÉE le 2026-08-15 (migration d8e9f0a1b2c3). La version dans laquelle la
+    -- citation a été **reconnue**, quand ce n'est pas celle de repli. NULL est le cas courant.
+    --
+    -- Elle n'est pas là pour l'affichage. `load_corpus_index` ne charge le texte que de la
+    -- version de repli : « l'amour ne périt jamais » est Darby mot pour mot, quand Segond dit
+    -- « la charité », et le détecteur lisait donc une **intention**. Une seconde passe en base
+    -- va chercher la phrase dans les autres versions détenues — mais la trace n'est pas
+    -- persistée, elle se recalcule à chaque lecture. Sans cette colonne, la première ouverture
+    -- disait « retrouvé dans Darby » et la relecture suivante « ni référence ni citation » :
+    -- la même préparation, deux motifs contradictoires, dont un qui dément le verset affiché
+    -- juste à côté. C'est le défaut que `bounds_override` avait déjà eu — une décision
+    -- enregistrée, invisible pour l'étage qui la relit.
+    citation_version    text,
     pericope_id         uuid REFERENCES urim_corpus.pericope,
     -- ⚠ Correction 2026-08-06 (migration a1b2c3d4e5f7) : `int4range` REMPLACÉ par quatre colonnes
     -- `override_start_ch/_v`, `override_end_ch/_v`. Un intervalle d'entiers ne peut pas exprimer
@@ -478,6 +491,41 @@ CREATE TABLE urim.resolution_attempt (
     attempted_at    timestamptz NOT NULL
 );
 ```
+
+**`version_detected` est remplie depuis le 2026-08-15**, et par une seule source : la seconde
+passe. Elle était prévue ici dès la migration d'origine et restait vide, faute d'avoir quoi que
+ce soit à y mettre — tant que l'index ne portait qu'une Bible, la version reconnue était toujours
+celle de repli, donc l'information était nulle par construction.
+
+Elle fait double emploi avec `preparation.citation_version`, et c'est **délibéré** : les deux
+tables ne répondent pas à la même question. `resolution_attempt` est un historique, en ajout
+seul — *qu'a-t-on tenté, quand, et qui a tranché*. `preparation.citation_version` est l'état
+courant, relu par l'étage d'entrée à **chaque** rejeu ; l'y chercher voudrait dire interroger un
+historique et prendre la dernière ligne, à chaque lecture, pour reconstituer un fait que la
+préparation peut porter directement.
+
+#### Ce que la seconde passe déplace, et ce qu'elle ne déplace pas
+
+Mesuré sur six saisies, avec et sans la tolérance d'une lettre (`_meme_mot`) :
+
+| saisie | strict | ±1 lettre | verdict |
+|---|---:|---:|---|
+| citation Darby, une lettre fausse | 0,424 | **1,000** | 1 Co 13:8 (Darby) |
+| citation Darby, sans faute | 1,000 | 1,000 | 1 Co 13:8 (Darby) |
+| accusation d'un tiers (S20) | 0,418 | 0,418 | intention — sous le seuil |
+| « je veux prêcher sur le pardon » | 0,328 | 0,328 | intention — sous le seuil |
+| « la foi qui déplace les montagnes » | 0,535 | 0,535 | **1 Co 13:2 (Martin)** |
+
+La tolérance ne bouge **que** le cas pour lequel elle a été écrite, et laisse les quatre autres
+au chiffre près. C'est la mesure qui la garde : une imprécision qui ne déplace rien d'autre que
+sa cible n'est pas un assouplissement du seuil.
+
+⚠️ **La cinquième ligne est le prix.** « La foi qui déplace les montagnes » est une intention dans
+la bouche du pasteur, et une paraphrase de 1 Corinthiens 13:2 pour la mesure — 0,535, au-dessus
+du seuil, dans les deux réglages. Élargir à quatre traductions élargit *aussi* ce que l'on peut
+prendre pour une citation : plus il y a de formulations détenues, plus une paraphrase en recoupe
+une. Le pasteur garde « ce n'est pas ça », et le motif nomme la version, donc l'erreur est
+lisible et réversible — mais elle est réelle, et c'est une question ouverte, pas un défaut réglé.
 
 ### 3.5 Archive — propriété de l'auteur
 

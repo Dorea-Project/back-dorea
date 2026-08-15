@@ -218,6 +218,15 @@ class StudyState:
     #: pasteur la réécrit s'il veut : c'est son sermon.
     theme: str | None = None
 
+    #: La version dans laquelle la citation a été reconnue, quand ce n'est pas celle que
+    #: l'index porte. `None` est le cas courant, et ne dit rien de plus que « pas d'ailleurs ».
+    #:
+    #: ⚠️ **Elle vient de la base, pas d'un calcul d'étage.** Le moteur reste pur : c'est le
+    #: service qui va chercher, une seule fois, et range le résultat. L'étage d'entrée le
+    #: relit — comme il relit `entry_mode` — parce que la trace n'est pas persistée et que
+    #: tout ce qu'il recalcule, il le recalcule sans la base.
+    citation_version: str | None = None
+
     trace: tuple[TraceEntry, ...] = ()  # motif de chaque étage
 
     def with_(self, **kw) -> StudyState:

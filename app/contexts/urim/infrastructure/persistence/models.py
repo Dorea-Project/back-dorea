@@ -89,6 +89,11 @@ class UrimPreparationModel(Base):
     #: Ce que le détecteur d'entrée a cru voir, conservé à côté de ce qu'il a fait. Une entrée
     #: dictée par un micro ouvert ne se corrige pas comme une faute de frappe (S36).
     entry_origin: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: La version dans laquelle la citation a été **reconnue**, quand ce n'est pas celle de
+    #: repli. Elle n'est pas ici pour l'affichage : c'est ce que l'étage d'entrée relit pour
+    #: donner le même motif à la dixième lecture qu'à la première. La trace n'est pas
+    #: persistée — ce qui n'est pas stocké se recalcule, et se contredit.
+    citation_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     #: L'empreinte du corpus contre lequel cette préparation a été menée.
     #:

@@ -130,6 +130,27 @@ class RouteEntry:
                 state, EntryMode.REFERENCE, f"Nom de livre en bloc contigu : {bloc.book}."
             )
 
+        # **Une citation d'une autre traduction détenue en est une.**
+        #
+        # `deps.corpus` ne porte que la version de repli : « l'amour ne périt jamais » est
+        # Darby mot pour mot, quand Segond dit « la charité ». Le recouvrement mesuré ci-dessus
+        # est alors faible, et sans ceci l'étage annonçait « ni référence ni citation » au
+        # moment même où le passage venait d'être fixé — le motif contredisait le résultat
+        # affiché juste à côté.
+        #
+        # ⚠️ On lit ici un fait **stocké**, jamais une recherche : la seconde passe coûte une
+        # requête, et cet étage se ré-exécute à chaque rejeu. Ce qui est en base donne le même
+        # motif à la dixième lecture qu'à la première ; ce qui se recalcule dérive.
+        if state.citation_version is not None:
+            return StageResult(
+                outcome=Outcome.CONTINUE,
+                rationale=(
+                    "Lu comme une phrase des Écritures. Elle ne recoupe pas la version de "
+                    f"référence, mais {state.citation_version} la rend mot pour mot."
+                ),
+                state=state.with_(entry_mode=EntryMode.CITATION),
+            )
+
         if cite:
             return self._router(
                 state, EntryMode.CITATION, "Recouvrement fort avec le texte biblique."
