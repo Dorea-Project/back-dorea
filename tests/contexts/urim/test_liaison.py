@@ -153,3 +153,147 @@ def test_des_bornes_a_l_envers_ne_sont_pas_des_bornes() -> None:
 def test_une_saisie_vide_ne_designe_rien() -> None:
     assert not lier("   ", OPTIONS, AXES)
     assert not lier("!!!", OPTIONS, AXES)
+
+
+# -- ce que le banc du tour a trouvé -------------------------------------------------
+
+
+TITRES = (
+    ("texte:unite", "La charité sans hypocrisie"),
+    ("axe:ecclesiologie", "La vie de l'assemblée"),
+)
+
+
+def test_un_intitule_qui_contient_un_mot_de_retrait_ne_s_ecarte_pas_lui_meme() -> None:
+    """🔴 **Le pire défaut possible : le bon objet, le mauvais geste.**
+
+    « La charité sans hypocrisie » est l'intitulé d'unité de la maquette, et « sans » est un
+    marqueur de retrait. Désigner l'unité l'écartait — le pasteur choisissait son texte et le
+    voyait disparaître. Le geste se cherche donc **hors de ce qui a été désigné** : les mots
+    d'un intitulé appartiennent à l'intitulé."""
+    lu = lier("La charité sans hypocrisie", OPTIONS, TITRES)
+
+    assert lu.axe == "texte:unite"
+    assert lu.geste is None
+
+
+def test_un_retrait_hors_de_l_intitule_reste_un_retrait() -> None:
+    """L'autre bout : « pas » est du pasteur, il est hors de l'empan de l'intitulé."""
+    lu = lier("pas la charité sans hypocrisie", OPTIONS, TITRES)
+
+    assert lu.axe == "texte:unite"
+    assert lu.geste is Geste.ECARTER
+
+
+@pytest.mark.parametrize(
+    "saisie",
+    [
+        "je veux faire un culte sur l'adultère dans",
+        "Propose-moi un theme.",
+        "y a un risque de proof texting sur ce que je fais ?",
+        "attends deux minutes je arrive euh le fils la le retour bon",
+    ],
+)
+def test_un_cardinal_ecrit_n_est_pas_un_rang(saisie: str) -> None:
+    """🔴 **Quatre saisies sur vingt et une décidaient une option sans que personne ne le veuille.**
+
+    « un » est un article avant d'être un rang. L'ordinal n'est jamais ambigu ; le cardinal
+    l'est presque toujours — et un rang inventé fait agir sur le mauvais objet, là où un rang
+    manqué ne coûte qu'un appel de modèle."""
+    assert lier(saisie, OPTIONS, AXES).option is None
+
+
+def test_les_ordinaux_et_les_chiffres_restent_lus() -> None:
+    """La contrepartie : ce qui n'est pas ambigu ne se perd pas."""
+    assert lier("le deuxième", OPTIONS, AXES).option == 1
+    assert lier("le 2", OPTIONS, AXES).option == 1
+    assert lier("le second", OPTIONS, AXES).option == 1
+
+
+# -- la notation du pasteur ----------------------------------------------------------
+#
+# `Hb 2v29`, `Jn14v28`, `Eph 1v20-22`, `jn 2:3` — ses quatre saisies attestées, et pas une
+# seule de la forme `Livre chapitre:verset`. La notation est absorbée en amont par le lecteur
+# du corpus ; ce qui arrive ici, ce sont des `Reference`. On ne compare donc plus des chaînes,
+# on compare des passages.
+
+
+UNITES = (
+    Reference(book="Jean", chapter=14, verse_start=15, verse_end=31),
+    Reference(book="Jean", chapter=2, verse_start=1, verse_end=11),
+    Reference(book="Éphésiens", chapter=1, verse_start=15, verse_end=23),
+    Reference(book="Hébreux", chapter=2, verse_start=1, verse_end=18),
+)
+
+#: Ce que `lire` rend sur `Jn14v28` : **quatre** candidats, parce qu'il refuse de trancher
+#: l'homonymie (S24). C'est l'écran qui va le faire.
+JN14V28 = tuple(
+    Reference(book=nom, chapter=14, verse_start=28)
+    for nom in ("Jean", "1 Jean", "2 Jean", "3 Jean")
+)
+
+
+def test_la_notation_du_pasteur_designe_l_option_affichee() -> None:
+    """🔴 **Une référence à l'écran partait quand même au modèle.**
+
+    Le lecteur qui comprend `Jn14v28` existe depuis la chaîne de textes d'appui ; il ne parlait
+    à personne dans le tour."""
+    assert lier("Jn14v28", UNITES, AXES, JN14V28).option == 0
+
+
+def test_l_ecran_tranche_l_homonymie_sans_que_personne_ne_devine() -> None:
+    """⚠️ `Jn` désigne quatre livres, et `lire` les rend tous les quatre. Confrontés à l'écran,
+    trois ne visent rien — il reste Jean, et aucune règle n'a eu à préférer un livre."""
+    lues = tuple(
+        Reference(book=nom, chapter=2, verse_start=3)
+        for nom in ("Jean", "1 Jean", "2 Jean", "3 Jean")
+    )
+    assert lier("jn 2:3", UNITES, AXES, lues).option == 1
+
+
+def test_les_versets_choisissent_entre_les_unites_d_un_meme_chapitre() -> None:
+    """C'est ce que l'appariement par jetons ne sait pas faire : « Ga 5 » désigne les trois
+    unités de Galates 5, et il prendrait la première."""
+    galates = (
+        Reference(book="Galates", chapter=5, verse_start=1, verse_end=12),
+        Reference(book="Galates", chapter=5, verse_start=13, verse_end=15),
+        Reference(book="Galates", chapter=5, verse_start=16, verse_end=26),
+    )
+    lues = (Reference(book="Galates", chapter=5, verse_start=13),)
+
+    assert lier("Ga 5v13", galates, AXES, lues).option == 1
+
+
+def test_la_notation_se_combine_avec_le_retrait() -> None:
+    """« non, pas Jn14v28 » : le lecteur ne voit que la référence, le geste reste au pasteur."""
+    lu = lier("non, pas Jn14v28", UNITES, AXES, JN14V28)
+
+    assert lu.option == 0
+    assert lu.geste is Geste.ECARTER
+
+
+def test_un_nom_de_livre_nu_ne_designe_rien() -> None:
+    """🔴 **La garde qui rend cet appariement sûr.**
+
+    `lire` rend volontiers un livre entier — c'est juste à la porte, où le pasteur a *déclaré*
+    saisir une référence. Ici rien n'est déclaré : « Marc a quitté l'église » choisirait un
+    texte que personne n'a nommé. Le chapitre est exigé, comme pour les jetons."""
+    assert lier("Jean", UNITES, AXES, (Reference(book="Jean"),)).option is None
+
+
+def test_deux_options_visees_rendent_la_main() -> None:
+    """La règle de tout l'étage : deux options peuvent convenir, et se tromper d'objet coûte
+    plus cher qu'un appel de modèle."""
+    deux = (
+        Reference(book="Jean", chapter=14, verse_start=1, verse_end=14),
+        Reference(book="Jean", chapter=14, verse_start=15, verse_end=31),
+    )
+    assert lier("Jn 14", deux, AXES, (Reference(book="Jean", chapter=14),)).option is None
+
+
+def test_un_verset_hors_des_bornes_affichees_ne_designe_rien() -> None:
+    """⚠️ `Hb 2v29` est **la référence inexistante** des notes du Pasteur X — Hébreux 2 compte
+    18 versets. On ne corrige pas : deviner qu'il voulait 2:9 serait décider à sa place sur la
+    foi d'une touche voisine. La saisie repart donc à l'aiguilleur."""
+    lues = (Reference(book="Hébreux", chapter=2, verse_start=29),)
+    assert lier("Hb 2v29", UNITES, AXES, lues).option is None

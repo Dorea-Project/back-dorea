@@ -60,6 +60,21 @@ class DecisionBody(BaseModel):
     option_code: str = Field(min_length=1, max_length=200)
 
 
+class TurnBody(BaseModel):
+    """Un tour de parole **en cours de** préparation — le trou 2 du contrat (§6).
+
+    Un seul champ, et c'est le même que celui de l'ouverture : le pasteur écrit une phrase.
+    Aucun `stage_code` à renvoyer — c'est précisément ce qui distingue ce geste d'une décision.
+    L'étage, le serveur le sait ; le pasteur, lui, parle.
+
+    ⚠️ Pas d'`entry_origin` ici. Il dit d'où vient la chaîne à l'**ouverture**, où il décide
+    qu'une dictée se fait confirmer (S36) ; en cours de préparation, ce qui protège du micro
+    resté ouvert n'est plus la confirmation mais le vocabulaire — `indechiffrable` existe pour
+    cela, et il ne demande rien à personne."""
+
+    raw_input: str = Field(min_length=1, max_length=4000)
+
+
 class ElementBody(BaseModel):
     element_code: str = Field(min_length=1, max_length=64)
     ordinal: int = Field(ge=0, le=999)
@@ -359,9 +374,14 @@ class StudyView(BaseModel):
         Deux temps et non un : la vue se construit sans rien savoir du tour, puis le tour se
         construit à partir d'elle. Un tour bâti dans `from_dto` aurait pu lire le DTO
         directement et diverger de ce que la vue affiche — c'est-à-dire dire au pasteur autre
-        chose que ce que l'écran lui montre."""
+        chose que ce que l'écran lui montre.
+
+        ⚠️ La seule chose que le DTO souffle au tour est `reponse` — la phrase d'un répondeur,
+        quand le tour a été aiguillé plutôt que décidé. Elle prend la place de `say` et rien
+        d'autre : ce n'est pas une donnée que la vue affiche, donc les deux ne peuvent pas se
+        contredire."""
         vue = cls.from_dto(dto)
-        return vue.model_copy(update={"turn": construire_tour(vue)})
+        return vue.model_copy(update={"turn": construire_tour(vue, say=dto.reponse)})
 
 
 class ArticulationBody(BaseModel):

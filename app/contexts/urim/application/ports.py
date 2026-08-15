@@ -283,6 +283,15 @@ class StudyDTO:
     #: celle qui a été produite ce jour-là, et le pasteur doit le savoir.
     corpus_drifted: bool = False
 
+    #: ⚠️ **La phrase d'un répondeur, quand le tour a été aiguillé plutôt que décidé.**
+    #:
+    #: Elle prend la place de `turn.say` — *ce qu'Urim vient de faire* — et rien d'autre ne
+    #: bouge : le motif reste celui du moteur, les blocs restent l'état. Un tour aiguillé n'a
+    #: fait avancer aucun étage, et la vue doit continuer de dire la vérité sur l'état.
+    #:
+    #: `None` est le cas ordinaire : tous les autres chemins rendent la phrase de l'étage.
+    reponse: str | None = None
+
 
 @dataclass(slots=True)
 class PassageDetailDTO:
@@ -480,6 +489,19 @@ class AssistedResolver(Protocol):
         """Les drapeaux de risque d'une intention — **l'effet, jamais l'état de l'auteur**."""
         ...
 
+    async def aiguiller(self, text: str) -> str | None:
+        """Le tour du pasteur → **une intention**, d'un vocabulaire fermé, ou rien.
+
+        La cinquième lecture du port, et la seule qui ne serve pas l'ouverture : elle n'existe
+        qu'à partir du deuxième tour, quand le pasteur écrit une phrase libre au milieu de sa
+        préparation. Le détecteur d'entrée fait mieux qu'elle à l'ouverture, et la liaison fait
+        mieux qu'elle sur tout ce qui désigne l'écran — elle ne reçoit que le reste.
+
+        `None` n'est pas un échec silencieux : c'est un tour qu'on ne sait pas lire. Deviner
+        serait pire, parce que les répondeurs sont déterministes — une intention mal aiguillée
+        donne une réponse **hors sujet, jamais fausse**."""
+        ...
+
 
 class NullVerseResolver:
     """Aucun modèle branché — **un état de production, pas un mode dégradé**.
@@ -506,6 +528,11 @@ class NullVerseResolver:
 
     async def lever(self, text: str) -> tuple[str, ...]:
         return ()
+
+    async def aiguiller(self, text: str) -> str | None:
+        """Sans modèle, aucun tour ne se classe — et l'appelant le **dit** plutôt que de le
+        faire passer pour un message indéchiffrable. Voir `repondre_sans_lecture`."""
+        return None
 
 
 @dataclass(slots=True)

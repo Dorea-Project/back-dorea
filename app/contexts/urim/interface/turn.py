@@ -49,6 +49,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.contexts.urim.engine.liaison import ORDRE_DES_FORCES
 from app.contexts.urim.engine.repondeurs import situer
 
 #: **L'écran où rien n'est à regarder**, et celui où tout ce qui était offert a été écarté.
@@ -368,10 +369,15 @@ _LIVRABLE_FERME = (
 #:
 #: `resiste` a son groupe, et ce n'est pas un détail : c'est la seule mécanique
 #: anti-proof-texting du produit, et elle s'affiche **au même rang** que ce qui porte.
-_GROUPES = (
-    ("dominant", "En fait son sujet"),
-    ("porte", "Le soutient"),
-    ("resiste", "Lui résiste"),
+#: ⚠️ **L'ordre vient de `liaison`, il ne se redéclare pas ici.**
+#:
+#: 🔴 Cette table le portait en dur, et `liaison.ORDRE_DES_FORCES` le portait aussi — deux
+#: définitions de la même chose. Or le **compteur de rangs** en dépend : « le deuxième » se
+#: compte sur ce que le pasteur VOIT, c'est-à-dire sur ces groupes. Les deux listes divergeant
+#: d'un cran, « le deuxième » aurait désigné la troisième option — agir sur le mauvais objet,
+#: exactement ce que la liaison existe pour empêcher.
+_GROUPES = tuple(
+    zip(ORDRE_DES_FORCES, ("En fait son sujet", "Le soutient", "Lui résiste"), strict=True)
 )
 
 
@@ -507,7 +513,7 @@ def _forme(vue, blocs: list[Block], vivantes: list) -> str:
     return parlants[0].kind if vivantes else parlants[-1].kind
 
 
-def construire_tour(vue) -> TurnView:
+def construire_tour(vue, say: str | None = None) -> TurnView:
     """La présentation conversationnelle de ce que la vue porte déjà.
 
     ⚠️ **`expects` vient de l'issue ET de ce qui reste à choisir.** Un même étage attend une
@@ -527,16 +533,26 @@ def construire_tour(vue) -> TurnView:
     blocs = _blocs(vue, etage, vivantes)
     forme = _forme(vue, blocs, vivantes)
 
-    say, ask = _PAR_ETAGE.get(
+    dit, ask = _PAR_ETAGE.get(
         (etage, forme), _PAR_ECRAN.get(forme, _FAUTE_DE_MIEUX)
     )
+    # ⚠️ **La seule chose qu'on souffle au tour : la phrase d'un répondeur.**
+    #
+    # Quand le tour a été *aiguillé* plutôt que décidé, c'est le répondeur qui a la réponse —
+    # « je ne sais pas conseiller sur les personnes », « aucun texte n'est encore ouvert ». Elle
+    # prend la place de `say`, et **rien d'autre** : `why` reste le motif du moteur, les blocs
+    # restent ce que la vue porte. Les deux ne peuvent donc pas se contredire.
+    #
+    # Le répondeur situe déjà la préparation lui-même — il ne faut pas la situer deux fois.
+    if say:
+        dit, sans_rien = say, False
     sans_rien = forme in (FORME_RIEN, FORME_EPUISE)
     attend = vue.outcome == "await_decision" and bool(vivantes)
 
     return TurnView(
         # Où en est la préparation, aux deux seuls tours qui n'offrent rien — c'est le seul
         # service qu'un tour vide puisse rendre, et c'est l'incise des répondeurs.
-        say=say + (situer(vue.resolved) if sans_rien else ""),
+        say=dit + (situer(vue.resolved) if sans_rien else ""),
         # Le motif du moteur, tel quel. C'est le filet doré, et il ne se réécrit pas.
         why=vue.rationale,
         ask=ask if attend or not vivantes else "",

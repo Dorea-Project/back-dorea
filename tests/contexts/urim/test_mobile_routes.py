@@ -80,6 +80,7 @@ class _Service:
         self.decisions: list[tuple[str, str]] = []
         self.explorations: list[str] = []
         self.ouvertures: list[dict] = []
+        self.tours: list[str] = []
 
     async def open(self, **kw) -> StudyDTO:
         self.ouvertures.append(kw)
@@ -94,6 +95,10 @@ class _Service:
 
     async def set_elements(self, **kw) -> StudyDTO:
         return _dto()
+
+    async def dire(self, *, raw_input: str, **kw) -> StudyDTO:
+        self.tours.append(raw_input)
+        return _dto(reponse="Ce que je peux dire de votre travail est déjà sous vos yeux.")
 
     async def explorer(self, *, reference: str, **kw) -> PassageDetailDTO:
         self.explorations.append((reference, kw.get("church_id")))
@@ -209,6 +214,62 @@ async def test_le_texte_servi_remonte_au_pasteur(client):
     (verset,) = corps["verses"]
     assert verset["reference"] == "Hébreux 13:1"
     assert "amour fraternel" in verset["text"]
+
+
+# ============================================================ le tour de parole a une URL
+
+
+async def test_parler_en_cours_de_preparation_a_une_url(client, service):
+    """🔴 **Le trou 2 du contrat.**
+
+    Le tour 5 de la maquette montre le pasteur qui tape *« Quel plan je peux tenir sur ce
+    texte ? »*. `raw_input` n'existait qu'à l'ouverture ; après, il n'y avait que `/decisions`
+    avec un code d'option, et le client n'avait rien à appeler pour cette phrase-là."""
+    reponse = await client.post(
+        f"/api/mobile/urim/studies/{ETUDE}/turns",
+        json={"raw_input": "Quel plan je peux tenir sur ce texte ?"},
+    )
+
+    assert reponse.status_code == 200
+    assert service.tours == ["Quel plan je peux tenir sur ce texte ?"]
+
+
+async def test_le_corps_du_tour_ne_porte_aucun_code_d_etage(client, service):
+    """C'est ce qui distingue ce geste d'une décision : **le pasteur parle**, il ne répond pas
+    à un formulaire. L'étage, le serveur le connaît — le lui faire renvoyer rendrait la phrase
+    dépendante d'un état que le client aurait pu manquer."""
+    reponse = await client.post(
+        f"/api/mobile/urim/studies/{ETUDE}/turns",
+        json={"raw_input": "le deuxième", "stage_code": "weigh_conviction"},
+    )
+
+    assert reponse.status_code == 200
+    assert service.tours == ["le deuxième"]
+
+
+async def test_la_reponse_du_repondeur_arrive_dans_le_say_et_le_motif_reste_celui_du_moteur(
+    client,
+):
+    """⚠️ **`say` change, `why` jamais.**
+
+    Un tour aiguillé n'a fait avancer aucun étage : le motif reste celui du moteur — c'est le
+    filet doré, et le réécrire ferait passer une réponse de répondeur pour un raisonnement."""
+    corps = (await client.post(
+        f"/api/mobile/urim/studies/{ETUDE}/turns", json={"raw_input": "quel plan"}
+    )).json()
+
+    assert corps["turn"]["say"].startswith("Ce que je peux dire de votre travail")
+    assert corps["turn"]["why"] == corps["rationale"]
+    assert corps["outcome"] == "await_decision", "l'état n'a pas bougé"
+
+
+async def test_un_tour_vide_est_refuse_a_la_frontiere(client):
+    """Le seul 4xx légitime ici : une phrase que ni la liaison ni l'aiguilleur n'auront à lire."""
+    reponse = await client.post(
+        f"/api/mobile/urim/studies/{ETUDE}/turns", json={"raw_input": ""}
+    )
+
+    assert reponse.status_code == 422
 
 
 # ==================================================================== l'antichambre a une URL

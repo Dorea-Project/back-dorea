@@ -211,11 +211,9 @@ fait son sujet »* et *« le soutient »*. `OptionView` porte `code`, `label`, `
 — **et rien qui distingue les deux**. Le client ne peut pas fabriquer ce groupe ; il le devinerait
 en lisant le texte du motif, ce qui marche jusqu'au jour où non. *Petit : un champ à ajouter.*
 
-**Trou 2 — la question libre en cours de préparation n'existe pas.** Le tour 5 montre le pasteur
-qui tape *« Quel plan je peux tenir sur ce texte ? »*. Or `raw_input` n'existe qu'à l'ouverture :
-après, il n'y a que `POST /decisions` avec un code d'option. C'est le **prompt dynamique** (Lot E),
-et c'est le geste le plus naturel une fois le texte sous les yeux. *Moyen, et c'est le vrai
-chantier.*
+**Trou 2 — ~~la question libre en cours de préparation n'existe pas~~. Bouché.** Voir §9.
+`POST /studies/{id}/turns` prend une phrase, et une seule — pas de `stage_code` : c'est ce qui
+distingue *parler* de *répondre à un formulaire*.
 
 **Trou 3 — le livrable est verrouillé, délibérément.** Les boutons PowerPoint et fiche de chaire
 n'ont aucune route : les étapes 2 à 4 du chantier sont fermées tant qu'une citation projetée
@@ -262,10 +260,24 @@ une fonction pure — testable hors rejeu, et sans confidence sur une assemblée
 | `preciser` | options `origin: entree` | ✅ |
 | `interroger_texte` | concordance, notes de contexte, motif de l'unité, original | ✅ |
 | `interroger_travail` | `couples`, `bearings`, `resisting_elsewhere` | ✅ |
-| `demander_production` | thème ✅ / livrable ❌ verrouillé |
+| `demander_production` | thème ✅ / livrable ❌ verrouillé | ✅ |
 | `changer_de_sujet` | **propose** une nouvelle préparation | ✅ |
-| `hors_champ` | le tour qui redirige | ❌ à écrire |
-| `indechiffrable` | le tour qui repose le fil | ❌ à écrire |
+| `hors_champ` | le tour qui redirige | ✅ |
+| `indechiffrable` | le tour qui repose le fil | ✅ |
+
+Les sept vivent dans `engine/repondeurs.py`, et trois réponses s'y ajoutent qui ne viennent
+d'**aucune** intention — parce que les taire reviendrait à mentir :
+
+| | Quand |
+| :-- | :-- |
+| `repondre_acquiescement` | « oui » sur une question posée — la liaison le consomme, sans appel |
+| `repondre_sans_lecture` | aucun modèle branché : pas de clé, ou quota épuisé (S12/S37) |
+| `repondre_panne` | 🔴 le modèle **n'a pas pu** répondre — voir §9 |
+| `repondre_reference_introuvable` | le corpus refuse la référence, **avec ses mots à lui** |
+
+La dernière est d'une autre espèce : elle ne dit pas ce qu'Urim est, elle **transporte le verdict
+du corpus**. *« Hébreux 2 compte 18 versets »* n'est pas une phrase du produit, c'est une phrase
+du texte — et à ce titre elle traverse intacte, comme le motif d'un étage.
 
 **Une intention ne déclenche jamais un acte irréversible — elle propose.** Un aiguilleur
 probabiliste n'a aucun pouvoir d'exécution.
@@ -307,12 +319,136 @@ tourne.
 
 ## 8. Ordre de construction
 
-1. **Les deux répondeurs manquants** — `hors_champ` et `indechiffrable`. Petits, purs, et ce
-   sont les seuls codes du vocabulaire que personne n'écoute aujourd'hui.
-2. **Trou 1** — la dominance sur l'option. Sans elle, le tour 2 n'est pas rendable.
-3. **Le champ `turn`** sur les réponses existantes, avec les sept blocs.
-3. **Trou 4**, version client : accepter `entry_origin=dictated` sur `POST /studies` (déjà le
+1. ✅ **Les deux répondeurs manquants** — `hors_champ` et `indechiffrable`.
+2. ✅ **Trou 1** — la dominance sur l'option. Sans elle, le tour 2 n'est pas rendable.
+3. ✅ **Le champ `turn`** sur les réponses existantes, avec les sept blocs.
+4. **Trou 4**, version client : accepter `entry_origin=dictated` sur `POST /studies` (déjà le
    cas) et documenter la confirmation attendue.
-4. **Trou 2** — la question libre. Il ouvre une surface neuve et mérite sa propre conception :
-   *que peut-on demander en cours de préparation, et qu'est-ce que le moteur refuse de répondre ?*
-5. **Trou 3** — pas avant le contrôle de citation.
+5. ✅ **Trou 2** — la question libre (§9).
+6. **Trou 3** — pas avant le contrôle de citation.
+
+---
+
+## 9. Le tour de parole — `POST /studies/{id}/turns`
+
+Un champ, `raw_input`, et rien d'autre. **Aucun `stage_code` :** c'est ce qui distingue *parler*
+de *répondre à un formulaire*. L'étage, le serveur le connaît ; le faire renvoyer par le client
+rendrait la phrase dépendante d'un état qu'il aurait pu manquer.
+
+La réponse est un `StudyView` entier, comme partout. Quand le tour n'a conclu à aucun geste,
+l'état n'a pas bougé — c'est `turn.say` qui porte la phrase du répondeur, et **`turn.why` reste
+le motif du moteur**. Un tour aiguillé n'a fait avancer aucun étage ; réécrire le motif ferait
+passer une réponse de répondeur pour un raisonnement.
+
+### L'ordre, et il n'est pas négociable
+
+    1. le controle de reference  le corpus refuse ? il le DIT — zero appel
+    2. la liaison                exacte, deterministe, ZERO appel
+    3. l'aiguilleur              un appel, sept codes — si la liaison rend la main
+    4. le repondeur              deterministe, selon le code
+    5. le tour                   comme partout
+
+🔴 **Un tour qui atteint le modèle alors que la liaison pouvait répondre est un défaut, pas une
+inefficacité.** Le scénario du 12/08 : trois refus successifs, neuf appels, dix secondes, rien
+appris — et l'aiguilleur ne savait de toute façon pas *quelle* option était visée.
+
+**Une cible sans geste n'est une décision que si le moteur attend une décision.** La liaison est
+aveugle à l'issue ; c'est l'orchestration qui tranche, parce que c'est elle qui sait si une
+question est posée. Les deux seuls gestes exécutés — décider, écarter — viennent d'elle, qui est
+exacte. **Aucune intention n'exécute quoi que ce soit** : `changer_de_sujet` ne ferme pas la
+préparation, `demander_production` ne fabrique rien.
+
+### Les deux silences du modèle, qui ne se confondent pas
+
+`MistralAssistant.echecs` est monotone : un 429 rend `None` **exactement** comme un tour non
+classable. Servir alors *« je n'ai rien reçu qui concerne la préparation »* à un pasteur dont la
+seule faute est d'avoir écrit pendant une coupure serait la seule fois où Urim reprocherait
+quelque chose à quelqu'un qui n'a rien fait. On prend donc une photo du compteur avant, une
+après — le même geste que le mémo des suggestions.
+
+### Le banc — `scripts/urim_banc_tour.py`
+
+Il mesure la **boucle**, pas l'aiguilleur seul, et rend deux chiffres qui doivent être zéro :
+
+    liaisons manquees          0/21   ← une designation manquee fait agir sur le mauvais objet
+    vraies saisies RENVOYEES   0/7    ← on lui dit qu'il n'a rien a faire ici
+
+**Les quatre références attestées du Pasteur X ne coûtent plus un seul appel** : trois désignent
+une option, `Hb 2v29` reçoit le verdict du corpus. Le total du banc est exactement son plancher —
+un appel par cas d'aiguillage, zéro ailleurs.
+
+Il charge le **vrai corpus** — en fabriquer trois formes de nom à la main ferait passer un banc
+pour une preuve. Sans corpus, il le dit et laisse les cas de notation non mesurés plutôt que de
+les compter réussis ou ratés.
+
+Le reste est gênant, sans plus : une réponse **à côté** n'est pas un refus, puisque les
+répondeurs sont déterministes. Séquentiel et cadencé, avec reprises — *une panne de débit
+ressemble exactement à un refus*, et un banc sans cadence rend le verdict le plus flatteur.
+
+**Ce que le banc a trouvé, et que trois relectures n'avaient pas vu.** Deux défauts de la
+liaison, tous deux du genre *bon objet, mauvais geste* — le pire mode d'échec de cet étage :
+
+1. **« La charité sans hypocrisie » s'écartait elle-même.** L'intitulé d'unité de la maquette
+   contient « sans », un marqueur de retrait. Le geste se cherche désormais **hors de ce qui a
+   été désigné** : les mots d'un intitulé appartiennent à l'intitulé.
+2. **« un » était lu comme un rang.** Quatre saisies sur vingt et une décidaient une option en
+   silence — *« je veux faire un culte sur l'adultère dans »*, *« Propose-moi un theme »*,
+   *« y a un risque de proof texting »*, *« attends deux minutes »*. Les cardinaux écrits ont
+   quitté la table des rangs ; les ordinaux et les chiffres restent lus.
+
+### La notation du pasteur
+
+`Hb 2v29`, `Jn14v28`, `Eph 1v20-22`, `jn 2:3` — **pas une de ses saisies attestées n'a la forme
+`Livre chapitre:verset`**. Le lecteur qui les comprend existait depuis la chaîne de textes
+d'appui (`reference_libre`) ; il ne parlait à personne dans le tour, si bien qu'une référence
+*affichée à l'écran* partait quand même au modèle.
+
+Il est branché. Reconnaître `Hb` demande les 357 formes du corpus, et la liaison est pure : elle
+reçoit donc des `Reference` **déjà lues** et ne compare que des passages. La notation est
+absorbée avant d'arriver.
+
+Trois règles le rendent sûr, et chacune coûte des appels plutôt que des désignations inventées :
+
+1. **Le nom de livre doit ouvrir la saisie.** Marc, Actes, Juges et Nombres sont des mots
+   français avant d'être des livres : balayer la phrase entière rendrait « Marc a quitté
+   l'église » équivalent à une référence. Seuls les **marqueurs de retrait** sont retirés en
+   tête — un vocabulaire fermé, jamais de la prose — ce qui fait marcher « non, pas Jn14v28 »
+   et pas « prends Jn14v28 ».
+2. **Un nom de livre nu ne désigne rien.** `lire` rend volontiers un livre entier (S23), et
+   c'est juste à la porte où le pasteur a *déclaré* saisir une référence. Ici, le chapitre est
+   exigé — comme pour l'appariement par jetons.
+3. **Une seule option visée, ou aucune.** `Jn` désigne quatre livres et `lire` les rend tous
+   les quatre parce qu'il refuse de trancher (S24) : **c'est l'écran qui tranche**, et trois
+   d'entre eux ne visent rien. Quand plusieurs options restent visées, la liaison rend la main.
+
+Les versets se **recoupent** plutôt qu'ils ne s'égalent : `Ga 5v13` choisit l'unité qui contient
+ce verset, là où « Ga 5 » désignerait les trois unités du chapitre et où l'appariement par
+jetons prendrait la première.
+
+### Le contrôle de référence
+
+`Hb 2v29` et `Ph 28v9` sont dans les notes du Pasteur X. **Hébreux 2 compte 18 versets ;
+Philippiens a quatre chapitres.** Urim savait le dire depuis le premier jour et ne le disait
+qu'aux textes d'appui : au tour, la saisie repartait à l'aiguilleur, qui répondait à côté
+*sans rien dire de l'erreur de référence*.
+
+Le verdict du corpus est donc rendu au tour, et il passe **avant la liaison** — une référence
+que le corpus rejette pourrait quand même désigner une option (`Hb 2v29` tombe dans une option
+« Hébreux 2 » affichée en chapitre entier), et décider silencieusement cacherait la seule chose
+utile de ce tour. Zéro appel : le corpus sait cela tout seul.
+
+Le motif **traverse intact**, comme le filet doré du tour. *« Hébreux 2 compte 18 versets »* lui
+apprend quelque chose ; *« référence invalide »* le laisse chercher — c'est S19, un refus nomme
+ce qui manque au corpus, jamais ce qui manque au pasteur. Et *on ne corrige pas* : deviner qu'il
+voulait 2:9 serait décider à sa place sur la foi d'une touche voisine.
+
+Deux gardes l'encadrent, et elles disent la même chose de deux façons :
+
+- **Le motif du lecteur n'est jamais rendu.** *« Je ne connais pas de livre nommé "bonjour" »*
+  est juste, et absurde : toute phrase ordinaire le déclencherait. Seul le verdict du corpus sur
+  un livre **déjà reconnu** sort d'ici.
+- **La saisie doit être la référence, et rien d'autre.** « Nombres 500 personnes sont venues »
+  est une phrase où un nom de livre passe par hasard ; lui répondre que le chapitre 500 n'existe
+  pas serait répondre à une question qu'il n'a pas posée. Le surplus de mots interdit de
+  *contredire* — pas de *désigner* : « Romains 12 s'il te plaît » vise bien une option.
+  Désigner est réversible, contredire ne l'est pas.
