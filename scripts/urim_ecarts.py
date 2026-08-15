@@ -2,7 +2,15 @@
 
     python scripts/urim_ecarts.py                # les cinq balayages gratuits
     python scripts/urim_ecarts.py --detail 15    # les exemples, en entier
-    python scripts/urim_ecarts.py --file         # la file d'attente du relecteur
+    python scripts/urim_ecarts.py --file         # la file d'attente, en texte
+    python scripts/urim_ecarts.py --materialiser # la file en base, pour la surface du relecteur
+
+⚠️ **`--materialiser` est ce qui rend la file utilisable par la personne dont on a besoin.** Un
+théologien ne lira pas `data/urim_file_relecture.txt` et ne tapera pas `--portee D4` ; il descend
+une liste dans un écran. La table `urim_corpus_signal` est le seul pont entre ce script et cet
+écran — et le sens de la flèche compte : *le détecteur produit, la surface lit*. Aucune route ne
+peut écrire dans cette table, faute de quoi le produit pourrait un jour se signaler lui-même
+comme relu.
 
 Un humain ne relira jamais 4 561 unités. Il peut en relire deux cents — si quelque chose sait
 lui dire **lesquelles**. C'est tout l'objet de ce script, et c'est ce qui transforme une
@@ -47,17 +55,21 @@ import sys
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.contexts.urim.application.curation import (
+    COUCHE_MISE_EN_GARDE,
+    COUCHE_PESEE,
     PORTEE_ENSEMBLE,
     SIGNATAIRE_IA,
     empreinte_de_curation,
+    verdict_couvre,
     verifier_forme_machine,
 )
 from app.contexts.urim.domain.errors import CurationInvalideError
@@ -66,6 +78,7 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusDoctrinalCaveatModel,
     CorpusPericopeModel,
     CorpusReviewModel,
+    CorpusSignalModel,
     CorpusVerseModel,
     CorpusVersionModel,
 )
@@ -243,7 +256,7 @@ async def _charger() -> dict[UUID, Unite]:
             else:
                 u.loci_portants += 1
             u.lignes.append(Ligne(
-                b.pericope_id, "pesée", b.axis_code, b.rationale,
+                b.pericope_id, COUCHE_PESEE, b.axis_code, b.rationale,
                 b.reviewed_by == SIGNATAIRE_IA, b.strength,
             ))
 
@@ -253,7 +266,7 @@ async def _charger() -> dict[UUID, Unite]:
                 continue
             u.caveats += 1
             u.lignes.append(Ligne(
-                c.pericope_id, "mise en garde", c.axis_code, c.body,
+                c.pericope_id, COUCHE_MISE_EN_GARDE, c.axis_code, c.body,
                 c.reviewed_by == SIGNATAIRE_IA,
             ))
 
@@ -268,17 +281,36 @@ async def _charger() -> dict[UUID, Unite]:
 def _deja_juge(unite: Unite, ecart: Ecart) -> bool:
     """Un écart déjà tranché par un humain **sur cette curation-là**.
 
-    ⚠️ Deux portées jugent : celle du détecteur (`D4`) et celle de l'unité entière
-    (`ensemble`). La seconde couvre la première — un relecteur qui a relu tout le passage n'a
-    pas à revenir sur chaque signalement.
+    La règle elle-même vit dans `curation.py` : la surface du relecteur en dépend aussi, et deux
+    copies auraient divergé le jour où l'une des deux est corrigée — les deux moitiés du produit
+    n'auraient plus dit la même chose sur *ce qui reste à faire*."""
+    return verdict_couvre(unite.verdicts, unite.empreinte, ecart.detecteur.split()[0])
 
-    Et la comparaison d'empreinte est ce qui empêche un verdict de protéger une curation qu'il
-    n'a jamais vue : régénérez les pesées, le verdict se périme et l'unité revient."""
-    empreinte = unite.empreinte
-    code = ecart.detecteur.split()[0]
-    return unite.verdicts.get(code) == empreinte or (
-        unite.verdicts.get(PORTEE_ENSEMBLE) == empreinte
-    )
+
+async def _materialiser(unites: dict[UUID, Unite], bruts: list[Ecart]) -> None:
+    """Écrire la file dans `urim_corpus_signal` — **pour qu'un humain puisse la descendre**.
+
+    Ce sont les écarts **bruts** qui sont écrits, pas ceux qui restent après filtrage. La table
+    est une photographie de ce que les détecteurs ont vu ; c'est la surface qui compare les
+    empreintes à la lecture, et elle doit pouvoir dire *« ce signalement-là a été tranché »*
+    plutôt que de faire disparaître le fait qu'il existait.
+
+    Remplacement en bloc : un signalement qu'aucun détecteur ne retrouve n'a pas à survivre à sa
+    propre disparition. Une file qui accumule n'est plus une file, c'est un historique."""
+    quand = datetime.now(UTC)
+    async with async_session_factory() as s:
+        await s.execute(delete(CorpusSignalModel))
+        for e in bruts:
+            s.add(CorpusSignalModel(
+                id=uuid4(), pericope_id=e.unite, detector=e.detecteur.split()[0],
+                label=e.detecteur[:120], severity=e.gravite, detail=e.detail,
+                body=e.corps, scan_fingerprint=unites[e.unite].empreinte,
+                scanned_at=quand,
+            ))
+        await s.commit()
+    print(f"\n  file materialisee : {len(bruts)} signalements sur "
+          f"{len({e.unite for e in bruts})} unites")
+    print("  GET /api/backoffice/platform/urim/relecture/file la sert desormais")
 
 
 def _d1_contradiction(unites: dict[UUID, Unite]) -> list[Ecart]:
@@ -286,7 +318,7 @@ def _d1_contradiction(unites: dict[UUID, Unite]) -> list[Ecart]:
     trouves = []
     for cle, u in unites.items():
         for ligne in u.lignes:
-            if ligne.couche == "mise en garde" and ligne.axe in u.loci_absents:
+            if ligne.couche == COUCHE_MISE_EN_GARDE and ligne.axe in u.loci_absents:
                 trouves.append(Ecart(
                     cle, u.reference, "D1 contradiction", 3,
                     f"mise en garde sur « {ligne.axe} », que les pesées disent absent",
@@ -474,6 +506,10 @@ async def main() -> None:
     analyseur.add_argument("--detail", type=int, default=0, help="montrer les N plus douteuses")
     analyseur.add_argument("--corps", help="lire en entier les lignes prises par un detecteur")
     analyseur.add_argument("--file", action="store_true", help="ecrire la file du relecteur")
+    analyseur.add_argument(
+        "--materialiser", action="store_true",
+        help="ecrire la file en base, pour la surface du relecteur",
+    )
     arguments = analyseur.parse_args()
 
     unites = await _charger()
@@ -503,6 +539,9 @@ async def main() -> None:
         return
 
     _rapport(unites, ecarts, arguments.detail, arguments.file)
+
+    if arguments.materialiser:
+        await _materialiser(unites, bruts)
 
     if moules:
         print("\n" + "=" * 72)

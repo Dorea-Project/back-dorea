@@ -27,6 +27,8 @@ from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusDoctrinalBearingModel,
     CorpusDoctrinalCaveatModel,
     CorpusHomileticFeasibilityModel,
+    CorpusReviewerModel,
+    CorpusSignalModel,
     CorpusVersionModel,
 )
 from app.contexts.urim.infrastructure.persistence.models import (
@@ -118,6 +120,22 @@ def _lecture(**kw):
         "reading": "rassemblement", "body": "Et Dieu appela le sec Terre…",
     }
     return CorpusCollisionWitnessModel(**{**base, **kw})
+def _relecteur(**kw):
+    base = {
+        "identifiant": uuid4().hex[:10], "display_name": f"Relecteur {uuid4().hex[:6]}",
+        "secret_hash": "0" * 64, "active": True, "enrolled_at": _NOW, "revoked_at": None,
+    }
+    return CorpusReviewerModel(**{**base, **kw})
+
+
+def _signalement(**kw):
+    base = {
+        "id": uuid4(), "pericope_id": uuid4(), "detector": "D4",
+        "label": "D4 aberration", "severity": 2,
+        "detail": "8 loci portants sur 10", "body": "",
+        "scan_fingerprint": "a" * 32, "scanned_at": _NOW,
+    }
+    return CorpusSignalModel(**{**base, **kw})
 
 
 #: Chaque cas : ce que la base doit accepter, et la jumelle qu'elle doit refuser.
@@ -164,6 +182,14 @@ COUPLES = [
         # prêter un mot est la façon exacte dont cet écran deviendrait menteur, et le pasteur
         # citerait en chaire une lecture que personne n'a faite.
         id="un temoin qui ne se prononce pas n'a pas de lecture",
+    ),
+    pytest.param(
+        _relecteur, {}, {"display_name": "ia-mistral"},
+        id="la machine ne s'enrole pas comme relecteur",
+    ),
+    pytest.param(
+        _signalement, {}, {"severity": 4},
+        id="une gravite hors bareme fausserait l'ordre de la file",
     ),
 ]
 

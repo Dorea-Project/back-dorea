@@ -10,7 +10,7 @@ et 1 Jean, un bornage contesté, un couple homilétique impossible sont des `Out
 en exceptions HTTP ferait disparaître exactement ce que le produit veut montrer.
 """
 
-from app._shared.domain.errors import DomainError, NotFoundError
+from app._shared.domain.errors import DomainError, NotFoundError, UnauthorizedError
 
 
 class UrimError(DomainError):
@@ -19,6 +19,26 @@ class UrimError(DomainError):
 
 class PreparationIntrouvableError(NotFoundError):
     code = "URI_PREPARATION_NOT_FOUND"
+
+
+class UniteIntrouvableError(NotFoundError):
+    """L'unité littéraire qu'on veut relire n'existe pas — ou n'existe plus.
+
+    Le second cas est le vrai : la file du relecteur est une **photographie** d'un balayage, et
+    une unité retirée entre-temps y figure encore. 404 plutôt qu'une file filtrée à la lecture —
+    la surface doit dire que l'entrée est périmée, pas la faire disparaître en silence."""
+
+    code = "URI_UNIT_NOT_FOUND"
+
+
+class RelecteurInconnuError(UnauthorizedError):
+    """Le porteur n'est pas un relecteur enrôlé, ou ne l'est plus.
+
+    ⚠️ **401 et non 403.** Le jeton de service Plateforme, lui, est bon — ce qui manque n'est pas
+    un droit mais une **identité** : la surface ne sait pas qui signerait. C'est précisément la
+    distinction que la console d'administration Dorea viendra formaliser."""
+
+    code = "URI_REVIEWER_UNKNOWN"
 
 
 class OptionInconnueError(UrimError):

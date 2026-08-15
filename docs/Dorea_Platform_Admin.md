@@ -110,6 +110,30 @@ un journal d'audit interrogeable. Réponse directe à **R6** (« pas d'audit tra
 
 ---
 
+## 8. Ce qui l'attend déjà — le registre des relecteurs d'Urim
+
+La **surface du relecteur** d'Urim (`Urim_Surface_Relecteur.md`, livrée le 2026-08-13) a rencontré
+cette note avant l'heure. Elle écrit de la doctrine sous l'autorité de quelqu'un, et le
+`X-Service-Token` ne dit pas *qui* : `reviewed_by` était donc saisi dans le corps de la requête —
+par où un verdict a été posé au nom du propriétaire du dépôt, et il a fallu le retirer.
+
+Faute de console, elle s'est dotée d'un **registre minimal** : `urim_reviewer` (identifiant, nom
+affiché, empreinte d'un secret tiré au sort, révocable) et un en-tête `X-Urim-Relecteur`. Le nom
+n'est plus une donnée d'entrée — il est *rendu* contre la preuve d'un secret.
+
+> Ce que ça garantit : **on ne signe que d'un nom dont on détient le secret, et ce nom se
+> révoque.** Ce que ça ne garantit pas : que la personne soit celle qu'elle dit — ni **qui a
+> effacé**, faute de journal d'audit (dette **R6**).
+
+**Ce que la console récupère.** Toute l'authentification tient dans une seule dépendance,
+`exiger_relecteur`, qui rend un objet `Relecteur(identifiant, nom)`. Le jour où `/api/admin/*`
+existe, on remplace le couple identifiant/secret par une session de compte staff nominatif ;
+**aucune route ne change**, et `urim_reviewer` disparaît. C'est le point de raccordement à ne pas
+perdre de vue — et un précédent utile pour A1 (2FA) : un secret porté par en-tête est exactement
+ce qu'on ne veut plus pour un acte humain privilégié.
+
+---
+
 *Note de design — fait foi pour la décision, pas pour l'implémentation. Nouveau contexte borné
 probable : `platform_admin` (ou extension `iam` avec un axe plateforme). À promouvoir en spec une fois
 A1–A5 tranchés.*

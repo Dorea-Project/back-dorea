@@ -15,7 +15,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Header
 
 from app.api.deps import DbSession
 from app.contexts.groups.application.group_access import GroupAccessPolicy
@@ -29,6 +29,11 @@ from app.contexts.urim.adapters.authorization import GroupAccessPreacherAuthoriz
 from app.contexts.urim.adapters.mistral import build_verse_resolver
 from app.contexts.urim.application.archive_service import UrimArchiveService
 from app.contexts.urim.application.curation import UrimCuration
+from app.contexts.urim.application.relecture import (
+    RegistreDesRelecteurs,
+    Relecteur,
+    Relecture,
+)
 from app.contexts.urim.application.study_service import UrimStudyService
 from app.contexts.urim.deliverable.application.service import UrimDeliverableService
 from app.contexts.urim.domain.errors import CorpusNonSemeError
@@ -46,6 +51,10 @@ from app.contexts.urim.infrastructure.persistence.curation_repository import (
 from app.contexts.urim.infrastructure.persistence.deliverable_repository import (
     SqlDeliverableRepository,
     SqlVerseTextReader,
+)
+from app.contexts.urim.infrastructure.persistence.relecture_repository import (
+    SqlRegistreRepository,
+    SqlRelectureRepository,
 )
 from app.contexts.urim.infrastructure.persistence.study_repository import (
     SqlReservationRepository,
@@ -163,3 +172,34 @@ def get_curation(
 
 
 CurationDep = Annotated[UrimCuration, Depends(get_curation)]
+
+
+def get_relecture(session: DbSession) -> Relecture:
+    # Pas d'index ici, contrairement à la curation : relire ne crée pas d'unité, donc rien à
+    # valider contre le corpus chargé — et rien à purger, tant qu'on ne fait que juger.
+    return Relecture(repo=SqlRelectureRepository(session), clock=_now)
+
+
+RelectureDep = Annotated[Relecture, Depends(get_relecture)]
+
+
+async def exiger_relecteur(
+    session: DbSession,
+    x_urim_relecteur: Annotated[str | None, Header()] = None,
+) -> Relecteur:
+    """**Qui signe** — rendu par le registre, jamais lu dans un corps de requête.
+
+    Le jeton de service Plateforme dit *« la Plateforme »* ; il ne dit pas *« qui »*. Tant que
+    `reviewed_by` était un champ de formulaire, aucune vérification ne pouvait empêcher d'y
+    écrire le nom de quelqu'un d'autre — et c'est arrivé. Cette dépendance est le point où le
+    nom cesse d'être une donnée d'entrée.
+
+    C'est aussi le seul endroit à changer le jour où la console d'administration Dorea existe :
+    elle remplacera le couple identifiant/secret par une session de compte staff nominatif, et
+    les routes n'en sauront rien."""
+    return await RegistreDesRelecteurs(SqlRegistreRepository(session)).identifier(
+        x_urim_relecteur
+    )
+
+
+RelecteurDep = Annotated[Relecteur, Depends(exiger_relecteur)]

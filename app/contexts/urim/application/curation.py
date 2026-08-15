@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
@@ -73,6 +73,17 @@ VERDICTS = frozenset({"accepte", "corrige", "a_reprendre"})
 PORTEE_ENSEMBLE = "ensemble"
 
 
+#: Les noms des deux couches qui entrent dans une empreinte.
+#:
+#: ⚠️ **Des constantes, et pas des littéraux, parce qu'une empreinte ne pardonne pas.** Trois
+#: endroits calculent celle d'une unité — le détecteur d'écarts, l'outil en ligne de commande et
+#: la surface du relecteur. Un « mise en garde » écrit ailleurs « caveat » produirait une
+#: empreinte différente sur la même curation : tous les verdicts posés paraîtraient périmés, et
+#: la file remonterait sans que rien n'ait changé dans le corpus.
+COUCHE_PESEE = "pesée"
+COUCHE_MISE_EN_GARDE = "mise en garde"
+
+
 def empreinte_de_curation(lignes: Iterable[tuple[str, str, str]]) -> str:
     """Ce sur quoi le verdict a porté — `(couche, axe, corps)`, trié puis condensé.
 
@@ -86,6 +97,24 @@ def empreinte_de_curation(lignes: Iterable[tuple[str, str, str]]) -> str:
     même raison : *une décision ne vaut que sur l'objet qu'elle a regardé.*"""
     empilees = "\n".join(sorted(f"{couche}|{axe}|{corps}" for couche, axe, corps in lignes))
     return hashlib.sha256(empilees.encode()).hexdigest()[:32]
+
+
+def verdict_couvre(
+    verdicts: Mapping[str, str], empreinte_courante: str, detecteur: str
+) -> bool:
+    """Ce signalement-là est-il **déjà tranché**, sur cette curation-là ?
+
+    Deux portées couvrent : celle du détecteur (`D4`) et celle de l'unité entière (`ensemble`) —
+    un relecteur qui a relu tout le passage n'a pas à revenir sur chaque signalement.
+
+    ⚠️ **Ici parce que deux lecteurs en dépendent** : le détecteur d'écarts, qui décide ce qu'il
+    remet en file, et la surface du relecteur, qui décide ce qu'elle affiche. Recopiée, la règle
+    aurait divergé le jour où l'une des deux est corrigée — et les deux moitiés du produit
+    n'auraient plus dit la même chose sur *ce qui reste à faire*."""
+    return (
+        verdicts.get(detecteur) == empreinte_courante
+        or verdicts.get(PORTEE_ENSEMBLE) == empreinte_courante
+    )
 
 
 #: ⚠️ **Les deux seules formes qu'une machine n'a jamais le droit d'écrire.**
