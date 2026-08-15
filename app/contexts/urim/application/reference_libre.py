@@ -56,6 +56,15 @@ class LectureLibre:
     references: tuple[Reference, ...] = ()
     motif: str = ""
 
+    #: Les mots qui n'étaient ni le nom du livre, ni un nombre, ni un séparateur de verset.
+    #:
+    #: ⚠️ **Vide signifie : la saisie EST la référence, et rien d'autre.** Le tour s'en sert
+    #: pour décider s'il a le droit de contredire le pasteur. « Hb 2v29 » appelle *« Hébreux 2
+    #: compte 18 versets »* ; « Nombres 500 personnes sont venues » appelle le silence — c'est
+    #: une phrase où un nom de livre passe par hasard, et lui répondre que le chapitre 500
+    #: n'existe pas serait répondre à une question qu'il n'a pas posée."""
+    surplus: tuple[str, ...] = ()
+
 
 def lire(brut: str, index: CorpusIndex) -> LectureLibre:
     """`Hb 2v29` → `Hébreux 2:29`. La validité, c'est `check_reference` qui la dit."""
@@ -70,15 +79,20 @@ def lire(brut: str, index: CorpusIndex) -> LectureLibre:
         )
 
     chiffres = [int(mot) for mot in reste if mot.isdigit()]
+    # Ce qui reste après le livre, les nombres et les séparateurs : des mots que cette lecture
+    # n'a pas employés. Elle ne s'en plaint pas — elle les **rapporte**, et l'appelant décide
+    # de ce qu'ils changent pour lui.
+    surplus = tuple(mot for mot in reste if not mot.isdigit())
+
     if not chiffres:
         # Le livre entier — un choix légitime (S23), pas une saisie incomplète.
-        return LectureLibre(tuple(Reference(nom) for nom in livres))
+        return LectureLibre(tuple(Reference(nom) for nom in livres), surplus=surplus)
 
     chapitre = chiffres[0]
     debut = chiffres[1] if len(chiffres) > 1 else None
     fin = chiffres[2] if len(chiffres) > 2 else None
     return LectureLibre(
-        tuple(Reference(nom, chapitre, debut, fin) for nom in livres)
+        tuple(Reference(nom, chapitre, debut, fin) for nom in livres), surplus=surplus
     )
 
 

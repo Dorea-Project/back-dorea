@@ -16,6 +16,10 @@ Chaque test ci-dessous porte le nom de ce qu'il a laissé passer :
 5. **la saisie stylisée** — les caractères mathématiques envoyés tels quels au modèle.
 
 Aucun ne demande de base ni de réseau. C'est le point : ils auraient tous pu exister avant.
+
+La sixième section n'est pas un défaut trouvé mais une surface neuve — le **tour de parole**
+(trou 2 du contrat). Elle est ici parce que c'est le même endroit qui se casse : la liaison, le
+plafond et le rejeu se rencontrent dans la bordure, pas dans le moteur.
 """
 
 from __future__ import annotations
@@ -26,8 +30,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.contexts.urim.application.conversation import lire_la_notation
 from app.contexts.urim.application.ports import (
     PreparationRecord,
+    StudyDTO,
     UsageSnapshot,
 )
 from app.contexts.urim.application.study_service import UrimStudyService, _lisible
@@ -179,10 +185,16 @@ class _Acces:
 class _Modele:
     """Un modèle **qui note ce qu'on lui donne** — c'est ce qu'on vérifie au test 5."""
 
-    def __init__(self, *, axes=(), passages=(), flags=(), resolu=None) -> None:
+    def __init__(
+        self, *, axes=(), passages=(), flags=(), resolu=None, intention=None
+    ) -> None:
         self._axes, self._passages = tuple(axes), tuple(passages)
         self._flags, self._resolu = tuple(flags), resolu
+        self._intention = intention
         self.recu: list[str] = []
+        #: Compté à part : le tour de parole doit pouvoir prouver qu'il **n'a pas** aiguillé,
+        #: et le rejeu qui l'entoure consulte le modèle par d'autres portes.
+        self.aiguillages: list[str] = []
 
     async def resolve(self, text):
         self.recu.append(text)
@@ -199,6 +211,10 @@ class _Modele:
     async def passages(self, text):
         self.recu.append(text)
         return self._passages
+
+    async def aiguiller(self, text):
+        self.aiguillages.append(text)
+        return self._intention
 
 
 def _service(index=None, modele=None) -> UrimStudyService:
@@ -456,3 +472,275 @@ async def test_le_modele_recoit_la_saisie_repliee_pas_la_brute():
 
     assert modele.recu, "le modèle n'a pas été consulté"
     assert all(recu == "retour" for recu in modele.recu)
+
+
+# ============================================== 6. le tour de parole — le trou 2 du contrat
+
+
+@pytest.mark.asyncio
+async def test_une_phrase_qui_designe_un_passage_affiche_le_choisit_sans_aiguiller():
+    """🔴 **Le tour que le modèle n'a pas à voir.**
+
+    « Ecclésiologie », « L'unité », « Hébreux 13:1-2 » désignent une option déjà offerte. Un
+    tour qui atteint le modèle alors que la liaison pouvait répondre est un défaut : le
+    scénario du 12/08 a payé neuf appels pour trois refus, et l'aiguilleur ne savait de toute
+    façon pas **quelle** option était visée."""
+    modele = _Modele(passages=(
+        PassageSuggestion(Reference("Hébreux", 13, 1, 2), "traite ce sujet"),
+        PassageSuggestion(Reference("Hébreux", 13, 1, 1), "aussi"),
+    ))
+    service = _service(modele=modele)
+    dto = await _ouvrir(service, "je veux prêcher sur la fraternité")
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="Hébreux 13:1-2"
+    )
+
+    assert apres.resolved_label == "Hébreux 13:1-2"
+    assert modele.aiguillages == []
+
+
+@pytest.mark.asyncio
+async def test_un_refus_ecrit_ecarte_l_option_sans_aiguiller():
+    """Écarter n'efface pas : l'option reste dans la liste, marquée et reléguée. Le geste
+    écrit doit aboutir exactement où aboutit le geste touché."""
+    modele = _Modele()
+    service = _service(modele=modele)
+    dto = await _ouvrir(service, "je veux prêcher sur la fraternité")
+    (premier, *_) = [o[0] for o in dto.options]
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="non, pas le premier"
+    )
+
+    assert modele.aiguillages == []
+    ecartees = [code for code, *_, dismissed, _ in apres.options if dismissed]
+    assert ecartees == [premier]
+    assert premier in [o[0] for o in apres.options], "une option écartée reste dans la liste"
+
+
+@pytest.mark.asyncio
+async def test_une_question_libre_est_aiguillee_et_n_ecrit_rien():
+    """Le tour 5 de la maquette — et rien ne doit bouger dans l'enregistrement.
+
+    ⚠️ *Une intention ne déclenche jamais un acte irréversible : elle propose.*"""
+    modele = _Modele(intention="interroger_travail")
+    service = _service(modele=modele)
+    dto = await _ouvrir(service, "Hébreux 13:1")
+    avant = replace(service.studies.records[dto.record.id])
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id,
+        raw_input="Quel plan je peux tenir sur ce texte ?",
+    )
+
+    assert modele.aiguillages == ["Quel plan je peux tenir sur ce texte ?"]
+    assert apres.reponse and "sous vos yeux" in apres.reponse
+    assert service.studies.records[dto.record.id] == avant
+
+
+@pytest.mark.asyncio
+async def test_le_quota_epuise_ne_ferme_pas_le_tour_il_le_dit():
+    """Le plafond éteint l'assistance, jamais Urim (S12/S37) — et le tour doit le **dire**
+    plutôt que de traiter la phrase du pasteur comme du bruit."""
+    modele = _Modele(intention="interroger_travail")
+    service = UrimStudyService(
+        studies=_Studies(), reservations=_Reservations(epuise=True), access=_Acces(),
+        index=_index(), clock=lambda: MAINTENANT, resolver=modele,
+    )
+    dto = await _ouvrir(service, "Hébreux 13:1")
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="quel plan je peux tenir"
+    )
+
+    assert modele.aiguillages == []
+    assert apres.reponse and "phrase libre" in apres.reponse
+
+
+def test_le_rang_se_compte_dans_l_ordre_de_l_ecran_pas_dans_celui_du_moteur():
+    """🔴 **Les deux lectures doivent partir de la même liste.**
+
+    Le moteur rend les unités à plat ; le tour les groupe par ce qu'elles font du sujet — *en
+    fait son sujet* avant *le soutient* avant *lui résiste*. Compter « le deuxième » sur la
+    liste du moteur ferait agir sur une autre option que celle touchée, et une désignation
+    manquée coûte plus cher qu'une intention mal aiguillée."""
+    from app.contexts.urim.interface.schemas import StudyView
+    from app.contexts.urim.interface.turn import construire_tour
+
+    service = _service()
+    dto = StudyDTO(
+        record=PreparationRecord(
+            id=UNITE, church_id=EGLISE, author_id=AUTEUR, raw_input="la fraternité"
+        ),
+        outcome="await_decision",
+        rationale="Laquelle prêchez-vous ?",
+        trace=(("weigh_conviction", "Lu comme une intention."),),
+        options=(
+            ("texte:c", "Celle qui résiste", "motif", "curation", False, "resiste"),
+            ("texte:a", "Celle qui en fait son sujet", "motif", "curation", False, "dominant"),
+        ),
+    )
+
+    ecran = service._ecran(dto)
+    tour = construire_tour(StudyView.from_dto(dto))
+    affichees = [item.code for groupe in tour.blocks[0].groups for item in groupe.items]
+
+    assert list(ecran.codes) == affichees == ["texte:a", "texte:c"]
+
+
+def test_une_option_ecartee_n_est_plus_une_cible_au_rang():
+    """Elle reste dans la vue, reléguée — mais le tour ne la propose plus au toucher, donc
+    elle ne compte plus dans les rangs non plus."""
+    service = _service()
+    dto = StudyDTO(
+        record=PreparationRecord(
+            id=UNITE, church_id=EGLISE, author_id=AUTEUR, raw_input="la fraternité"
+        ),
+        outcome="await_decision",
+        rationale="Laquelle prêchez-vous ?",
+        options=(
+            ("axe:christologie", "Christologie", "motif", "locus", True, None),
+            ("axe:ecclesiologie", "Ecclésiologie", "motif", "locus", False, None),
+        ),
+    )
+
+    assert service._ecran(dto).codes == ("axe:ecclesiologie",)
+
+
+# ======================================= 7. la notation du pasteur, branchee sur la liaison
+
+
+@pytest.mark.parametrize(
+    ("saisie", "attendue"),
+    [
+        ("Hb 13v1", Reference("Hébreux", 13, 1)),
+        ("hb13v1", Reference("Hébreux", 13, 1)),
+        ("Hb 13v1-2", Reference("Hébreux", 13, 1, 2)),
+        ("non, pas Hb 13v1", Reference("Hébreux", 13, 1)),
+        ("enlève Hb 13v1", Reference("Hébreux", 13, 1)),
+    ],
+)
+def test_le_lecteur_comprend_la_notation_du_pasteur(saisie: str, attendue) -> None:
+    """`Hb 2v29`, `Jn14v28`, `Eph 1v20-22` — pas une de ses saisies n'a la forme
+    `Livre chapitre:verset`. Le préfixe de retrait est retiré parce qu'il vient d'un
+    vocabulaire **fermé** : on ne saute pas de la prose."""
+    assert lire_la_notation(saisie, _index()).lues == (attendue,)
+
+
+@pytest.mark.parametrize(
+    "saisie",
+    [
+        "prends Hb 13v1",
+        "je veux prêcher sur Hb 13v1",
+        "l'amour fraternel n'existe plus dans l'eglise",
+        "Ma voiture 406, a besoin de reparation , jefgf Paradis",
+    ],
+)
+def test_le_nom_de_livre_doit_ouvrir_la_saisie(saisie: str) -> None:
+    """🔴 **La garde qui rend le branchement sûr.**
+
+    Balayer la phrase entière rendrait « Marc a quitté l'église » ou « il y a des actes qui
+    parlent » équivalents à une référence — Marc, Actes, Juges et Nombres sont des mots
+    français avant d'être des livres. C'est la sévérité de S35, et l'assouplir rouvrirait la
+    porte que le détecteur d'entrée tient fermée.
+
+    Le prix, assumé : « prends Hb 13v1 » repart au modèle. Un appel de trop contre une
+    désignation inventée."""
+    assert lire_la_notation(saisie, _index()).lues == ()
+
+
+# -- le contrôle de référence ---------------------------------------------------------
+
+
+def test_le_corpus_dit_ce_qui_manque_a_la_reference() -> None:
+    """🔴 **`Hb 2v29` est dans ses notes, et Hébreux 2 compte 18 versets.**
+
+    Urim savait le dire depuis le premier jour et ne le disait qu'aux textes d'appui : au tour,
+    la saisie repartait à l'aiguilleur, qui répondait à côté sans rien dire de l'erreur."""
+    lu = lire_la_notation("Hb 2v29", _index())
+
+    assert "il n'y a pas de verset 29" in lu.introuvable
+    assert "18 versets" in lu.introuvable, "le motif porte les mots du corpus"
+
+
+def test_une_reference_qui_existe_n_est_pas_contredite() -> None:
+    assert lire_la_notation("Hb 13v1", _index()).introuvable == ""
+
+
+def test_on_ne_contredit_pas_une_phrase_ou_un_livre_passe_par_hasard() -> None:
+    """🔴 **La garde qui empêche de répondre à une question qu'il n'a pas posée.**
+
+    « Nombres 500 personnes sont venues » est une phrase où un nom de livre passe par hasard.
+    Le surplus de mots interdit de **contredire** — pas de désigner : désigner est réversible,
+    contredire ne l'est pas."""
+    assert lire_la_notation("Hb 2v29 enfin je crois", _index()).introuvable == ""
+
+
+def test_le_motif_du_lecteur_ne_sort_jamais() -> None:
+    """*« Je ne connais pas de livre nommé "bonjour" »* est juste, et absurde : toute phrase
+    ordinaire le déclencherait. Seul le verdict du corpus sur un livre **déjà reconnu** sort."""
+    assert lire_la_notation("bonjour, on en est où", _index()).introuvable == ""
+
+
+@pytest.mark.asyncio
+async def test_le_tour_rend_le_verdict_du_corpus_sans_appeler_le_modele():
+    """Le contrôle de référence, de bout en bout — et **zéro appel** : le corpus sait cela
+    tout seul."""
+    modele = _Modele(intention="changer_de_sujet")
+    service = _service(modele=modele)
+    dto = await _ouvrir(service, "Hébreux 13:1")
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="Hb 2v29"
+    )
+
+    assert modele.aiguillages == []
+    assert apres.reponse and "il n'y a pas de verset 29" in apres.reponse
+    assert apres.resolved_label == "Hébreux 13:1", "la préparation ne bouge pas"
+
+
+def _service_avec_deux_passages() -> tuple[UrimStudyService, _Modele]:
+    """L'écran des axes du chemin conviction : dix loci, puis deux passages du sens.
+
+    Les deux **se chevauchent** — 13:1-2 et 13:1 — et c'est ce qui rend le couple de tests
+    ci-dessous intéressant : selon le verset écrit, la notation vise l'un des deux, ou les
+    deux."""
+    modele = _Modele(passages=(
+        PassageSuggestion(Reference("Hébreux", 13, 1, 2), "traite ce sujet"),
+        PassageSuggestion(Reference("Hébreux", 13, 1, 1), "aussi"),
+    ))
+    return _service(modele=modele), modele
+
+
+@pytest.mark.asyncio
+async def test_une_reference_en_notation_de_pasteur_choisit_l_option_sans_aiguiller():
+    """🔴 **Une référence affichée à l'écran partait quand même au modèle.**
+
+    Le lecteur qui comprend `Hb 13v2` existe depuis la chaîne de textes d'appui, et il ne
+    parlait à personne dans le tour. Le verset tranche : il tombe dans 13:1-2 et hors de
+    13:1."""
+    service, modele = _service_avec_deux_passages()
+    dto = await _ouvrir(service, "je veux prêcher sur la fraternité")
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="Hb 13v2"
+    )
+
+    assert apres.resolved_label == "Hébreux 13:1-2"
+    assert modele.aiguillages == []
+
+
+@pytest.mark.asyncio
+async def test_une_notation_qui_vise_deux_options_rend_la_main():
+    """⚠️ `Hb 13v1` tombe **dans les deux** passages proposés. La liaison ne tranche pas :
+    deux options peuvent convenir, et se tromper d'objet coûte plus cher qu'un appel."""
+    service, modele = _service_avec_deux_passages()
+    dto = await _ouvrir(service, "je veux prêcher sur la fraternité")
+
+    apres = await service.dire(
+        actor_account_id=AUTEUR, study_id=dto.record.id, raw_input="Hb 13v1"
+    )
+
+    assert apres.resolved_label is None, "rien n'a été décidé"
+    assert modele.aiguillages == ["Hb 13v1"], "l'aiguilleur a pris le tour"

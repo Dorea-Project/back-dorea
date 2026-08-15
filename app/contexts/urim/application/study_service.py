@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
+from app.contexts.urim.application.conversation import Ecran, conduire, lire_la_notation
 from app.contexts.urim.application.ports import (
     AssistedResolver,
     AucuneSortie,
@@ -50,6 +51,7 @@ from app.contexts.urim.engine.deps import (
     EngineDeps,
     NullConvictionReader,
 )
+from app.contexts.urim.engine.liaison import rang_a_l_ecran
 from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Outcome
@@ -397,6 +399,114 @@ class UrimStudyService:
         )
         await self.studies.save(record)
         return await self._rejouer(record, chosen_by="pasteur")
+
+    # -- le tour de parole ------------------------------------------------------
+
+    async def dire(
+        self, *, actor_account_id: UUID, study_id: UUID, raw_input: str
+    ) -> StudyDTO:
+        """**Du texte libre en cours de préparation** — le trou 2 du contrat (§6).
+
+        `raw_input` n'existait qu'à l'ouverture ; après, il n'y avait que `POST /decisions`
+        avec un code d'option. Le tour 5 de la maquette montre pourtant le pasteur qui tape
+        *« Quel plan je peux tenir sur ce texte ? »*, et c'est le geste le plus naturel une
+        fois le texte sous les yeux.
+
+        L'orchestration vit dans `conversation.conduire`, qui n'a besoin ni de base ni de
+        rejeu : ce qui est ici, c'est ce qu'elle ne peut pas savoir — l'état affiché, le
+        plafond d'assistance, et l'exécution du geste qu'elle conclut.
+
+        ⚠️ **Rien n'est écrit tant qu'aucun geste n'est conclu.** Le rejeu est en lecture pure ;
+        un tour aiguillé rend l'état inchangé, avec la phrase du répondeur. C'est la même règle
+        que le refus : *une intention ne déclenche jamais un acte irréversible, elle propose*.
+
+        Les deux seuls gestes exécutés viennent de la liaison, qui est **exacte** — décider et
+        écarter, sur l'étage qui rend la main. Ils repassent par `decide` et `dismiss` plutôt
+        que d'écrire d'ici : le clic et la phrase doivent aboutir au même endroit, sans quoi
+        deux chemins d'écriture divergeraient au premier étage ajouté."""
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        dto = await self._rejouer(record, persist=False)
+        usage = await self.reservations.usage(
+            record.church_id, record.author_id, self.clock()
+        )
+        tour = await conduire(
+            raw_input,
+            self._ecran(dto),
+            await self._assistance(record, usage),
+            # ⚠️ **La notation du pasteur est lue ici, parce que c'est ici qu'est le corpus.**
+            # `Hb 2v29` demande les 357 formes de noms de livre pour devenir « Hébreux 2:29 »,
+            # puis le compte des versets pour savoir qu'il n'y en a pas 29. La liaison est pure
+            # et n'a ni l'un ni l'autre : elle reçoit une lecture déjà faite et déjà contrôlée.
+            lire_la_notation(raw_input, self.index),
+        )
+
+        # L'étage qui a rendu la main — le même que celui du tour, et celui que le client
+        # renverrait s'il avait touché l'option au lieu de l'écrire.
+        etage = dto.trace[-1][0] if dto.trace else ""
+        if tour.decision is not None:
+            return await self.decide(
+                actor_account_id=actor_account_id,
+                study_id=study_id,
+                stage_code=etage,
+                option_code=tour.decision,
+            )
+        if tour.refus is not None:
+            return await self.dismiss(
+                actor_account_id=actor_account_id,
+                study_id=study_id,
+                stage_code=etage,
+                option_code=tour.refus,
+            )
+        dto.reponse = tour.reponse
+        return dto
+
+    def _ecran(self, dto: StudyDTO) -> Ecran:
+        """Ce que le pasteur voit, **dans l'ordre où il le voit**.
+
+        ⚠️ L'ordre est celui du tour et non celui du moteur : le tour groupe les unités pesées
+        par ce qu'elles font du sujet. Le rang lu par la liaison se compte sur cette liste-là,
+        sinon « le deuxième » désignerait une autre option que celle touchée.
+
+        Les écartées sont retirées, comme dans les pastilles : elles restent dans la vue,
+        reléguées, mais elles ne sont plus des cibles au rang."""
+        vivantes = sorted(
+            (o for o in dto.options if not o[4]), key=lambda o: rang_a_l_ecran(o[5])
+        )
+        return Ecran(
+            codes=tuple(o[0] for o in vivantes),
+            # Le libellé d'abord, le code ensuite : une option venue du sens porte la référence
+            # dans les deux, un locus dans aucun des deux. Ce qui n'en est pas une garde sa
+            # place avec une référence vide — un livre vide n'apparaît dans aucune saisie.
+            references=tuple(
+                self._reference_depuis_libelle(o[1])
+                or self._reference_depuis_libelle(o[0])
+                or Reference("")
+                for o in vivantes
+            ),
+            libelles=tuple(o[1] for o in vivantes),
+            ancre=dto.resolved_label,
+            attend=dto.outcome == str(Outcome.AWAIT),
+        )
+
+    async def _assistance(self, record: PreparationRecord, usage) -> AssistedResolver:
+        """Le modèle, ou le silence — **une seule règle, deux appelants**.
+
+        ⚠️ **Le quota éteint l'assistance, jamais Urim.**
+
+        Épuisé, on remplace le modèle par le silence — et le reste continue : le corpus, les
+        45 557 pesées, la concordance, le contrôle de référence, le bornage. C'est le
+        comportement `DEGRADE`, et les adaptateurs `Null*` sont des **états de production**
+        (S12/S37), pas des modes dégradés. Un mur sec serait la seule chose que ce moteur ne
+        sait pas faire.
+
+        La sortie est consultée avant de couper : illimité, on ne compte pas."""
+        if usage.assistance_exhausted and not await self.tier.is_unlimited(
+            record.author_id
+        ):
+            return NullVerseResolver()
+        return self.resolver
 
     # -- refus -----------------------------------------------------------------
 
@@ -934,20 +1044,7 @@ class UrimStudyService:
         usage = await self.reservations.usage(
             record.church_id, record.author_id, maintenant
         )
-        # ⚠️ **Le quota éteint l'assistance, jamais Urim.**
-        #
-        # Épuisé, on remplace le modèle par le silence — et le reste continue : le corpus, les
-        # 45 557 pesées, la concordance, le contrôle de référence, le bornage. C'est le
-        # comportement `DEGRADE`, et les adaptateurs `Null*` sont des **états de production**
-        # (S12/S37), pas des modes dégradés. Un mur sec serait la seule chose que ce moteur ne
-        # sait pas faire.
-        #
-        # La sortie est consultée avant de couper : illimité, on ne compte pas.
-        assiste = self.resolver
-        if usage.assistance_exhausted and not await self.tier.is_unlimited(
-            record.author_id
-        ):
-            assiste = NullVerseResolver()
+        assiste = await self._assistance(record, usage)
         #: Vrai dès qu'un des trois chemins a interrogé le résolveur. Un drapeau plutôt qu'une
         #: inspection de l'adaptateur : c'est l'appel qui coûte, et lui seul le sait.
         sollicite = False

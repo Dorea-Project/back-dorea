@@ -30,6 +30,7 @@ from app.contexts.urim.interface.schemas import (
     PassageDetailView,
     StudyView,
     SupportsBody,
+    TurnBody,
 )
 
 router = APIRouter()
@@ -85,6 +86,41 @@ async def decide(
         study_id=study_id,
         stage_code=payload.stage_code,
         option_code=payload.option_code,
+    )
+    return StudyView.avec_tour(dto)
+
+
+@router.post(
+    "/studies/{study_id}/turns",
+    response_model=StudyView,
+    summary="Parler en cours de préparation — une phrase libre, pas un code d'option",
+)
+async def parler(
+    study_id: UUID,
+    payload: TurnBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """**Le trou 2 du contrat** — le tour 5 de la maquette n'avait aucune route.
+
+    `raw_input` n'existait qu'à l'ouverture ; après, il n'y avait que `/decisions` avec un code
+    d'option. Or *« Quel plan je peux tenir sur ce texte ? »* est le geste le plus naturel une
+    fois le texte sous les yeux, et le client n'avait rien à appeler pour lui.
+
+    Aucun `stage_code` dans le corps, et c'est ce qui distingue ce geste d'une décision : le
+    pasteur parle, il ne répond pas à un formulaire. L'étage, le serveur le connaît.
+
+    ⚠️ **La liaison passe avant le modèle, toujours.** « Ecclésiologie », « le deuxième »,
+    « non, pas celui-là » désignent ce qui est à l'écran et se résolvent par comparaison de
+    chaînes — zéro appel, aucune erreur possible. Le modèle ne voit que le reste, et il ne
+    fait que **classer** : il n'écrit jamais un mot que le pasteur lira.
+
+    La réponse est un `StudyView` entier, comme partout — l'état n'a pas bougé si le tour n'a
+    conclu à aucun geste, et c'est `turn.say` qui porte la phrase du répondeur."""
+    dto = await service.dire(
+        actor_account_id=actor.account_id,
+        study_id=study_id,
+        raw_input=payload.raw_input,
     )
     return StudyView.avec_tour(dto)
 

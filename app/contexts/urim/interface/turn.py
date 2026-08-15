@@ -39,6 +39,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.contexts.urim.engine.liaison import ORDRE_DES_FORCES
+
 #: ⚠️ **Ce qu'Urim vient de faire, par étage — et rien de plus.**
 #:
 #: Ces phrases sont déterministes pour la même raison que celles des répondeurs : le modèle n'a
@@ -223,10 +225,12 @@ _LIVRABLE_FERME = (
 #:
 #: `resiste` a son groupe, et ce n'est pas un détail : c'est la seule mécanique
 #: anti-proof-texting du produit, et elle s'affiche **au même rang** que ce qui porte.
-_GROUPES = (
-    ("dominant", "En fait son sujet"),
-    ("porte", "Le soutient"),
-    ("resiste", "Lui résiste"),
+#:
+#: ⚠️ **L'ordre vient de `liaison`, il n'est pas réécrit ici.** C'est lui qui décide de ce que
+#: « le deuxième » désigne : les deux lectures — l'écran et le compteur de rangs — doivent
+#: partir de la même liste, sinon un rang lié pointerait une autre option que celle touchée.
+_GROUPES = tuple(
+    zip(ORDRE_DES_FORCES, ("En fait son sujet", "Le soutient", "Lui résiste"), strict=True)
 )
 
 
@@ -321,19 +325,25 @@ def _blocs(vue, etage: str) -> list[Block]:
     return blocs
 
 
-def construire_tour(vue) -> TurnView:
+def construire_tour(vue, say: str | None = None) -> TurnView:
     """La présentation conversationnelle de ce que la vue porte déjà.
 
     ⚠️ **`expects` vient de l'issue, jamais de l'étage.** Un même étage attend une décision ou
     n'attend rien selon ce que le corpus lui a donné — coder l'attente dans la table des
     phrases ferait poser une question là où le moteur n'attend personne, et le pasteur
-    répondrait à un tour qui a déjà continué."""
+    répondrait à un tour qui a déjà continué.
+
+    ⚠️ **`say` prend la phrase d'un répondeur quand il y en a une — et rien d'autre ne bouge.**
+    Un tour aiguillé n'a fait avancer aucun étage : le motif reste celui du moteur, la question
+    posée reste posée, les blocs restent l'état. Seule change la phrase qui dit ce qu'Urim
+    vient de faire, ce qui est exactement le rôle de `say`. Réécrire `why` à cette occasion
+    ferait passer une réponse de répondeur pour un raisonnement d'étage."""
     etage = vue.trace[-1].stage_code if vue.trace else "route_entry"
-    say, ask = _PHRASES.get(etage, (_SAY_PAR_DEFAUT, ""))
+    par_etage, ask = _PHRASES.get(etage, (_SAY_PAR_DEFAUT, ""))
 
     attend = vue.outcome == "await_decision"
     return TurnView(
-        say=say,
+        say=say or par_etage,
         # Le motif du moteur, tel quel. C'est le filet doré, et il ne se réécrit pas.
         why=vue.rationale,
         ask=ask if attend else "",
