@@ -16,6 +16,9 @@ devient de la doctrine affichée sous l'autorité de quelqu'un.
 ## Ce qu'on mesure
 
 - **le jeton Plateforme** ferme chacune des sept routes, celles qui lisent comprises ;
+- **l'en-tête du relecteur** ferme celles qui écrivent, et le nom qu'un corps de requête
+  contiendrait encore ne signe rien — c'est le trou par lequel un verdict a été posé au nom du
+  propriétaire du dépôt, et un trou refermé sans témoin se rouvre ;
 - **un refus de curation revient en 422 avec son motif**, jamais en 500 — le message dit quoi
   faire, et un message vague transformerait un garde en obstacle, or un obstacle se contourne ;
 - **la reprise de signature** (`PATCH`) répond, parce qu'elle est la sortie de `ia-mistral` et
@@ -31,8 +34,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.contexts.urim.application.curation import CoverageReport, PericopeSummary
+from app.contexts.urim.application.relecture import Relecteur
 from app.contexts.urim.domain.errors import CurationInvalideError
-from app.contexts.urim.interface.dependencies import get_curation
+from app.contexts.urim.interface.dependencies import exiger_relecteur, get_curation
 from app.core.config import get_settings
 from app.main import create_app
 
@@ -45,7 +49,6 @@ UNITE_VALIDE = {
     "label": "Le Serviteur souffrant",
     "rationale": "L'unité tient du v. 1 au v. 12 — la vision et son interprétation.",
     "source_ref": "Découpage BHS usuel",
-    "reviewed_by": "Kouassi Jean",
 }
 
 
@@ -112,10 +115,16 @@ def _jeton() -> dict[str, str]:
     return {"X-Service-Token": get_settings().backoffice_service_token}
 
 
+#: Le relecteur que le registre rendrait. Il est **substitué** ici plutôt que saisi : c'est
+#: exactement ce que la surface a cessé d'accepter dans un corps de requête.
+RELECTEUR = Relecteur(identifiant="kouassi", nom="Kouassi Jean")
+
+
 @pytest.fixture
 async def client(curation: _Curation) -> AsyncGenerator[AsyncClient]:
     app = create_app()
     app.dependency_overrides[get_curation] = lambda: curation
+    app.dependency_overrides[exiger_relecteur] = lambda: RELECTEUR
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ouvert:
         yield ouvert
@@ -131,9 +140,9 @@ async def client(curation: _Curation) -> AsyncGenerator[AsyncClient]:
         ("get", "/coverage", None),
         ("get", "/pericopes", None),
         ("post", "/pericopes", UNITE_VALIDE),
-        ("patch", f"/pericopes/{UNITE}", {"reviewed_by": "Kouassi Jean"}),
+        ("patch", f"/pericopes/{UNITE}", {"label": "Le Serviteur souffrant"}),
         ("delete", f"/pericopes/{UNITE}", None),
-        ("put", f"/pericopes/{UNITE}/bearings", {"bearings": [], "reviewed_by": "X"}),
+        ("put", f"/pericopes/{UNITE}/bearings", {"bearings": []}),
         ("post", f"/pericopes/{UNITE}/caveats", {}),
     ],
 )
@@ -165,6 +174,7 @@ async def test_un_refus_de_curation_revient_en_422_avec_ce_qu_il_faut_faire(cura
     )
     app = create_app()
     app.dependency_overrides[get_curation] = lambda: curation
+    app.dependency_overrides[exiger_relecteur] = lambda: RELECTEUR
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ouvert:
@@ -189,7 +199,7 @@ async def test_un_relecteur_peut_reprendre_une_unite_signee_par_le_modele(client
     sortie qu'aucun test n'emprunte est une porte condamnée."""
     reponse = await client.patch(
         f"{BASE}/pericopes/{UNITE}",
-        json={"reviewed_by": "Kouassi Jean", "label": "Le Serviteur souffrant"},
+        json={"label": "Le Serviteur souffrant"},
         headers=_jeton(),
     )
 
@@ -197,14 +207,39 @@ async def test_un_relecteur_peut_reprendre_une_unite_signee_par_le_modele(client
     assert curation.resignatures == [(UNITE, "Kouassi Jean")]
 
 
-async def test_la_signature_reprise_ne_peut_pas_etre_anonyme(client):
-    """La longueur minimale se garde **à la frontière** : un corps refusé n'atteint pas le
-    service, et le relecteur reçoit une 422 de forme plutôt qu'un refus de fond."""
+async def test_le_nom_envoye_dans_le_corps_ne_signe_rien(client, curation):
+    """🔴 **Le trou qu'on a éprouvé, refermé — et le témoin qui le prouve.**
+
+    `verifier_verdict()` faisait déjà tout ce qu'un validateur peut faire sur une chaîne : il
+    refuse le vide, `semis-demo`, `ia-mistral`. Il n'a jamais pu refuser le nom **de quelqu'un
+    d'autre**, et un verdict d'essai a été posé au nom du propriétaire du dépôt.
+
+    Le corps ci-dessous porte encore « Richmond » — c'est délibéré. La surface ne le refuse même
+    pas : elle l'**ignore**, parce que le nom ne vient plus de là. Un refus laisserait croire que
+    le champ compte encore."""
     reponse = await client.patch(
-        f"{BASE}/pericopes/{UNITE}", json={"reviewed_by": "x"}, headers=_jeton()
+        f"{BASE}/pericopes/{UNITE}", json={"reviewed_by": "Richmond"}, headers=_jeton()
     )
 
-    assert reponse.status_code == 422
+    assert reponse.status_code == 204
+    assert curation.resignatures == [(UNITE, "Kouassi Jean")]
+
+
+async def test_ecrire_exige_un_relecteur_lire_non(curation):
+    """Deux gardes, et ils ne disent pas la même chose : le jeton dit *« la Plateforme »*,
+    l'en-tête dit *« qui »*. Lire l'état d'avancement ne demande pas de signataire ; écrire du
+    corpus, si — c'est ce qui apparaîtra un jour sous les yeux d'un pasteur comme relu."""
+    app = create_app()
+    app.dependency_overrides[get_curation] = lambda: curation
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ouvert:
+        ecriture = await ouvert.post(f"{BASE}/pericopes", json=UNITE_VALIDE, headers=_jeton())
+        lecture = await ouvert.get(f"{BASE}/coverage", headers=_jeton())
+
+    assert ecriture.status_code == 401
+    assert ecriture.json()["error"]["code"] == "URI_REVIEWER_UNKNOWN"
+    assert lecture.status_code == 200
 
 
 # ===================================================================== la mesure, sans fard

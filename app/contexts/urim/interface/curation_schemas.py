@@ -4,9 +4,12 @@ Les contraintes de forme sont ici ; les règles de fond (les dix loci ensemble, 
 qui désigne quelqu'un, les bornes qui existent dans le texte) sont dans le service — elles
 ont besoin du corpus, et un schéma ne le lit pas.
 
-Une seule chose vaut d'être notée : `reviewed_by` est **requis partout**, y compris là où la
-base ne le demanderait qu'une fois. Signer chaque acte plutôt que la session est ce qui rend
-la trace lisible six mois plus tard.
+🔴 **`reviewed_by` a disparu de tous les corps de requête.** Il y était « requis partout », et
+cette exigence était le problème : un champ de formulaire ne peut pas se défendre d'être rempli
+du nom de quelqu'un d'autre. Il l'a été. Le nom vient maintenant du registre des relecteurs,
+contre la preuve d'un secret (`X-Urim-Relecteur`) — voir `exiger_relecteur`.
+
+Il reste en **sortie**, sur `PericopeView` : ce que le pasteur doit voir, c'est qui a signé.
 """
 
 from __future__ import annotations
@@ -35,7 +38,6 @@ class PericopeBody(BaseModel):
     #: contredire s'il n'est pas d'accord. Une longueur minimale est imposée par le service.
     rationale: str = Field(min_length=20, max_length=2000)
     source_ref: str = Field(min_length=2, max_length=300)
-    reviewed_by: str = Field(min_length=3, max_length=120)
 
 
 class ResignBody(BaseModel):
@@ -48,7 +50,6 @@ class ResignBody(BaseModel):
     L'intitulé et le motif, eux, se corrigent — on ne signe pas une phrase qu'on n'a pas le
     droit d'amender."""
 
-    reviewed_by: str = Field(min_length=3, max_length=120)
     label: str | None = Field(default=None, max_length=200)
     rationale: str | None = Field(default=None, min_length=20, max_length=2000)
 
@@ -69,7 +70,6 @@ class BearingItem(BaseModel):
 class BearingsBody(BaseModel):
     #: Exactement dix — le service vérifie que ce sont **les** dix loci, pas dix quelconques.
     bearings: list[BearingItem] = Field(min_length=10, max_length=10)
-    reviewed_by: str = Field(min_length=3, max_length=120)
 
 
 class CaveatBody(BaseModel):
@@ -80,7 +80,6 @@ class CaveatBody(BaseModel):
     #: jamais à filtrer l'affichage : un caveat confessionnel s'affiche toujours (D-F).
     tradition_scope: list[str] | None = Field(default=None, max_length=12)
     source_ref: str = Field(min_length=2, max_length=300)
-    reviewed_by: str = Field(min_length=3, max_length=120)
 
 
 class ContextBody(BaseModel):
@@ -88,7 +87,6 @@ class ContextBody(BaseModel):
     body: str = Field(min_length=10, max_length=2000)
     ordinal: int = Field(ge=1, le=99)
     source_ref: str = Field(min_length=2, max_length=300)
-    reviewed_by: str = Field(min_length=3, max_length=120)
 
 
 class FeasibilityItem(BaseModel):
@@ -101,7 +99,6 @@ class FeasibilityItem(BaseModel):
 
 class FeasibilityBody(BaseModel):
     couples: list[FeasibilityItem] = Field(min_length=1, max_length=40)
-    reviewed_by: str = Field(min_length=3, max_length=120)
 
 
 class PericopeView(BaseModel):

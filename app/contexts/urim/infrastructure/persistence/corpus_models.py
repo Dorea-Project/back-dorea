@@ -461,6 +461,98 @@ class CorpusReviewModel(Base):
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class CorpusReviewerModel(Base):
+    """**Le registre des relecteurs** — ce qui fait qu'une signature n'est plus une chaîne libre.
+
+    🔴 `verifier_verdict()` faisait déjà tout ce qu'un validateur peut faire sur du texte : il
+    refuse le vide, les noms de semis, `ia-mistral`. Il n'a jamais pu refuser le nom **de
+    quelqu'un d'autre** — et c'est arrivé : un verdict d'essai posé au nom du propriétaire du
+    dépôt, qu'il a fallu retirer. Le défaut n'était pas dans le garde, il était en amont : *tant
+    que le nom est une donnée d'entrée, aucune vérification ne le sauve.*
+
+    Cette table le sort de l'entrée. Le porteur prouve un secret, la surface **rend** le nom
+    correspondant, et aucune route ne lit plus de `reviewed_by` dans un corps de requête.
+
+    ⚠️ **Ce que ça garantit, et ce que ça ne garantit pas.** Pas « c'est bien Untel » — il n'y a
+    pas d'identité authentifiée dans ce produit avant la console d'administration Dorea
+    (`docs/Dorea_Platform_Admin.md`, comptes staff nominatifs + OTP). Ça garantit qu'on ne signe
+    que d'un nom **dont on détient le secret**, et que ce nom se **révoque**. C'est un cran, pas
+    la fin ; le jour où la console existe, c'est la source de la dépendance qui change, pas les
+    routes.
+
+    `display_name` est unique parce que c'est **lui** qui atterrit dans `reviewed_by` : deux
+    relecteurs homonymes rendraient la trace illisible là où elle sert, sous les yeux du pasteur.
+
+    Le secret est haché en SHA-256 **sans dérivation lente, et c'est délibéré** : il n'est pas
+    choisi par un humain mais tiré au sort sur 32 octets par `scripts/urim_relecteur.py`. Un
+    argon2 protège d'une attaque par dictionnaire ; il n'y a pas de dictionnaire des tirages
+    aléatoires. Le jour où un relecteur choisirait son secret, cette ligne devient fausse."""
+
+    __tablename__ = "urim_reviewer"
+
+    __table_args__ = (
+        # La machine ne s'enrôle pas. Le `CHECK` de `urim_corpus_review` interdit sa signature
+        # sur un verdict ; celui-ci lui interdit d'exister comme signataire possible.
+        CheckConstraint(
+            "identifiant <> 'ia-mistral' AND display_name <> 'ia-mistral'",
+            name="reviewer_jamais_la_machine",
+        ),
+        UniqueConstraint("display_name", name="reviewer_nom_unique"),
+    )
+
+    identifiant: Mapped[str] = mapped_column(String(60), primary_key=True)
+    #: Le nom écrit dans `reviewed_by`, et lu par le pasteur.
+    display_name: Mapped[str] = mapped_column(String(120))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    #: La révocation ne supprime pas la ligne : les verdicts déjà signés doivent continuer de
+    #: désigner quelqu'un. On retire le pouvoir de signer, pas la trace d'avoir signé.
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CorpusSignalModel(Base):
+    """**La file d'attente, matérialisée** — ce que les détecteurs ont trouvé au dernier balayage.
+
+    Elle est écrite par `scripts/urim_ecarts.py --materialiser`, jamais par une route. La raison
+    est mécanique avant d'être doctrinale : D2 mesure la fréquence d'une tournure sur **tout** le
+    corpus, et rien de global ne se recalcule dans le temps d'une requête HTTP. Mais elle est
+    doctrinale aussi — *les détecteurs signalent, ils ne jugent pas* : la surface lit cette table,
+    elle ne la produit pas, et elle ne la trie pas autrement que par gravité.
+
+    ⚠️ **C'est une photographie, pas un journal.** Chaque balayage remplace le contenu en bloc :
+    un signalement qu'un détecteur ne retrouve plus n'a pas à survivre à sa propre disparition.
+    D'où `scanned_at`, que la surface expose : *une file dont on ne sait pas l'âge ment.*
+
+    `scan_fingerprint` dit sur quelle curation le signalement a été calculé. Comparée à
+    l'empreinte courante, elle distingue un signalement encore vrai d'un signalement qui parle
+    d'une ligne réécrite depuis — même patron que `judged_fingerprint`, pour la même raison."""
+
+    __tablename__ = "urim_corpus_signal"
+
+    __table_args__ = (
+        CheckConstraint("severity BETWEEN 1 AND 3", name="signal_gravite_bornee"),
+        Index("ix_urim_signal_pericope", "pericope_id"),
+        Index("ix_urim_signal_gravite", "severity"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    pericope_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("urim_corpus_pericope.id"))
+    #: `D1`…`D5` — le code seul, sans le libellé du détecteur : c'est lui que la portée d'un
+    #: verdict désigne, et un libellé qui change ne doit pas périmer les verdicts posés.
+    detector: Mapped[str] = mapped_column(String(8))
+    label: Mapped[str] = mapped_column(String(120))
+    severity: Mapped[int] = mapped_column(SmallInteger)
+    detail: Mapped[str] = mapped_column(Text)
+    #: La ligne de curation entière, quand le détecteur en cite une. Un fragment d'expression
+    #: régulière ne se juge pas — c'est ce qui a failli faire refuser huit bonnes mises en garde.
+    body: Mapped[str] = mapped_column(Text, default="")
+    scan_fingerprint: Mapped[str] = mapped_column(String(32))
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class CorpusContextNoteModel(Base):
     """**Sourcé, ou absent.** Il n'y a pas de troisième possibilité (S40).
 
