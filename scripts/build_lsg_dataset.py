@@ -18,6 +18,7 @@ pour qu'il n'existe qu'une seule façon de nommer un livre d'un bout à l'autre 
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +28,47 @@ from scripts.urim_seed_books import BOOKS
 
 BRUT = Path("data/ls1910_raw.json")
 SORTIE = Path("data/ls1910.json")
+
+#: 🔴 **L'elision cassee par une espace fine — trente versets, et deux degats distincts.**
+#:
+#: La source ecrit « l'<U+2009>alliance », « qu'<U+2009>ils », « J'<U+2009>augmenterai » : une
+#: **espace fine** (U+2009) s'est glissee entre l'apostrophe et la suite du mot. En francais, une
+#: apostrophe n'est jamais suivie d'une espace — les trente cas ont ete relus un par un, et aucun
+#: n'est un guillemet fermant.
+#:
+#: **Ce que ca casse, et pourquoi ce n'est pas cosmetique :**
+#:
+#: 1. **A l'ecran.** `mission` sert ce fichier tel quel sur la carte d'invitation : un chercheur
+#:    qui n'est pas de l'eglise lit « le sang de l'<U+2009>alliance ». C'est le premier texte
+#:    biblique que Dorea met sous les yeux de quelqu'un du dehors.
+#: 2. **A la recherche.** Le normaliseur partage **colle** l'elision au mot suivant pour que
+#:    « lamour » rencontre « l'amour » (S21) ; ici il n'a rien a quoi la coller, et rend
+#:    « l alliance ». Un pasteur qui tape « lalliance » ne rencontre alors **jamais**
+#:    Matthieu 26:28.
+#:
+#: On recolle donc a la **construction du fichier**, et pas dans le normaliseur : le texte
+#: affiche est faux avant d'etre mal normalise, et un normaliseur ne repare pas ce qu'il lit.
+#:
+#: Les apostrophes sont ecrites en echappement et reprennent **exactement** celles du
+#: normaliseur partage : sur un clavier, ces glyphes sont indiscernables, et une relecture ne
+#: verrait pas qu'il en manque un.
+_ESPACE_APRES_ELISION = re.compile(
+    "(?<=["
+    "'"          # apostrophe droite — celle des claviers
+    "\u2019"    # apostrophe typographique — celle des traitements de texte
+    "\u02bc"    # lettre modificatrice, frequente dans les corpus importes
+    "\u02bb"    # sa jumelle tournee
+    "`])"        # accent grave, tape par erreur a la place de l'apostrophe
+    # Une lettre derriere, et rien d'autre : c'est l'appariement apostrophe -> lettre qui
+    # decide. Sans lui, « dit : Voici » serait soude en « dit :Voici ».
+    r"\s+(?=[^\W\d_])"
+)
+
+
+def recoller_les_elisions(texte: str) -> str:
+    """Rend au mot l'élision que la source lui avait détachée."""
+    return _ESPACE_APRES_ELISION.sub("", texte)
+
 
 #: Les deux seuls écarts de nommage entre la source et le dépôt. Explicites plutôt que
 #: rattrapés par une heuristique : deux cas se lisent, une heuristique se subit.
@@ -62,7 +104,9 @@ def main() -> None:
                 # `.strip()` : la source laisse une espace finale sur presque chaque
                 # verset. Elle ne se voit pas a l'ecran et fausse toute comparaison de
                 # chaine — dont le controle de citation (`citation_check`, S4).
-                plat[f"{nom} {chapitre['chapter']}.{verset['verse']}"] = verset["text"].strip()
+                plat[f"{nom} {chapitre['chapter']}.{verset['verse']}"] = recoller_les_elisions(
+                    verset["text"].strip()
+                )
 
     if inconnus:
         raise SystemExit(f"livres non reconnus : {sorted(inconnus)}")

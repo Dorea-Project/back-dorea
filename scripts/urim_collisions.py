@@ -160,23 +160,32 @@ CENTILE = 95.0
 FORMES = ("temoin_isole", "partage", "segond_seule")
 
 #: 🔴 **Le cinquième artefact : l'élision orpheline** — trouvé, comme les quatre autres, en
-#: relisant les prises.
+#: relisant les prises. Deux des 221 retenues portaient un mot d'**une seule lettre** : `[n]`
+#: dans Daniel 11:42, `[d]` dans Nombres 7:81.
 #:
-#: Deux des 221 retenues portaient un mot d'**une seule lettre** :
+#: Un fragment d'élision ne paraît presque nulle part ailleurs — donc au plafond de l'IDF, donc
+#: exactement dans la zone que le seuil retient. Le même mécanisme que les noms propres, sur ce
+#: qui n'est même pas un mot.
 #:
-#:     Daniel 11:42   [n]   « le pays d'Égypte n' échappera point »
-#:     Nombres 7:81   [d]   « un agneau d' un an »
+#: ⚠️ **J'ai d'abord attribué ces fragments à une espace après l'apostrophe. La mesure l'a
+#: démenti, et la vraie cause est ailleurs — trois causes, en fait :**
 #:
-#: La source de la Segond laisse par endroits une **espace après l'apostrophe d'élision**. Le
-#: normaliseur, qui colle l'élision au mot suivant (S21), n'a alors rien à quoi la coller : il
-#: rend un token `n` ou `d`, qui ne paraît nulle part ailleurs — donc au plafond de l'IDF, donc
-#: exactement dans la zone que le seuil retient. Le même mécanisme que les noms propres, sur un
-#: fragment qui n'est même pas un mot.
+#:     -t-il / -t-elle   1 548 versets sur les 4 temoins : le normaliseur coupe aux traits
+#:                       d'union, et le « t » euphonique reste seul. Ce n'est PAS un defaut du
+#:                       corpus, c'est une propriete du francais.
+#:     [l']homme         41 versets, Darby seule : ses crochets d'edition separent l'article
+#:                       elide du mot qu'il porte.
+#:     « N'y a t-il »    quelques versets ou la source a mis une espace a la place du premier
+#:                       trait d'union. Vrai defaut, non repare — hors du sujet de ce module.
 #:
-#: ⚠️ **La vraie réparation est en amont, et elle vaut plus que ce garde-fou.** Ces espaces
-#: cassent aussi la résolution de citation : un pasteur qui tape « nechappera » ne rencontre
-#: jamais « n' échappera », alors que tout le dessin du normaliseur existe pour qu'il le
-#: rencontre. Ici on refuse simplement de bâtir une trouvaille sur un fragment d'élision.
+#: L'espace après l'apostrophe existait bel et bien, mais **dans `data/ls1910.json`** — trente
+#: versets, réparés depuis (`build_lsg_dataset.recoller_les_elisions`, gardés par
+#: `tests/test_lsg_dataset.py`). La base de développement, elle, avait été recousue à la main :
+#: le détecteur ne pouvait donc pas les voir, et j'ai lu la bonne conclusion sur la mauvaise
+#: preuve.
+#:
+#: **Ce qui reste vrai, et pourquoi ce garde-fou tient toujours** : quelle que soit la cause, un
+#: fragment d'élision ne porte aucun sens, et une collision ne se bâtit pas dessus.
 _ELISIONS_ORPHELINES = frozenset({
     "c", "d", "j", "l", "m", "n", "s", "t", "qu", "jusqu", "lorsqu", "puisqu", "quoiqu",
 })
