@@ -58,6 +58,11 @@ from app.contexts.urim.engine.repondeurs import situer
 FORME_RIEN = "rien"
 FORME_EPUISE = "epuise"
 
+#: L'écran d'une **correction** — « vouliez-vous dire Hébreux 2:9 ? ». Ce sont des pastilles
+#: comme les autres, et pourtant ce n'est pas le même écran : les phrases de l'étage parlent de
+#: textes qui traitent un sujet, celle-ci parle de ce que le pasteur a **tapé**.
+FORME_CORRECTION = "correction"
+
 #: ⚠️ **La phrase suit l'écran, pas le nom de l'étage.**
 #:
 #: 🔴 Une table indexée sur le seul nom de l'étage disait faux dès qu'un étage servait plus
@@ -104,6 +109,12 @@ _PAR_ECRAN: dict[str, tuple[str, str]] = {
         "Réécrivez-le, c'est votre sermon — ou écrivez vos points.",
     ),
     "chips": ("Voici ce que je peux vous proposer ici.", "Lequel retenez-vous ?"),
+    # Le motif porte déjà le fait — *« Hébreux 2 compte 18 versets »* — et la question du
+    # moteur. La phrase dit ce qu'Urim a fait, sans la répéter.
+    FORME_CORRECTION: (
+        "J'ai cherché la référence la plus proche de ce que vous avez écrit.",
+        "Est-ce celle-là ?",
+    ),
     FORME_RIEN: (
         "Je n'ai rien de plus à vous montrer sur ce point.",
         "Donnez-moi un passage, ou reprenez votre sujet en clair — les deux entrent par le "
@@ -507,6 +518,12 @@ def _forme(vue, blocs: list[Block], vivantes: list) -> str:
     qu'il venait de proposer."""
     if vue.options and not vivantes:
         return FORME_EPUISE
+    # ⚠️ Une correction ne se distingue pas par son **bloc** — c'est une pastille — mais par ce
+    # dont elle parle. Sans cette branche, l'écran de la faute de frappe héritait de la phrase
+    # des textes à égalité : « plusieurs textes portent cette formulation » au-dessus d'une
+    # seule proposition, qui ne porte aucune formulation. Le mur n°2, en plus petit.
+    if vivantes and all(o.origin == FORME_CORRECTION for o in vivantes):
+        return FORME_CORRECTION
     parlants = [b for b in blocs if b.kind not in _DECOR]
     if not parlants:
         return FORME_RIEN

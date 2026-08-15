@@ -91,7 +91,7 @@ Trois statuts, et les confondre est ce qui fait croire à une couverture qu'on n
 | `route_entry` · `REFUSE` | *« Je ne sais pas quoi ouvrir avec cette saisie. »* barre ouverte | `« Zorobabel 3:5 »`, une saisie vide, `« jefgf »` |
 | `weigh_conviction` · `AWAIT` | les 10 loci, ou les unités groupées par ce qu'elles font du sujet | toute intention |
 | `weigh_conviction` · `REFUSE` | *« Sur cet angle, la curation n'a encore relu aucun texte. »* | **non visité** — exige un corpus sans dogmatique ou sans unité sur l'axe |
-| `resolve_passage` · `AWAIT` | les livres possibles, ou les textes à égalité + « ce n'est pas une citation » | `« 1 Roi ou 2 Roi… »`, une citation de mémoire |
+| `resolve_passage` · `AWAIT` | les livres possibles, les textes à égalité + « ce n'est pas une citation », ou **la correction proposée** | `« 1 Roi ou 2 Roi… »`, une citation de mémoire, `« Hébreux 2:29 »` avec modèle |
 | `resolve_passage` · `REFUSE` | *« Je n'ai pas su ouvrir le passage que vous nommez. »* | `« Hébreux 2:29 »` **sans modèle branché** |
 | `bound_pericope` · `AWAIT` | l'unité relue contre les bornes du pasteur, avec la conséquence | `« Luc 1:28 »`, `« Apocalypse 12 »` |
 | `load_context` · `CONTINUE` | l'écran de **relecture** — pesées, faisabilité, thème, actions | rouvrir une préparation déjà décidée |
@@ -370,12 +370,45 @@ passage non curé — soit 99,77 % de l'Écriture aujourd'hui — le pipeline s'
 doctrinale »*. Ce n'est plus vrai : 4 561 unités couvrent les 66 livres, toutes pesées. Le
 chemin qui menait au mur n°2 est passé du cas ordinaire au cas d'un bouton.
 
-**Une mauvaise référence peut être remplacée par le modèle, en silence.** `« Hébreux 2:29 »` —
-une note réelle du Pasteur X, dans un chapitre qui compte 18 versets — n'atteint le refus de
-`resolve_passage` que **sans modèle branché**. Avec la clé, la bordure résout autre chose et la
-préparation part sur un texte que le pasteur n'a pas nommé. La provenance est bien marquée
-`ia`, et le comportement est documenté ; il mérite d'être regardé de nouveau, parce que le refus
-qu'il remplace était précisément l'information utile.
+**Une mauvaise référence était remplacée par le modèle, en silence.** `« Hébreux 2:29 »` — une
+note réelle du Pasteur X, dans un chapitre qui compte 18 versets — n'atteignait le refus de
+`resolve_passage` que **sans modèle branché**. Avec la clé, la bordure posait `Hébreux 2:9`
+comme résolu et l'écran sautait au bornage : le pasteur demandait le verset 29, recevait le
+verset 9, et perdait le fait — *la seule chose qu'Urim savait dire depuis le premier jour et
+n'avait jamais pu dire*, puisque ses notes portaient deux références inexistantes.
+
+Ce n'était pas systématique : `Philippiens 28:9` et `1 Corinthiens 5:99` restaient refusés. Le
+modèle ne parlait **que** quand une correction plausible existait — c'est-à-dire exactement quand
+le pasteur avait fait une faute qu'il voudrait connaître. Et sur `Zorobabel 3:5`, la vue rendait
+`outcome: refuse` **avec** `resolved: Esdras 3:5` : un enregistrement qui pointait vers un texte
+que personne n'avait nommé.
+
+La règle existait pourtant, à quinze lignes de là, appliquée à **l'autre** appel de modèle —
+`_est_une_impasse_de_recherche` exclut le chemin référence *parce qu'un fait sur l'orthographe ne
+se noie pas sous des passages thématiques*. Elle ne couvrait pas la résolution assistée, qui
+ne noyait pas le fait : elle l'écrasait.
+
+**Réparé — la trouvaille devient une option, le fait reste le motif.** Quand le moteur a établi
+un fait (`_a_etabli_un_fait`), la bordure pose la référence dans `suggested_reference` au lieu de
+`resolved`, et `resolve_passage` rend la main :
+
+    WHY      Aucun passage ne correspond. Ecarte : Hebreux 2 compte 18 versets — il n'y a
+             pas de verset 29. Vouliez-vous dire Hebreux 2:9 ?
+    SAY      J'ai cherche la reference la plus proche de ce que vous avez ecrit.
+    ASK      Est-ce celle-la ?
+    OPTION   [correction] Hebreux 2:9
+
+C'est le patron du chemin citation — *le refus devient une proposition* — et la règle de l'étage
+0 : **le calcul propose, la personne dispose**. Le pasteur touche, et c'est *lui* qui résout.
+
+⚠️ `correction` est une **provenance à elle seule** : « trouvé dans vos mots », « traite votre
+sujet » et « je crois que vous vouliez écrire ceci » ne se valent pas, et seule la troisième
+parle de ce que le pasteur a *tapé*.
+
+⚠️ **Limite assumée** : sur un livre inconnu (`Zorobabel`), le refus vient de l'étage 0, dont le
+vocabulaire d'options est celui des **modes d'entrée** — y glisser une référence se ferait
+refuser au clic. La trouvaille n'y est donc pas offerte ; elle n'est plus appliquée non plus, et
+l'incohérence a disparu.
 
 ---
 

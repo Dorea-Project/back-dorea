@@ -191,6 +191,24 @@ class StudyState:
     #: le moteur rendait un refus.
     suggested_passages: tuple[PassageSuggestion, ...] = ()
 
+    #: ⚠️ **Ce que le modèle a cru lire — une proposition, jamais une résolution.**
+    #:
+    #: 🔴 La bordure posait cette trouvaille directement dans `resolved`. Le pasteur qui tapait
+    #: `Hébreux 2:29` — une note réelle, dans un chapitre qui compte 18 versets — recevait
+    #: **Hébreux 2:9** et l'écran du bornage. Le moteur, lui, savait dire *« Hébreux 2 compte 18
+    #: versets, il n'y a pas de verset 29 »* : la seule chose utile, effacée par une correction
+    #: silencieuse. Et `Zorobabel 3:5` rendait un refus **avec** `resolved = Esdras 3:5` — un
+    #: enregistrement qui pointait vers un texte que personne n'avait nommé.
+    #:
+    #: Le fait reste donc le motif, et la trouvaille devient une **option**. C'est le patron du
+    #: chemin citation — *le refus devient une proposition* — et la règle de l'étage 0 : *le
+    #: calcul propose, la personne dispose*.
+    #:
+    #: ⚠️ Elle ne remplace pas `resolved` sur les chemins où le moteur n'a **rien à dire** : une
+    #: citation de mémoire, une paraphrase, un personnage nommé autrement que dans la traduction
+    #: continuent de se résoudre. On ne propose que là où l'on avait un fait à taire.
+    suggested_reference: Reference | None = None
+
     #: Axes que le pasteur **refuse** explicitement (« mais je ne veux pas de X »), S18.
     #: Une contrainte négative ne refuse pas le texte : elle **ordonne les options de
     #: bornage** — on préfère des bornes dont l'axe dominant n'est pas celui-là. Vide =

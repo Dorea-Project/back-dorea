@@ -104,6 +104,26 @@ class ResolvePassage:
                 ecartes.append(verdict.rationale)
 
         if not retenus:
+            # ⚠️ **Le fait reste, et la correction devient un geste.**
+            #
+            # Le modèle a parfois lu ce que le pasteur voulait écrire — `Hébreux 2:9` pour
+            # `Hébreux 2:29`. La bordure le posait comme résolu, et le fait — *« Hébreux 2
+            # compte 18 versets »* — disparaissait avec l'écran. Or c'est lui que le pasteur
+            # est venu chercher sans le savoir : ses notes portaient deux références
+            # inexistantes qu'Urim savait détecter depuis le premier jour.
+            #
+            # Le motif ne bouge donc pas d'un mot ; l'option s'ajoute à côté.
+            if state.suggested_reference is not None:
+                return StageResult(
+                    outcome=Outcome.AWAIT,
+                    rationale=(
+                        f"{_refus_de_reference(ecartes)} Vouliez-vous dire "
+                        f"{_dire(state.suggested_reference)} ?"
+                    ),
+                    state=state,
+                    options=(_option_corrigee(state.suggested_reference),),
+                )
+
             # **Un refus, pas une ambiguïté.** Et le motif porte ce qui a été écarté : sans lui,
             # le pasteur cherche un verset qui n'a jamais existé.
             return StageResult(
@@ -292,6 +312,22 @@ def _option_proposee(propose) -> Option:
     return Option(
         code=dit, label=dit, rationale=propose.rationale or "Traite ce sujet.",
         origin=ORIGINE_SENS,
+    )
+
+
+#: ⚠️ **Une provenance à elle seule.** « Trouvé dans vos mots », « traite votre sujet » et
+#: « je crois que vous vouliez écrire ceci » ne se valent pas, et la troisième est la seule qui
+#: parle de ce que le pasteur a **tapé**. La confondre avec `sens` lui ferait croire qu'on lui
+#: propose un texte sur son thème, alors qu'on lui propose une correction de frappe.
+ORIGINE_CORRECTION = "correction"
+
+
+def _option_corrigee(reference: Reference) -> Option:
+    dit = _dire(reference)
+    return Option(
+        code=dit, label=dit,
+        rationale="La référence la plus proche de ce que vous avez écrit.",
+        origin=ORIGINE_CORRECTION,
     )
 
 
