@@ -35,11 +35,13 @@ from app.contexts.urim.domain.errors import OptionInconnueError
 from app.contexts.urim.engine.deps import AxisBearing, DoctrinalAxis, Feasibility
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.contexts.urim.infrastructure.corpus.index import (
+    CollisionRow,
     CorpusIndex,
     OriginalWord,
     PericopeRow,
     Temoin,
     VerseRow,
+    WitnessReading,
 )
 
 LOCI = (
@@ -695,6 +697,59 @@ async def test_un_lemme_absent_dit_qu_il_ne_parait_nulle_part():
         await service.concordance(
             actor_account_id=AUTEUR, church_id=EGLISE, lemme="ὑπόδημα"
         )
+
+
+# ====================================================== les collisions, servies au passage
+
+
+def _index_avec_collision() -> CorpusIndex:
+    """Une collision sur Hébreux 13:2, et une autre sur un verset qu'on ne sert pas."""
+    lues = (
+        WitnessReading("LSG", "accorde", "eclectique", "Segond 1910", None,
+                       "N'oubliez pas l'hospitalité."),
+        WitnessReading("DARBY", "diverge", "critique", "Darby", "hospitalier",
+                       "N'oubliez pas l'hospitalité fraternelle."),
+        WitnessReading("MARTIN", "muet", "texte_recu", "Martin 1744", None, ""),
+    )
+    return replace(_index(), collisions={
+        (58, 13, 2): (CollisionRow(58, 13, 2, "lhospitalite", "temoin_isole", lues),),
+        (58, 13, 9): (CollisionRow(58, 13, 9, "doctrines", "partage", lues),),
+    })
+
+
+@pytest.mark.asyncio
+async def test_les_collisions_suivent_le_texte_servi_et_pas_l_unite():
+    """Même règle que les mots de l'original : on annote **ce qu'on affiche**.
+
+    Une collision qui traîne ailleurs dans l'unité parlerait d'un verset que le pasteur n'a pas
+    sous les yeux — il irait chercher un désaccord là où son écran ne montre rien."""
+    service = _service(index=_index_avec_collision())
+
+    dto = await service.explorer(
+        actor_account_id=AUTEUR, church_id=EGLISE, reference="Hébreux 13:2"
+    )
+
+    [collision] = dto.collisions
+    assert collision.reference == "Hébreux 13:2"
+    assert collision.word == "lhospitalite"
+    assert [(t.code, t.stance) for t in collision.witnesses] == [
+        ("LSG", "accorde"), ("DARBY", "diverge"), ("MARTIN", "muet")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_un_passage_sans_collision_n_en_invente_aucune():
+    """La très grande majorité des passages n'en portent pas, et c'est l'état normal.
+
+    Seuls les 5 % où le désaccord pèse le plus lourd sont retenus — *rien plutôt qu'une
+    vraisemblance.* Un écran vide ici ne signale pas une panne."""
+    service = _service(index=_index_avec_collision())
+
+    dto = await service.explorer(
+        actor_account_id=AUTEUR, church_id=EGLISE, reference="Hébreux 13:1"
+    )
+
+    assert dto.collisions == ()
 
 
 # ================================================================= 5. la saisie stylisée

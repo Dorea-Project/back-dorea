@@ -154,6 +154,12 @@ async def semer(purge: bool) -> None:
             id=LSG_ID, code="LSG", language="fr", label="Louis Segond 1910",
             translation_kind="formelle", license_kind="domaine_public",
             provider=None, offline_allowed=True, metered=False, versification="protestante",
+            # 🔴 **Éclectique, et c'est une mesure, pas une opinion.** On la disait « proche du
+            # Texte Reçu » ; elle omet la clause de Romains 8:1 et le comma johanneum comme
+            # Darby, et lit « celui qui » en 1 Timothée 3:16 là où les trois autres témoins
+            # lisent « Dieu ». La croire alignée sur le Texte Reçu avait fait bâtir tout un
+            # signal de variante sur une ligne de partage qui n'existe pas.
+            text_family="eclectique",
         ))
         await s.flush()
 

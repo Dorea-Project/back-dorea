@@ -165,6 +165,43 @@ class VariantSeen:
 
 
 @dataclass(frozen=True, slots=True)
+class WitnessRead:
+    """Un traducteur devant un mot — son édition, ce qu'il en fait, et son verset entier."""
+
+    code: str
+    label: str
+    #: L'édition dont il part : `texte_recu`, `critique`, `eclectique`, `massoretique`. **Un
+    #: fait affiché à côté de lui**, dont le produit ne tire aucune conclusion.
+    text_family: str
+    #: `accorde` | `diverge` | `muet` — et `muet` n'est pas `accorde`.
+    stance: str
+    #: Le mot qu'il écrit à la place, **seulement quand l'écart est un mot pour un mot**.
+    reading: str | None
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class CollisionSeen:
+    """Un mot que les traducteurs n'ont pas rendu de la même façon.
+
+    ⚠️⚠️ **À ne jamais présenter comme une variante textuelle** — c'est `VariantSeen` qui dit ce
+    que les manuscrits portent, et elle vient d'un apparat critique relu par un humain. Ici on
+    n'affirme rien du texte : *des traducteurs sérieux ont lu autrement, allez voir.*
+
+    La distinction n'est pas rhétorique. Une variante est une **proposition entière** présente
+    ou absente ; le détecteur ne voit que des substitutions d'un mot par un autre, et rejette
+    par construction ce dont une variante est faite."""
+
+    reference: str
+    #: Le mot de la Segond, normalisé. Un seul côté est nommé : apparier les deux supposerait un
+    #: alignement positionnel que le texte ne donne pas.
+    word: str
+    #: `temoin_isole` | `partage` | `segond_seule`. **Une répartition, jamais une cause.**
+    form: str
+    witnesses: tuple[WitnessRead, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SuggestionSnapshot:
     """Ce que le modèle a offert, tel qu'on le rejouera.
 
@@ -299,6 +336,19 @@ class PassageDetailDTO:
     #: **Vide sur l'Ancien Testament**, tant que l'hébreu n'est pas semé. Un état normal, et
     #: qui se voit.
     original: tuple[tuple[str, int, str, str, str, str, str], ...] = ()
+
+    #: 🔴 **Les endroits où les traducteurs se séparent** — la dimension que ce corpus peut
+    #: réellement offrir là où l'apparat critique lui manque.
+    #:
+    #: Elle est ici, à côté des mots de l'original, et **pas dans le tour de la conversation**.
+    #: Un bloc de tour est la présentation de ce qu'un étage vient de produire ; aucun étage ne
+    #: produit une collision, et aucun ne le doit — c'est une propriété du verset, comme une
+    #: variante. Mise dans le fil, elle ferait croire au pasteur qu'il doit y répondre ; ici,
+    #: c'est une trouvaille qu'il ouvre quand il veut, sur l'écran fait pour ça.
+    #:
+    #: Vide sur la très grande majorité des passages, et c'est normal : seuls les 5 % où le
+    #: désaccord pèse le plus lourd sont retenus. *Rien plutôt qu'une vraisemblance.*
+    collisions: tuple[CollisionSeen, ...] = ()
 
 
 @dataclass(slots=True)

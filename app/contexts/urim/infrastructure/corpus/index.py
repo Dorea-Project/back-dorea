@@ -43,6 +43,8 @@ from app.contexts.urim.engine.state import Bounds, Reference
 from app.contexts.urim.infrastructure.persistence.corpus_models import (
     CorpusBookModel,
     CorpusBookNameModel,
+    CorpusCollisionModel,
+    CorpusCollisionWitnessModel,
     CorpusContextNoteModel,
     CorpusDoctrinalAxisModel,
     CorpusDoctrinalBearingModel,
@@ -115,6 +117,45 @@ class VariantRow:
     doctrinal_weight: str
     note: str
     source_ref: str
+
+
+@dataclass(frozen=True, slots=True)
+class WitnessReading:
+    """Ce qu'un témoin fait d'un mot — **son verset entier compris**.
+
+    Le texte vient de la ligne calculée, pas de `urim_corpus_verse` : l'index ne charge pas les
+    31 000 versets des autres traductions (`Temoin` ne porte que leur numérotation), et une
+    ligne calculée doit de toute façon porter ce qu'elle a regardé."""
+
+    code: str
+    #: `accorde` | `diverge` | `muet`. **Trois valeurs, pas deux** : ne pas se prononcer n'est
+    #: pas être d'accord.
+    stance: str
+    #: L'édition dont ce témoin part — un fait, **affiché**, dont rien n'est déduit.
+    text_family: str
+    label: str
+    reading: str | None
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class CollisionRow:
+    """Un endroit où les traducteurs ne se sont pas accordés sur un mot.
+
+    ⚠️⚠️ **Ce n'est pas une variante textuelle** — voir `VariantRow`, qui dit ce que les
+    manuscrits portent et se remplit depuis un apparat critique. Ici, rien n'est affirmé du
+    texte : on montre que des hommes ont lu autrement.
+
+    Comme la variante, elle n'entre dans le raisonnement d'aucun étage. Une collision ne se
+    décide pas, elle **se montre** — à côté du texte, au moment où il est servi."""
+
+    book_id: int
+    chapter: int
+    verse: int
+    word: str
+    #: `temoin_isole` | `partage` | `segond_seule` — une répartition, jamais une cause.
+    form: str
+    witnesses: tuple[WitnessReading, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +310,13 @@ class CorpusIndex:
 
     #: Les autres traductions semées, par code — leur numérotation seule (voir `Temoin`).
     temoins: Mapping[str, Temoin] = field(default_factory=dict)
+
+    #: Les collisions, clées sur **le verset** comme les variantes : elles portent sur un mot du
+    #: texte, et existent que le passage soit curé ou non. Quelques centaines de lignes — la
+    #: table est une projection retenue au 95ᵉ centile, pas un relevé exhaustif.
+    collisions: Mapping[tuple[int, int, int], tuple[CollisionRow, ...]] = field(
+        default_factory=dict
+    )
 
     # -- comptages : LUS DANS LE TEXTE, jamais ailleurs ---------------------------
     #
@@ -558,6 +606,34 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
             doctrinal_weight=v.doctrinal_weight, note=v.note, source_ref=v.source_ref,
         ))
 
+    # --- les collisions : une projection, avec ce qu'elle a regardé ---------------
+    #
+    # ⚠️ **On n'écarte pas les lignes périmées, on les charge telles quelles.** L'empreinte dit
+    # sur quel corpus le détecteur a travaillé ; la vérifier ici demanderait de relire les
+    # 124 000 versets des quatre traductions à chaque démarrage — exactement le coût que
+    # `Temoin` existe pour ne pas payer. C'est au détecteur de la comparer, et il le fait :
+    # `--ecrire` efface tout avant d'écrire, donc la table ne mélange jamais deux empreintes.
+    familles = {v.code: (v.text_family, v.label) for v in versions}
+    lectures: dict[UUID, list[WitnessReading]] = defaultdict(list)
+    for w in (await session.execute(select(CorpusCollisionWitnessModel))).scalars():
+        famille, libelle = familles.get(w.version_code, ("", w.version_code))
+        lectures[w.collision_id].append(WitnessReading(
+            code=w.version_code, stance=w.stance, text_family=famille, label=libelle,
+            reading=w.reading, body=w.body,
+        ))
+
+    collisions: dict[tuple[int, int, int], list[CollisionRow]] = defaultdict(list)
+    for c in (await session.execute(select(CorpusCollisionModel))).scalars():
+        collisions[(c.book_id, c.chapter, c.verse)].append(CollisionRow(
+            book_id=c.book_id, chapter=c.chapter, verse=c.verse, word=c.word, form=c.form,
+            # La Segond d'abord — c'est le texte servi ; les témoins ensuite dans l'ordre du
+            # code, pour que deux lectures du même passage ne se présentent jamais autrement.
+            witnesses=tuple(sorted(
+                lectures.get(c.id, ()),
+                key=lambda le: (le.code != SCHEMA_DE_REFERENCE, le.code),
+            )),
+        ))
+
     # --- les témoins seconds : leur numérotation, jamais leur texte ---------------
     #
     # Deux tables, et l'une ne suffit pas sans l'autre : les correspondances disent où un
@@ -643,6 +719,7 @@ async def load_corpus_index(session: AsyncSession) -> CorpusIndex:
         originals=originals,
         occurrences_by_lemma=occurrences_by_lemma,
         temoins=temoins,
+        collisions={k: tuple(v) for k, v in collisions.items()},
     )
 
 

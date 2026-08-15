@@ -130,6 +130,10 @@ class CorpusVersionModel(Base):
         CheckConstraint(
             "license_kind IN ('domaine_public','sous_licence')", name="version_license_kind"
         ),
+        CheckConstraint(
+            "text_family IN ('texte_recu','critique','eclectique','massoretique')",
+            name="version_text_family",
+        ),
         # Ce qui ne coûte rien à servir n'est jamais plafonné — et le repli ne peut pas céder.
         CheckConstraint(
             "(license_kind = 'domaine_public' AND offline_allowed AND NOT metered)"
@@ -148,6 +152,25 @@ class CorpusVersionModel(Base):
     offline_allowed: Mapped[bool] = mapped_column(Boolean)
     metered: Mapped[bool] = mapped_column(Boolean)  # déclenche le plafond
     versification: Mapped[str] = mapped_column(String, default="standard")
+
+    #: 🔴 **L'édition que ce témoin suit — un FAIT sur la version, jamais un calcul du produit.**
+    #:
+    #: Deux traductions qui divergent sur un mot ne disent pas pourquoi elles divergent. La
+    #: seule chose qui se sache d'avance, c'est de quelle édition chacune part : Darby suit un
+    #: texte critique, Martin et Ostervald le Texte Reçu, la Segond 1910 est **éclectique** —
+    #: mesuré, et contraire à ce qu'on croyait : elle omet la clause de Rm 8:1 et le *comma
+    #: johanneum* comme Darby, et lit « celui qui » en 1 Tm 3:16 là où les trois autres lisent
+    #: « Dieu ».
+    #:
+    #: ⚠️ **Le produit n'en tire aucune conclusion, et c'est délibéré.** Cette colonne
+    #: s'**affiche** à côté de chaque témoin ; elle n'alimente aucun classement, aucun score,
+    #: aucun « ceci pourrait être une variante ». Le pasteur lit qui suit quoi et conclut
+    #: lui-même. *Le signal informe l'homme, l'homme commande la machine.*
+    #:
+    #: `massoretique` existe pour l'Ancien Testament, où les quatre témoins partent du même
+    #: texte : la question des éditions **ne s'y pose pas**, et c'est la raison pour laquelle
+    #: « Darby seul contre les trois autres » n'y voulait rien dire.
+    text_family: Mapped[str] = mapped_column(String, default="eclectique")
 
 
 class CorpusVerseModel(Base):
@@ -300,6 +323,114 @@ class CorpusTextualVariantModel(Base):
     source_ref: Mapped[str] = mapped_column(Text)  # apparat critique
     reviewed_by: Mapped[str] = mapped_column(String)
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CorpusCollisionModel(Base):
+    """**Là où deux traducteurs sérieux n'ont pas lu la même chose** — et rien de plus.
+
+    ⚠️⚠️ **Une collision N'EST PAS une variante textuelle, et ne doit jamais être présentée
+    comme telle.** La table d'à côté, `urim_corpus_textual_variant`, dit ce que les manuscrits
+    portent ; elle se remplit depuis un apparat critique, par un humain qui signe. Celle-ci ne
+    dit qu'une chose : *quatre traducteurs de bonne foi ont rendu ce mot différemment.* On
+    n'affirme pas qu'un manuscrit porte ceci — on montre que deux hommes ont lu autrement, et le
+    pasteur vérifie des deux yeux.
+
+    **Ce n'est pas une prudence de rédaction, c'est une propriété mesurée.** Ce à quoi une
+    variante ressemble chez ces quatre témoins, c'est une *proposition entière* présente ou
+    absente — la clause de Rm 8:1, la doxologie de Mt 6:13, le *comma johanneum* — donc une
+    reformulation, précisément ce que `SUBSTITUTION_MAXIMUM` existe pour rejeter ; ou un verset
+    entièrement absent (Mt 23:14, Ac 8:37 chez Darby), qui n'est pas une divergence mais un
+    silence. **Le détecteur est structurellement incapable de voir une variante.** Il voit une
+    substitution d'un mot par un autre, ce qui est un autre objet : un choix de traducteur.
+
+    ## Ce que la table porte, et ce qu'elle refuse de porter
+
+    Elle porte **la forme du désaccord** — qui lit avec la Segond, qui lit autrement, qui ne se
+    prononce pas — et rien sur la *cause*. Il a existé ici un champ « la séparation suit la ligne
+    des éditions » ; il est tombé sur la mesure : la ligne ne passe pas où on la croyait (elle
+    sépare {Segond, Darby} de {Ostervald, Martin}, pas Darby des trois autres), et sur un texte
+    éclectique elle ne se laisse de toute façon pas trancher. Ce qui reste, c'est
+    `version.text_family`, affichée à côté de chaque témoin — un fait que le pasteur lit.
+
+    ## Une projection, donc une empreinte
+
+    Cette table est **calculée**, pas curée : elle ne porte pas de `reviewed_by`, personne ne l'a
+    signée. Une collision dépend des versions semées — en ajouter une change le résultat — d'où
+    `corpus_fingerprint`, même patron que `corpus_snapshot`, `input_hash` et
+    `judged_fingerprint` : *une décision ne vaut que sur l'objet qu'elle a regardé.*"""
+
+    __tablename__ = "urim_corpus_collision"
+
+    __table_args__ = (
+        # `segond_seule` dit qu'AUCUN témoin qui s'est prononcé ne lit ce mot. Les trois formes
+        # décrivent une répartition ; aucune ne nomme une cause.
+        CheckConstraint(
+            "form IN ('temoin_isole','partage','segond_seule')", name="collision_form_close"
+        ),
+        CheckConstraint("weight > 0", name="collision_poids_positif"),
+        UniqueConstraint("book_id", "chapter", "verse", "word", name="collision_unique"),
+        Index("ix_urim_collision_ref", "book_id", "chapter", "verse"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    book_id: Mapped[int] = mapped_column(SmallInteger, ForeignKey("urim_corpus_book.id"))
+    chapter: Mapped[int] = mapped_column(SmallInteger)
+    verse: Mapped[int] = mapped_column(SmallInteger)
+
+    #: Le mot **de la Segond**, normalisé. Un seul par collision : le plus lourd de l'écart.
+    #: Nommer les deux côtés supposerait un appariement positionnel que le texte ne donne pas —
+    #: c'est ce qui faisait dire au prototype que Martin lisait « donc » à la place d'un nom
+    #: propre.
+    word: Mapped[str] = mapped_column(String)
+    #: Le poids IDF du mot. Sert au tri et à la relecture du seuil, jamais à l'affichage : un
+    #: chiffre à côté d'un verset se lit comme une note, et rien ici n'est noté.
+    weight: Mapped[float] = mapped_column(Float)
+    form: Mapped[str] = mapped_column(String)
+
+    #: Ce que le détecteur a lu, et donc ce qui périme cette ligne.
+    corpus_fingerprint: Mapped[str] = mapped_column(String(32))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CorpusCollisionWitnessModel(Base):
+    """Un témoin devant un mot — **et son verset entier, tel qu'il l'écrit**.
+
+    Le texte est recopié ici plutôt que relu dans `urim_corpus_verse`, pour deux raisons qui
+    vont dans le même sens. **L'index ne charge pas les 31 000 versets des autres traductions**
+    (`Temoin` ne porte que leur numérotation, délibérément) ; les servir demanderait de payer
+    d'avance une décision qui n'est pas prise. Et surtout : *une ligne calculée doit porter ce
+    qu'elle a regardé.* Ces quatre textes sont la pièce à conviction — c'est sur eux que le
+    pasteur vérifie des deux yeux, et c'est eux que l'empreinte protège.
+
+    ⚠️ **`agrees=False` ne veut pas dire « ce témoin omet le mot ».** Il veut dire : *ce mot-là,
+    ni aucune de ses graphies proches, ne se trouve dans son verset.* Ce qu'il écrit à la place
+    n'est nommé (`reading`) que lorsque l'écart est **un mot pour un mot** ; sinon la colonne
+    reste vide et le verset parle tout seul. Prétendre nommer un remplaçant qu'on n'a pas su
+    apparier est la seule façon de rendre cette table menteuse."""
+
+    __tablename__ = "urim_corpus_collision_witness"
+
+    __table_args__ = (
+        # 🔴 Le silence est une valeur, pas une absence de ligne. Un témoin qui reformule le
+        # verset ou ne le tient pas **s'abstient** — et l'ignorer le ferait compter pour un
+        # accord, ce qui est le contraire de ce qu'il a fait.
+        CheckConstraint(
+            "stance IN ('accorde','diverge','muet')", name="collision_witness_stance"
+        ),
+        CheckConstraint(
+            "stance = 'diverge' OR reading IS NULL", name="collision_lecture_bornee"
+        ),
+    )
+
+    collision_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_corpus_collision.id"), primary_key=True
+    )
+    version_code: Mapped[str] = mapped_column(String, primary_key=True)
+    stance: Mapped[str] = mapped_column(String)
+    #: Le mot qu'il écrit à la place — **seulement quand l'appariement est propre**.
+    reading: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Son verset, tel quel. Vide si ce témoin ne tient pas ce verset du tout.
+    body: Mapped[str] = mapped_column(Text)
 
 
 # ------------------------------------------------------------------------------------ Doctrine

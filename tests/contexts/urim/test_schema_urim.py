@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.contexts.urim.infrastructure.persistence.corpus_models import (
+    CorpusCollisionWitnessModel,
     CorpusDoctrinalBearingModel,
     CorpusDoctrinalCaveatModel,
     CorpusHomileticFeasibilityModel,
@@ -111,6 +112,14 @@ def _evenement(**kw):
     return UrimEcclesialEventSnapshotModel(**{**base, **kw})
 
 
+def _lecture(**kw):
+    base = {
+        "collision_id": uuid4(), "version_code": "DARBY", "stance": "diverge",
+        "reading": "rassemblement", "body": "Et Dieu appela le sec Terre…",
+    }
+    return CorpusCollisionWitnessModel(**{**base, **kw})
+
+
 #: Chaque cas : ce que la base doit accepter, et la jumelle qu'elle doit refuser.
 COUPLES = [
     pytest.param(
@@ -146,6 +155,15 @@ COUPLES = [
     pytest.param(
         _evenement, {}, {"kind": "FUNDRAISER"},
         id="un type de plus est invisible par defaut",
+    ),
+    pytest.param(
+        _lecture,
+        {"stance": "muet", "reading": None},
+        {"stance": "muet", "reading": "rassemblement"},
+        # Un témoin muet ne tient pas le verset, ou l'a reformulé d'un bout à l'autre : lui
+        # prêter un mot est la façon exacte dont cet écran deviendrait menteur, et le pasteur
+        # citerait en chaire une lecture que personne n'a faite.
+        id="un temoin qui ne se prononce pas n'a pas de lecture",
     ),
 ]
 

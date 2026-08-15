@@ -26,6 +26,7 @@ from app.contexts.urim.application.access import ensure_may_prepare, ensure_may_
 from app.contexts.urim.application.ports import (
     AssistedResolver,
     AucuneSortie,
+    CollisionSeen,
     ConcordanceDTO,
     ElementRecord,
     NullVerseResolver,
@@ -42,6 +43,7 @@ from app.contexts.urim.application.ports import (
     UnlimitedTierPort,
     VariantSeen,
     VerseServed,
+    WitnessRead,
 )
 from app.contexts.urim.application.reference_libre import (
     lire,
@@ -1025,6 +1027,24 @@ class UrimStudyService:
                  mot.language)
                 for v in servis
                 for mot in self.index.originals.get(
+                    (livre, *_chapitre_verset(v.reference)), ()
+                )
+            ) if livre is not None else (),
+            # Les collisions **des versets servis**, même règle que l'original : on montre ce
+            # qui porte sur le texte affiché, jamais ce qui traîne ailleurs dans l'unité.
+            collisions=tuple(
+                CollisionSeen(
+                    reference=v.reference, word=c.word, form=c.form,
+                    witnesses=tuple(
+                        WitnessRead(
+                            code=t.code, label=t.label, text_family=t.text_family,
+                            stance=t.stance, reading=t.reading, body=t.body,
+                        )
+                        for t in c.witnesses
+                    ),
+                )
+                for v in servis
+                for c in self.index.collisions.get(
                     (livre, *_chapitre_verset(v.reference)), ()
                 )
             ) if livre is not None else (),

@@ -581,6 +581,103 @@ class OriginalWordView(BaseModel):
     language: str
 
 
+#: 🔴 **La phrase qui accompagne chaque répartition — écrite ici, une seule fois, et relue.**
+#:
+#: Le client n'écrit jamais une phrase de sa propre autorité (`docs/Urim_Conversation.md`) : ce
+#: que le pasteur lit vient du serveur, sinon il échapperait à la relecture et aux tests. Une
+#: collision est justement l'endroit où une phrase mal choisie ferait le plus de dégâts — il
+#: suffirait d'écrire « les manuscrits divergent » pour transformer un choix de traducteur en
+#: variante textuelle, dans la bouche d'un pasteur, devant une assemblée qui ne peut pas
+#: vérifier.
+#:
+#: Les trois phrases disent donc **ce qui a été observé** et rien de plus, et chacune finit par
+#: renvoyer au texte plutôt qu'à une conclusion. Y compris sur ce qui paraît anodin : la phrase
+#: du partage a d'abord dit *« c'est le signe que l'original porte plus d'un sens »*, ce qui est
+#: souvent vrai et que rien ici ne permet d'affirmer — c'est le test de vocabulaire qui l'a
+#: attrapée, en refusant le mot « original ».
+_CE_QUE_LA_FORME_DIT = {
+    "temoin_isole": (
+        "Une seule de ces traductions rend ce mot autrement ; les autres s'accordent "
+        "avec la Segond. Lisez-les en regard."
+    ),
+    "partage": (
+        "Les traducteurs se partagent sur ce mot : certains le rendent comme la Segond, "
+        "d'autres non. Lisez les deux façons de le dire."
+    ),
+    "segond_seule": (
+        "Aucune des autres traductions ne rend ce mot comme la Segond. Si votre prédication "
+        "s'appuie sur lui, allez d'abord voir ce que les autres en ont fait."
+    ),
+}
+
+#: ⚠️ **Le rappel voyage avec la donnée, pas dans une note de bas de page.**
+#:
+#: C'est la seule chose que ce module doit absolument empêcher, et la seule qui ne coûte rien :
+#: `urim_corpus_textual_variant` dit ce que les manuscrits portent, et se remplit depuis un
+#: apparat critique par un humain qui signe. Une collision ne dit que ce que des hommes ont
+#: **lu**.
+_JAMAIS_UNE_VARIANTE = (
+    "Ce n'est pas une variante des manuscrits : c'est une divergence entre traducteurs."
+)
+
+
+class WitnessReadView(BaseModel):
+    """Un traducteur devant ce mot.
+
+    `stance` a **trois** valeurs et non deux. `muet` dit que ce témoin ne se prononce pas — il
+    ne tient pas ce verset, ou il l'a reformulé d'un bout à l'autre, et l'absence du mot chez
+    lui ne veut donc rien dire. Le compter comme un accord retournerait le sens de la
+    répartition."""
+
+    code: str
+    label: str
+    #: `texte_recu` · `critique` · `eclectique` · `massoretique` — l'édition dont ce traducteur
+    #: part. **Affichée, jamais interprétée** : le produit ne conclut rien de la famille, le
+    #: pasteur lit qui suit quoi.
+    text_family: str
+    stance: str
+    #: Le mot qu'il écrit à la place — **vide quand l'appariement n'est pas certain**, et c'est
+    #: alors le verset entier qui parle. Nommer un remplaçant qu'on n'a pas su apparier est la
+    #: seule façon de rendre cet écran menteur.
+    reading: str | None = None
+    body: str
+
+
+class CollisionView(BaseModel):
+    """**Là où des traducteurs sérieux n'ont pas lu la même chose.**
+
+    ⚠️⚠️ Voir `_JAMAIS_UNE_VARIANTE`, que chaque ligne porte : ce n'est **pas** un signalement
+    de manuscrit. La distinction n'est pas une précaution de langage — c'est une propriété
+    mesurée du détecteur, qui rejette par construction ce dont une variante est faite (une
+    proposition entière ajoutée ou retirée) et ne voit que des substitutions de mot.
+
+    Aucun poids, aucun score n'est rendu. Un chiffre à côté d'un verset se lit comme une note,
+    et rien ici n'est noté : le seuil a servi à choisir ce qui s'affiche, il n'a rien à dire au
+    pasteur."""
+
+    reference: str
+    word: str
+    form: str
+    #: La phrase du produit pour cette répartition — le client la rend, il ne l'écrit pas.
+    says: str
+    caution: str = _JAMAIS_UNE_VARIANTE
+    witnesses: list[WitnessReadView]
+
+    @classmethod
+    def from_dto(cls, dto) -> CollisionView:
+        return cls(
+            reference=dto.reference, word=dto.word, form=dto.form,
+            says=_CE_QUE_LA_FORME_DIT.get(dto.form, ""),
+            witnesses=[
+                WitnessReadView(
+                    code=t.code, label=t.label, text_family=t.text_family,
+                    stance=t.stance, reading=t.reading, body=t.body,
+                )
+                for t in dto.witnesses
+            ],
+        )
+
+
 class SupportsBody(BaseModel):
     """Les textes d'appui, **dans l'ordre du pasteur** — pas celui du canon.
 
@@ -709,6 +806,22 @@ class PassageDetailView(BaseModel):
     #: semé — un état normal, qui se voit plutôt qu'il ne se devine.
     original: list[OriginalWordView]
 
+    #: 🔴 **Les endroits où les traducteurs se séparent.**
+    #:
+    #: Elle est ici et non dans le tour de la conversation. Un bloc de tour présente ce qu'un
+    #: étage vient de produire ; aucun étage ne produit une collision, et aucun ne le doit —
+    #: c'est une propriété du verset, au même titre que `variants`. Dans le fil, elle
+    #: ressemblerait à une question posée au pasteur ; ici, c'est une trouvaille qu'il ouvre
+    #: quand il veut, sur l'écran fait pour regarder avant de choisir.
+    #:
+    #: ⚠️ **Ce n'est pas `variants`, et les deux ne doivent pas se ressembler à l'écran.**
+    #: `variants` dit ce que les manuscrits portent ; ceci dit ce que des hommes ont lu. Chaque
+    #: ligne porte son `caution` pour que la distinction voyage avec la donnée.
+    #:
+    #: Vide sur la très grande majorité des passages : seuls les 5 % où le désaccord pèse le
+    #: plus lourd sont retenus. *Rien plutôt qu'une vraisemblance.*
+    collisions: list[CollisionView] = []
+
     @classmethod
     def from_dto(cls, dto) -> PassageDetailView:
         return cls(
@@ -775,5 +888,6 @@ class PassageDetailView(BaseModel):
                 )
                 for r, p, s, lem, nat, par, langue in dto.original
             ],
+            collisions=[CollisionView.from_dto(c) for c in dto.collisions],
         )
 
