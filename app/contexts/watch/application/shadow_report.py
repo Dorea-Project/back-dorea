@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from app._shared.messages import MessageKey
 from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.iam.domain.permissions import Permission
 from app.contexts.notifications.application.notifier import Notifier, PushNotification
@@ -195,11 +196,8 @@ class SendShadowDigest:
         await self._notifier.notify(
             pastors,
             PushNotification(
-                title="Dorea observe",
-                body=(
-                    f"{report.count} situation(s) auraient été signalées cette semaine. "
-                    "Ouvrez le rapport pour les voir."
-                ),
+                key=MessageKey.WATCH_SHADOW_DIGEST,
+                params={"count": report.count},
                 data={"type": "shadow_digest", "tenant_id": str(tenant_id)},
             ),
         )

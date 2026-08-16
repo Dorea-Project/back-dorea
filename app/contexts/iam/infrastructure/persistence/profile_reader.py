@@ -32,6 +32,7 @@ class SqlProfileReader(ProfileReader):
                     AccountModel.birth_day,
                     AccountModel.birth_month,
                     AccountModel.birthday_scope,
+                    AccountModel.language,
                 ).where(AccountModel.id == account_id)
             )
         ).first()
@@ -46,4 +47,5 @@ class SqlProfileReader(ProfileReader):
             birth_day=row.birth_day,
             birth_month=row.birth_month,
             birthday_scope=row.birthday_scope,
+            language=row.language,
         )

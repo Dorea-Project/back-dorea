@@ -8,6 +8,7 @@ from fastapi import Depends
 
 from app.api.deps import DbSession
 from app.contexts.groups.application.group_access import GroupAccessPolicy
+from app.contexts.iam.infrastructure.persistence.locale_resolver import SqlLocaleResolver
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyMembershipRepository,
 )
@@ -55,7 +56,8 @@ def _extractor() -> SermonTextExtractor:
 
 def get_deposit_command(session: DbSession) -> DepositSermon:
     return DepositSermon(
-        SqlSermonRepository(session), _access(session), _digester(), _extractor(), clock=_now
+        SqlSermonRepository(session), _access(session), _digester(), _extractor(),
+        SqlLocaleResolver(session), clock=_now,
     )
 
 

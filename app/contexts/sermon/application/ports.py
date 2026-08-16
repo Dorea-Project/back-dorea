@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import date
 from uuid import UUID
 
+from app._shared.domain.locale import DEFAULT_LOCALE, Locale
 from app.contexts.sermon.domain.digest import Capsule, SermonDigest
 from app.contexts.sermon.domain.enums import SermonSourceKind
 
@@ -50,7 +51,15 @@ class SermonDigester(ABC):
 
     Produit tout l'arbre d'un coup (résumé, points essentiels, capsules, Q&R de consolidation) ;
     le pasteur relit et approuve, puis c'est gelé. Le runtime ne rappelle jamais l'IA — coût en
-    O(sermons), pas O(membres x interactions). Un repli déterministe permet de tourner sans clé."""
+    O(sermons), pas O(membres x interactions). Un repli déterministe permet de tourner sans clé.
+
+    ⚠️ `locale` est la langue de l'**église**, jamais celle d'un lecteur. Le digest est écrit une
+    fois, gelé à l'approbation, puis lu par toute l'assemblée : il n'a qu'une langue possible,
+    celle du culte qui a été prêché. C'est la différence de fond avec une notification, qui se
+    rend par destinataire.
+    """
 
     @abstractmethod
-    async def digest(self, text: str, *, title: str, reference: str | None) -> SermonDigest: ...
+    async def digest(
+        self, text: str, *, title: str, reference: str | None, locale: Locale = DEFAULT_LOCALE
+    ) -> SermonDigest: ...

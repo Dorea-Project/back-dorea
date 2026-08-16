@@ -156,6 +156,9 @@ class Settings(BaseSettings):
     # Bible canonique : Louis Segond 1910 (domaine public). Fichier JSON { "Jean 3.16": "..." }.
     # Non configuré → poignée de versets embarqués (extrait dev, remplacé par le dataset complet).
     lsg_dataset_path: str | None = None
+    # La Bible anglaise (World English Bible, domaine public) — `scripts/build_web_dataset.py`.
+    # Absente, Mission sert l'extrait dev embarqué : la carte sort, avec huit versets seulement.
+    web_dataset_path: str | None = None
 
     @property
     def verse_resolver_enabled(self) -> bool:

@@ -31,8 +31,15 @@ class DeviceRepository(Repository):
     async def list_by_account(self, account_id: UUID) -> list[Device]: ...
 
     @abstractmethod
-    async def tokens_for_accounts(self, account_ids: list[UUID]) -> list[str]:
-        """Tous les jetons des appareils des comptes visés — la cible d'un envoi."""
+    async def tokens_by_account(self, account_ids: list[UUID]) -> dict[UUID, list[str]]:
+        """Les jetons des comptes visés, **rangés par compte**.
+
+        ⚠️ Rangés, et pas mis à plat comme avant : le texte d'une push dépend de la langue de
+        celui qui la lit, donc l'envoi doit savoir quel jeton appartient à qui. Un sac de jetons
+        anonymes ne permettait qu'un seul texte pour tout le monde.
+
+        Un compte sans appareil n'apparaît pas dans le résultat — il n'y a rien à lui envoyer.
+        """
         ...
 
 

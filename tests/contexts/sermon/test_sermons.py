@@ -10,9 +10,10 @@ from uuid import uuid4
 
 import pytest
 
+from app._shared.domain.locale import DEFAULT_LOCALE, Locale
 from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.groups.domain.errors import UnauthorizedGroupActionError
-from app.contexts.iam.application.ports import OwnershipChecker
+from app.contexts.iam.application.ports import LocaleResolver, OwnershipChecker
 from app.contexts.iam.domain.aggregates import Membership
 from app.contexts.iam.domain.entities import RoleAssignment
 from app.contexts.iam.domain.enums import MembershipStatus, RoleCode
@@ -272,12 +273,27 @@ async def test_get_sermon_returns_it_to_the_keeper():
 # --- S-1 : la digestion IA (un appel au dépôt, gelé à l'approbation) ---
 
 
+class _FakeLocales(LocaleResolver):
+    """La langue d'une église, posée par le test."""
+
+    def __init__(self, church=DEFAULT_LOCALE):
+        self._church = church
+
+    async def resolve_many(self, account_ids):
+        return {a: DEFAULT_LOCALE for a in account_ids}
+
+    async def resolve_tenant(self, tenant_id):
+        return self._church
+
+
 class _FakeDigester(SermonDigester):
     def __init__(self):
         self.calls = []
+        self.locales = []
 
-    async def digest(self, text, *, title, reference):
+    async def digest(self, text, *, title, reference, locale=DEFAULT_LOCALE):
         self.calls.append((text, title, reference))
+        self.locales.append(locale)
         return SermonDigest(
             summary="Dieu court vers nous.",
             key_points=("Le père guette", "Il court", "Il restaure"),
@@ -301,6 +317,37 @@ async def test_deposit_generates_a_digest_in_one_call():
     assert sermons._s[0].digest is not None  # attaché à l'agrégat
 
 
+async def test_le_digest_est_ecrit_dans_la_langue_de_leglise():
+    """**Pas celle du pasteur.** Le digest est écrit une fois et lu par toute l'assemblée : il
+    n'a qu'une langue possible, celle du culte qui a été prêché."""
+    tenant = uuid4()
+    pastor, ms = _pastor(tenant)
+    digester = _FakeDigester()
+
+    await DepositSermon(
+        _FakeSermons(), _access(ms), digester, None, _FakeLocales(Locale.EN), clock=lambda: _NOW
+    ).execute(
+        actor_account_id=pastor, tenant_id=tenant,
+        title="The prodigal son", content="The father ran to his son…", preached_on=_SUNDAY,
+    )
+
+    assert digester.locales == [Locale.EN]
+
+
+async def test_sans_resolveur_le_digest_reste_au_defaut():
+    """Le résolveur est optionnel, comme le digesteur : un montage partiel ne doit pas lever."""
+    tenant = uuid4()
+    pastor, ms = _pastor(tenant)
+    digester = _FakeDigester()
+
+    await DepositSermon(_FakeSermons(), _access(ms), digester, clock=lambda: _NOW).execute(
+        actor_account_id=pastor, tenant_id=tenant,
+        title="Le fils prodigue", content="Le père courut…", preached_on=_SUNDAY,
+    )
+
+    assert digester.locales == [DEFAULT_LOCALE]
+
+
 async def test_deposit_without_a_digester_leaves_no_digest():
     tenant = uuid4()
     pastor, ms = _pastor(tenant)
@@ -319,6 +366,21 @@ async def test_keyword_digester_is_deterministic_without_a_key():
     assert d.summary and d.key_points and d.capsules and d.questions
     # tiré du texte lui-même (aucune invention)
     assert d.key_points[0] == "Dieu est amour."
+
+
+async def test_le_repli_sans_ia_pose_sa_question_dans_la_langue_de_leglise():
+    """Le repli **découpe le sermon** : résumé et pastilles parlent déjà la langue du pasteur,
+    quelle qu'elle soit. Une seule phrase est de Dorea — la question — et c'est la seule qui
+    ait à changer de langue."""
+    text = "God is love. He gives his life. We are saved."
+
+    d = await KeywordSermonDigester().digest(
+        text, title="Grace", reference=None, locale=Locale.EN
+    )
+
+    assert d.questions[0].prompt == "What spoke to you most in this message?"
+    assert d.key_points[0] == "God is love."  # le sermon ressort intact
+    assert d.questions[0].guidance == d.summary
 
 
 # --- S-3 : le compagnon (arbre déterministe, deux branches) ---

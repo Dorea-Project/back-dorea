@@ -17,6 +17,7 @@ from app.contexts.mission.interface.dependencies import (
     GenerateVerseCardDep,
     IntegrateSeekerDep,
     ListMySeekersDep,
+    LocaleResolverDep,
     RevokeLinkDep,
 )
 from app.contexts.mission.interface.schemas import (
@@ -45,8 +46,13 @@ async def generate_card(
     payload: GenerateCardRequest,
     actor: CurrentActor,  # réservé aux membres (comme la création de lien)
     command: GenerateVerseCardDep,
+    locales: LocaleResolverDep,
 ) -> VerseCardResponse:
-    dto = await command.execute(query=payload.query)
+    # La carte parle la langue de **celui qui invite** : le chercheur n'a pas encore de compte,
+    # et c'est le membre qui sait à qui il tend la main.
+    dto = await command.execute(
+        query=payload.query, locale=await locales.resolve(actor.account_id)
+    )
     return VerseCardResponse.from_dto(dto)
 
 

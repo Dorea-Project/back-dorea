@@ -77,6 +77,7 @@ class GetMemberTrajectory:
                     scheduled_at=p.scheduled_at,
                     outcome=p.outcome.value,
                     title=p.title,
+                    type=p.type,
                 )
                 for p in traj.points
             ],

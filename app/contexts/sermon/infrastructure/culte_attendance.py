@@ -86,7 +86,16 @@ class SermonCulteAttendanceAdapter(CulteAttendancePort):
             tenant_id=tenant_id,
             group_id=None,  # église-entière (culte)
             type=GatheringType.SERVICE.value,
-            title="Culte",
+            # 🔴 **Pas de titre — et « Culte » n'en était pas un.** C'était le mot français pour
+            # `SERVICE`, écrit en base par le produit et donc figé dans une langue au moment de
+            # l'écriture. Une église anglophone lisait « Culte » dans son historique de présence,
+            # et rien au rendu ne pouvait le rattraper : la ligne existait déjà.
+            #
+            # Ce que porte cette rencontre, c'est son **type** — le titre reste pour ce qu'un
+            # humain nomme lui-même (« Culte de Pâques »). `None` est ici la valeur juste, pas un
+            # trou : elle dit *« cette rencontre n'a pas d'autre nom que ce qu'elle est »*, et le
+            # client la nomme dans la langue de son lecteur. Même règle que les erreurs de l'API.
+            title=None,
             scheduled_at=scheduled_at,
             status=GatheringStatus.OPEN.value,
             created_by_account_id=member_account_id,  # le premier déclarant ouvre le culte

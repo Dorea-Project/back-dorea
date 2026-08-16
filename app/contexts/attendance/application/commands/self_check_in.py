@@ -76,5 +76,6 @@ class SelfCheckIn:
                 group_id=gathering.group_id,
             )
         return SelfCheckInDTO(
-            gathering_id=gathering.id, group_id=gathering.group_id, title=gathering.title
+            gathering_id=gathering.id, group_id=gathering.group_id, title=gathering.title,
+            type=gathering.type.value,
         )

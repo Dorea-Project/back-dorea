@@ -70,11 +70,19 @@ class SelfCheckInRequest(BaseModel):
 class SelfCheckInResponse(BaseModel):
     gathering_id: UUID
     group_id: UUID | None
-    title: str | None
+    title: str | None = Field(
+        default=None,
+        description="Le nom donné par un humain — null quand la rencontre n'a d'autre nom que "
+        "son type (le culte). Le client la nomme alors depuis `type`, dans sa langue.",
+    )
+    type: str
 
     @classmethod
     def from_dto(cls, dto: SelfCheckInDTO) -> SelfCheckInResponse:
-        return cls(gathering_id=dto.gathering_id, group_id=dto.group_id, title=dto.title)
+        return cls(
+            gathering_id=dto.gathering_id, group_id=dto.group_id, title=dto.title,
+            type=dto.type,
+        )
 
 
 class _RosterEntry(BaseModel):
@@ -335,7 +343,8 @@ class _TrajectoryPoint(BaseModel):
     gathering_id: UUID
     scheduled_at: datetime
     outcome: str  # present | excused | absent
-    title: str | None
+    title: str | None  # null = pas d'autre nom que son type ; le client le nomme
+    type: str
 
 
 class MemberTrajectoryResponse(BaseModel):
@@ -368,6 +377,7 @@ class MemberTrajectoryResponse(BaseModel):
                     scheduled_at=p.scheduled_at,
                     outcome=p.outcome,
                     title=p.title,
+                    type=p.type,
                 )
                 for p in dto.points
             ],

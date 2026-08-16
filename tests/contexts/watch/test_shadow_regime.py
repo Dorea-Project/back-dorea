@@ -12,6 +12,8 @@ observe » — et c'est pourquoi il réutilise le canal `HELD` au lieu d'invente
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from app._shared.domain.locale import Locale
+from app._shared.messages import render
 from app.contexts.watch.application.intake import Intake
 from app.contexts.watch.application.interpretation import InterpreterRegistry
 from app.contexts.watch.application.interpreters.self_declaration import SelfDeclarationV1
@@ -330,8 +332,11 @@ async def test_the_digest_says_a_number_never_a_name():
     assert sent.notified == 1
     (targets, notification) = notifier.sent[0]
     assert targets == [pastor]
-    assert "1 situation" in notification.body
-    assert str(member) not in notification.body
+    phrase = render(notification.key, Locale.FR, notification.params)
+    assert "1 situation" in phrase.body
+    # Une notification qui nomme quelqu'un sur un écran de verrouillage est une fuite — la
+    # garde vaut pour le texte rendu **et** pour ce qui est mis en file.
+    assert str(member) not in phrase.body and str(member) not in str(notification.params)
 
 
 async def test_a_calm_week_notifies_nobody():

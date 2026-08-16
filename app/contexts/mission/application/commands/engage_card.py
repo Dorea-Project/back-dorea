@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.mission.application.threshold import CrossTheThreshold
 from app.contexts.mission.domain.aggregates import MissionLink, MissionReaction, Seeker
 from app.contexts.mission.domain.enums import SeekerReaction, SeekerStatus
@@ -105,8 +106,8 @@ class AcceptInvitation:
             await self._notifier.notify(
                 [link.inviter_account_id],
                 PushNotification(
-                    title="Une invitation acceptée",
-                    body=f"{seeker.name} a répondu à ton invitation.",
+                    key=MessageKey.MISSION_CARD_ACCEPTED,
+                    params={"name": seeker.name},
                     data={"type": "seeker", "id": str(seeker.id)},
                 ),
             )

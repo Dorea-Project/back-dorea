@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.appointments.application.dtos import AppointmentDTO
 from app.contexts.appointments.application.mapping import to_appointment_dto
 from app.contexts.appointments.application.watch_facts import EmitAppointmentFacts
@@ -30,15 +31,19 @@ REMINDER_LEAD = timedelta(hours=1)
 
 
 async def _notify(
-    notifier: Notifier | None, appointment: Appointment, *, title: str, body: str
+    notifier: Notifier | None,
+    appointment: Appointment,
+    *,
+    key: MessageKey,
+    params: dict | None = None,
 ) -> None:
     """Prévient le demandeur (best-effort) — jamais un walk-in (sans compte), jamais bloquant."""
     if notifier is None or appointment.requester_account_id is None:
         return
     await notifier.notify(
         [appointment.requester_account_id],
-        PushNotification(title=title, body=body, data={"type": "appointment",
-                                                       "id": str(appointment.id)}),
+        PushNotification(key=key, params=params or {},
+                         data={"type": "appointment", "id": str(appointment.id)}),
     )
 
 
@@ -145,10 +150,7 @@ class ConfirmAppointment:
         )
         appointment.confirm(at=scheduled_at, by_account_id=actor_account_id, now=self._clock())
         await self._appointments.save(appointment)
-        await _notify(
-            self._notifier, appointment,
-            title="Rendez-vous confirmé", body="Votre rendez-vous a été confirmé.",
-        )
+        await _notify(self._notifier, appointment, key=MessageKey.APPOINTMENT_CONFIRMED)
         await self._schedule_reminder(appointment)
         return to_appointment_dto(appointment)
 
@@ -163,8 +165,7 @@ class ConfirmAppointment:
         await self._scheduler.schedule(
             [appointment.requester_account_id],
             PushNotification(
-                title="Rappel de rendez-vous",
-                body="Votre rendez-vous approche.",
+                key=MessageKey.APPOINTMENT_REMINDER,
                 data={"type": "appointment", "id": str(appointment.id)},
             ),
             at=appointment.scheduled_at - REMINDER_LEAD,
@@ -199,10 +200,14 @@ class DeclineAppointment:
         # Il a demandé, on n'a pas pu : c'est **notre** dette. Le cas reste ouvert.
         if self._facts is not None:
             await self._facts.execute(appointment)
+        # Deux clés, parce que deux voix : le mot que le pasteur a pesé passe en paramètre et
+        # sort intact ; seul le défaut, quand il n'a rien écrit, appartient à Dorea.
+        note = appointment.decision_note
         await _notify(
             self._notifier, appointment,
-            title="Rendez-vous",
-            body=appointment.decision_note or "Votre demande n'a pas été retenue.",
+            key=MessageKey.APPOINTMENT_DECLINED_WITH_NOTE if note
+            else MessageKey.APPOINTMENT_DECLINED,
+            params={"note": note} if note else None,
         )
         return to_appointment_dto(appointment)
 
@@ -299,11 +304,7 @@ class OrientAppointment:
         await self._appointments.save(appointment)
         if self._facts is not None:
             await self._facts.execute(appointment)
-        await _notify(
-            self._notifier, appointment,
-            title="Rendez-vous",
-            body="Quelqu'un vous rappelle très vite.",
-        )
+        await _notify(self._notifier, appointment, key=MessageKey.APPOINTMENT_RECALL)
         return to_appointment_dto(appointment)
 
 

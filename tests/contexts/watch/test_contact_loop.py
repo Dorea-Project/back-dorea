@@ -8,6 +8,8 @@ marchait.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from app._shared.domain.locale import Locale
+from app._shared.messages import render
 from app.contexts.watch.application.contact_loop import (
     FOREGROUND_WINDOW,
     RETURN_PROMPT_DELAY,
@@ -130,7 +132,10 @@ async def test_the_return_prompt_carries_its_answers():
 
     (targets, notification, at) = scheduler.calls[0]
     assert targets == [owner]  # au responsable, jamais à la personne
-    assert "Awa Traoré" in notification.body
+    # Le nom voyage en paramètre et ressort intact du catalogue : c'est un humain qui l'a
+    # écrit, Dorea ne le traduit pas. Rendu ici pour vérifier qu'il arrive bien à la phrase.
+    assert notification.params == {"label": "Awa Traoré"}
+    assert "Awa Traoré" in render(notification.key, Locale.FR, notification.params).body
     assert notification.data["actions"] == "reached,not_reached,postponed"
     assert at == started.prompt_at == _NOW + RETURN_PROMPT_DELAY
 

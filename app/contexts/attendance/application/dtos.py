@@ -24,6 +24,10 @@ class SelfCheckInDTO:
     gathering_id: UUID
     group_id: UUID | None
     title: str | None
+    #: Le **type** voyage avec le titre, et c'est indispensable depuis que le culte
+    #: n'écrit plus « Culte » en base : un titre nul se nomme par son type, dans la
+    #: langue du lecteur, côté client. Sans lui la rencontre serait sans nom.
+    type: str = "service"
 
 
 @dataclass(frozen=True)
@@ -158,6 +162,10 @@ class TrajectoryPointDTO:
     scheduled_at: datetime
     outcome: str  # present | excused | absent
     title: str | None
+    #: Le **type** voyage avec le titre, et c'est indispensable depuis que le culte
+    #: n'écrit plus « Culte » en base : un titre nul se nomme par son type, dans la
+    #: langue du lecteur, côté client. Sans lui la rencontre serait sans nom.
+    type: str = "service"
 
 
 @dataclass(frozen=True)

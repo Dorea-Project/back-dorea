@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from app._shared.messages import Message
 from app.contexts.notifications.application.notifier import (
     NotificationScheduler,
     Notifier,
@@ -27,12 +28,16 @@ class OutboxScheduler(NotificationScheduler):
         targets = list(account_ids)
         if not targets:
             return  # rien à planifier
+        if notification.key is None:
+            # Le champ `rendered` n'existe que pour relire les lignes d'avant le bilingue ; on
+            # n'en écrit jamais de nouvelles. Sans clé, il n'y aurait rien à traduire au dispatch.
+            raise ValueError("une notification planifiée porte une clé du catalogue")
         await self._jobs.add(
             ScheduledNotification.schedule(
                 id=uuid4(),
                 account_ids=targets,
-                title=notification.title,
-                body=notification.body,
+                key=notification.key,
+                params=dict(notification.params),
                 data=notification.data,
                 at=at,
                 now=self._clock(),
@@ -52,13 +57,21 @@ class DispatchDueNotifications:
         now = self._clock()
         due = await self._jobs.list_due(now, limit=limit)
         for job in due:
-            await self._notifier.notify(
-                _as_uuids(job.account_ids),
-                PushNotification(title=job.title, body=job.body, data=job.data),
-            )
+            await self._notifier.notify(_as_uuids(job.account_ids), _as_notification(job))
             job.mark_sent(now=now)
             await self._jobs.save(job)
         return len(due)
+
+
+def _as_notification(job: ScheduledNotification) -> PushNotification:
+    if job.key is not None:
+        return PushNotification(key=job.key, params=job.params, data=job.data)
+    # Ligne d'avant le bilingue : le texte est déjà rendu, il part tel quel plutôt que d'être
+    # deviné depuis sa phrase. Ce chemin s'éteint tout seul quand la file s'est drainée.
+    return PushNotification(
+        rendered=Message(title=job.legacy_title or "", body=job.legacy_body or ""),
+        data=job.data,
+    )
 
 
 def _as_uuids(account_ids: list) -> list[UUID]:

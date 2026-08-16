@@ -13,7 +13,9 @@ from app.contexts.groups.infrastructure.persistence.repositories import (
     SqlGroupRepository,
 )
 from app.contexts.iam.application.commands.admit_person import AdmitPerson
+from app.contexts.iam.application.ports import LocaleResolver
 from app.contexts.iam.infrastructure.persistence.enrollment import SqlMemberEnrollmentStore
+from app.contexts.iam.infrastructure.persistence.locale_resolver import SqlLocaleResolver
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyAccountRepository,
     SqlAlchemyMembershipRepository,
@@ -29,7 +31,7 @@ from app.contexts.mission.application.commands.create_link import (
 from app.contexts.mission.application.commands.engage_card import AcceptInvitation, ReactToCard
 from app.contexts.mission.application.commands.generate_card import GenerateVerseCard
 from app.contexts.mission.application.commands.integrate import IntegrateSeeker
-from app.contexts.mission.application.ports import ScriptureSource, VerseResolver
+from app.contexts.mission.application.ports import ScriptureLibrary, VerseResolver
 from app.contexts.mission.application.queries.get_card import GetCard
 from app.contexts.mission.application.queries.list_my_seekers import ListMySeekers
 from app.contexts.mission.application.threshold import CrossTheThreshold
@@ -41,7 +43,7 @@ from app.contexts.mission.infrastructure.persistence.repositories import (
     SqlMissionReactionRepository,
     SqlSeekerRepository,
 )
-from app.contexts.mission.infrastructure.scripture_lsg import build_scripture_source
+from app.contexts.mission.infrastructure.scripture_library import build_scripture_library
 from app.contexts.mission.infrastructure.verse_resolver import build_verse_resolver
 from app.contexts.notifications.interface.dependencies import build_notifier
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import SqlOwnershipRepository
@@ -64,13 +66,13 @@ def _now() -> datetime:
 
 # Bible, résolveur IA et stockage média : sans état, construits une fois selon la config.
 @lru_cache
-def _scripture() -> ScriptureSource:
-    return build_scripture_source(get_settings())
+def _scriptures() -> ScriptureLibrary:
+    return build_scripture_library(get_settings())
 
 
 @lru_cache
 def _resolver() -> VerseResolver:
-    return build_verse_resolver(get_settings(), _scripture())
+    return build_verse_resolver(get_settings(), _scriptures())
 
 
 @lru_cache
@@ -165,8 +167,16 @@ def get_my_seekers_query(session: DbSession) -> ListMySeekers:
 
 
 def get_generate_card() -> GenerateVerseCard:
-    # Sans base : IA (ou repli mots-clés) + Bible canonique + rendu + stockage média.
-    return GenerateVerseCard(_resolver(), _scripture(), _renderer, _media())
+    # Sans base : IA (ou repli mots-clés) + bibliothèque de Bibles + rendu + stockage média.
+    return GenerateVerseCard(_resolver(), _scriptures(), _renderer, _media())
+
+
+def get_locale_resolver(session: DbSession) -> LocaleResolver:
+    """La langue du membre qui invite — c'est lui qui sait à qui il tend la main.
+
+    Le chercheur n'a pas encore de compte au moment où la carte est composée : il n'y a personne
+    d'autre à qui demander. La chaîne personne → église fait le reste."""
+    return SqlLocaleResolver(session)
 
 
 def get_accompany_command(session: DbSession) -> AccompanySeeker:
@@ -212,6 +222,7 @@ AcceptInvitationDep = Annotated[AcceptInvitation, Depends(get_accept_command)]
 GetCardDep = Annotated[GetCard, Depends(get_card_query)]
 ListMySeekersDep = Annotated[ListMySeekers, Depends(get_my_seekers_query)]
 GenerateVerseCardDep = Annotated[GenerateVerseCard, Depends(get_generate_card)]
+LocaleResolverDep = Annotated[LocaleResolver, Depends(get_locale_resolver)]
 AccompanySeekerDep = Annotated[AccompanySeeker, Depends(get_accompany_command)]
 CloseSeekerDep = Annotated[CloseSeeker, Depends(get_close_command)]
 IntegrateSeekerDep = Annotated[IntegrateSeeker, Depends(get_integrate_command)]

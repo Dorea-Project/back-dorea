@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.announcements.application.dtos import AnnouncementDTO
 from app.contexts.announcements.application.mapping import to_announcement_dto
 from app.contexts.announcements.application.ports import MemberDirectoryPort
@@ -74,16 +75,16 @@ class PublishAnnouncement:
             await self._notifier.notify(
                 [concerns],
                 PushNotification(
-                    title=announcement.title,
-                    body="Une annonce vous concerne.",
+                    key=MessageKey.ANNOUNCEMENT_TARGETED,
+                    params={"announcement": announcement.title},
                     data={"type": "announcement", "id": str(announcement.id)},
                 ),
             )
         if self._members is None:
             return
         broadcast = PushNotification(
-            title="Nouvelle annonce",
-            body=announcement.title,
+            key=MessageKey.ANNOUNCEMENT_BROADCAST,
+            params={"announcement": announcement.title},
             data={"type": "announcement", "id": str(announcement.id)},
         )
         if announcement.scope_group_id is None:
@@ -119,8 +120,7 @@ class PublishAnnouncement:
         await self._notifier.notify(
             awaiting,
             PushNotification(
-                title="Une annonce vous concerne",
-                body="Acceptez-vous qu'elle soit publiée ?",
+                key=MessageKey.ANNOUNCEMENT_CONSENT,
                 data={"type": "announcement_consent", "id": str(announcement.id)},
             ),
         )

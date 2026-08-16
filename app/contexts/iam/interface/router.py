@@ -22,6 +22,7 @@ from app.contexts.iam.interface.dependencies import (
     GetMyProfileDep,
     JoinChurchByCodeDep,
     SetMyBirthdayDep,
+    SetMyLanguageDep,
 )
 from app.contexts.iam.interface.schemas import (
     BirthdayOfTheDayResponse,
@@ -29,8 +30,10 @@ from app.contexts.iam.interface.schemas import (
     JoinChurchRequest,
     JoinChurchResponse,
     MembershipStatusResponse,
+    MyLanguageResponse,
     MyProfileResponse,
     SetMyBirthdayRequest,
+    SetMyLanguageRequest,
 )
 
 router = APIRouter()
@@ -115,6 +118,28 @@ async def set_my_birthday(
     return BirthdayResponse(
         day=birthday.day, month=birthday.month, scope=payload.scope.value
     )
+
+
+@router.put(
+    "/me/language",
+    response_model=MyLanguageResponse,
+    summary="Choisir la langue dans laquelle Dorea me parle (null = celle de mon église)",
+)
+async def set_my_language(
+    payload: SetMyLanguageRequest,
+    actor: CurrentActor,
+    command: SetMyLanguageDep,
+) -> MyLanguageResponse:
+    """Réglage **de personne** : on ne pose jamais la langue de quelqu'un d'autre, ni celle de
+    l'église (qui est un acte de gouvernance, sur une autre surface).
+
+    La réponse rend les deux moitiés : le réglage posé, et la langue effective. Quand on revient
+    à `null`, seule la seconde dit quelle église prend le relais — et le client l'apprend tout de
+    suite plutôt qu'au prochain rafraîchissement."""
+    result = await command.execute(
+        actor_account_id=actor.account_id, language=payload.language
+    )
+    return MyLanguageResponse.from_result(result)
 
 
 @router.get(
