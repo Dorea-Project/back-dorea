@@ -167,6 +167,7 @@ def _build_mobile_sender(settings: Settings, fallback: OtpSender) -> OtpSender:
                 language=settings.whatsapp_otp_language,
                 category=TemplateCategory.AUTHENTICATION,
             ),
+            copy_code_button=settings.whatsapp_otp_copy_code_button,
         )
 
     if settings.sms_provider_url is not None:

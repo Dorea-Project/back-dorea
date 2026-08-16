@@ -26,6 +26,14 @@ class TemplateRef:
     category: TemplateCategory
     placeholders: tuple[str, ...] = ()
 
+    #: Paramètres des **boutons** du modèle, dans l'ordre.
+    #:
+    #: Les modèles d'authentification de WhatsApp portent presque toujours un
+    #: bouton « Copier le code », dont l'URL contient une variable. Elle se
+    #: renseigne à part du corps, et l'oublier fait refuser l'envoi — le code
+    #: apparaîtrait dans le texte mais le bouton serait vide.
+    button_placeholders: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True)
 class OutboundMessage:

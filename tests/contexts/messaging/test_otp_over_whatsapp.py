@@ -80,6 +80,34 @@ async def test_whatsapp_carries_the_code_as_placeholder():
     assert message.to == "2250747769069"
 
 
+async def test_the_code_reaches_the_copy_button_too():
+    """Le corps l'affiche, le bouton le copie : deux variables, un seul code."""
+    whatsapp = _Recorder(Channel.WHATSAPP)
+
+    await _send(
+        MessagingOtpSender(
+            primary=whatsapp, fallback=None, template=_TEMPLATE
+        )
+    )
+
+    assert whatsapp.sent[0].template.button_placeholders == ("123456",)
+
+
+async def test_a_template_without_a_button_gets_none():
+    whatsapp = _Recorder(Channel.WHATSAPP)
+
+    await _send(
+        MessagingOtpSender(
+            primary=whatsapp,
+            fallback=None,
+            template=_TEMPLATE,
+            copy_code_button=False,
+        )
+    )
+
+    assert whatsapp.sent[0].template.button_placeholders == ()
+
+
 async def test_the_same_code_travels_in_both_forms():
     """Le repli ne reconstruit pas le message : il ne peut pas dire autre chose."""
     whatsapp = _Recorder(Channel.WHATSAPP)

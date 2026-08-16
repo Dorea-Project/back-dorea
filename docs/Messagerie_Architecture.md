@@ -214,7 +214,27 @@ périmètre tant que les deux seuls appelants sont `events` et `auth`.)*
 (WhatsApp par modèle, SMS en repli) et `MessagingOtpSender` branché dans
 `build_otp_sender`. Le port `OtpSender` d'`auth` n'a pas bougé.
 
-Vérifiée par un envoi réel : `python scripts/messaging_smoke.py --to +225…`.
+Vérifiée par un envoi réel : `python scripts/messaging_smoke.py --to +225…`, puis
+par une inscription complète depuis l'application mobile — `register`, code reçu
+sur WhatsApp, `verify-registration`, jetons au coffre.
+
+**Le modèle.** Un `authentication` français déjà approuvé porte les codes :
+« Votre code de vérification est **{{1}}**. Pour votre sécurité, ne le partagez
+pas. » Il a **deux boutons**, dont un « Copier le code » dont l'URL contient sa
+propre variable — elle se renseigne à part du corps, et l'oublier fait refuser
+l'envoi. D'où `TemplateRef.button_placeholders`, et le réglage
+`WHATSAPP_OTP_COPY_CODE_BUTTON` pour les modèles qui n'en ont pas.
+
+**Ce que le code ne peut pas régler.** L'émetteur est le numéro de démonstration
+**partagé** d'Infobip : les modèles qu'il porte appartiennent à d'autres
+sociétés, le compte professionnel n'est pas le nôtre, et les membres verront un
+numéro britannique inconnu au lieu de « Dorea ». Un compte d'essai ne délivre en
+général qu'aux numéros vérifiés.
+
+Il faut donc demander un numéro à soi et le faire vérifier par Meta. À noter
+pour éviter une fausse attente : en catégorie `authentication`, **Meta impose le
+texte**. Un futur `dorea_otp` dira presque mot pour mot la même chose — ce que
+l'on gagne est le **nom affiché** et la maîtrise, pas une meilleure formulation.
 
 Deux propriétés que les tests tiennent :
 

@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     # chez l'opérateur : la moins chère, et la seule autorisée à porter un code.
     whatsapp_otp_template: str = "dorea_otp"
     whatsapp_otp_language: str = "fr"
+    # Le modèle porte-t-il un bouton « Copier le code » ? Les modèles
+    # d'authentification de WhatsApp en ont presque toujours un, et sa variable
+    # se renseigne à part du corps : l'oublier fait refuser l'envoi.
+    whatsapp_otp_copy_code_button: bool = True
     # Secret partagé des webhooks Infobip. Ils ne signent pas leurs appels : ce
     # jeton est la seule barrière, à traiter comme un mot de passe. Non
     # configuré → les routes répondent 404 plutôt que d'accepter n'importe qui.

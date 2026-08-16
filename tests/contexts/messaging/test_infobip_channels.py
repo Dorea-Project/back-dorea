@@ -160,6 +160,51 @@ async def test_rejected_message_is_not_retryable(monkeypatch):
     assert "Template not found" in str(failure.value)
 
 
+# --- Le bouton « Copier le code » -------------------------------------------
+
+
+async def test_the_copy_code_button_carries_its_own_parameter(monkeypatch):
+    """Le modele d'authentification francais porte un bouton dont l'URL contient
+    une variable. Elle se renseigne a part du corps : l'oublier fait refuser
+    l'envoi, ou laisse un bouton vide a cote d'un code affiche."""
+    captured: dict = {}
+    monkeypatch.setattr(
+        httpx.AsyncClient, "post", _fake_post(_Response(200, _accepted()), captured)
+    )
+
+    message = OutboundMessage(
+        to="2250747769069",
+        template=TemplateRef(
+            name="authentication",
+            language="fr",
+            category=TemplateCategory.AUTHENTICATION,
+            placeholders=("123456",),
+            button_placeholders=("123456",),
+        ),
+        text="Votre code de vérification est 123456",
+        message_id="id",
+    )
+
+    await InfobipWhatsAppChannel(_client(), sender="s").send(message)
+
+    data = captured["json"]["messages"][0]["content"]["templateData"]
+    assert data["body"]["placeholders"] == ["123456"]
+    assert data["buttons"] == [{"type": "URL", "parameter": "123456"}]
+
+
+async def test_a_template_without_buttons_declares_none(monkeypatch):
+    """Declarer un bouton absent est aussi fautif que d'en oublier un."""
+    captured: dict = {}
+    monkeypatch.setattr(
+        httpx.AsyncClient, "post", _fake_post(_Response(200, _accepted()), captured)
+    )
+
+    await InfobipWhatsAppChannel(_client(), sender="s").send(_message())
+
+    data = captured["json"]["messages"][0]["content"]["templateData"]
+    assert "buttons" not in data
+
+
 # --- Retour du fournisseur : ou nous rappeler -------------------------------
 
 

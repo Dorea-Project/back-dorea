@@ -115,15 +115,26 @@ class InfobipWhatsAppChannel(MessageChannel):
         return Channel.WHATSAPP
 
     async def send(self, message: OutboundMessage) -> ProviderReceipt:
+        template_data: dict[str, Any] = {
+            "body": {"placeholders": list(message.template.placeholders)}
+        }
+
+        # Le bouton « Copier le code » porte la variable dans son URL : elle se
+        # renseigne à part du corps. Les réponses rapides, elles, n'ont aucun
+        # paramètre — on ne les déclare donc pas.
+        if message.template.button_placeholders:
+            template_data["buttons"] = [
+                {"type": "URL", "parameter": parameter}
+                for parameter in message.template.button_placeholders
+            ]
+
         envelope: dict[str, Any] = {
             "from": self._sender,
             "to": message.to,
             "messageId": message.message_id,
             "content": {
                 "templateName": message.template.name,
-                "templateData": {
-                    "body": {"placeholders": list(message.template.placeholders)}
-                },
+                "templateData": template_data,
                 "language": message.template.language,
             },
         }

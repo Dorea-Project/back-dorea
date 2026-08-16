@@ -35,10 +35,12 @@ class MessagingOtpSender(OtpSender):
         primary: MessageChannel,
         fallback: MessageChannel | None,
         template: TemplateRef,
+        copy_code_button: bool = True,
     ) -> None:
         self._primary = primary
         self._fallback = fallback
         self._template = template
+        self._copy_code_button = copy_code_button
 
     async def send(
         self, *, channel: OtpChannel, target: str, code: str, purpose: OtpPurpose
@@ -50,6 +52,10 @@ class MessagingOtpSender(OtpSender):
                 language=self._template.language,
                 category=self._template.category,
                 placeholders=(code,),
+                # Le même code, une seconde fois : le corps l'affiche, le
+                # bouton le copie. WhatsApp les traite comme deux variables
+                # distinctes, et n'accepte pas qu'on en oublie une.
+                button_placeholders=(code,) if self._copy_code_button else (),
             ),
             text=_TEXT.format(code=code),
             message_id=str(uuid4()),
