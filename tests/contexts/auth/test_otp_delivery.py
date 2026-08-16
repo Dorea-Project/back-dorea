@@ -47,7 +47,7 @@ async def test_routing_sends_email_to_email_and_sms_to_sms():
 
 
 def test_build_falls_back_to_logging_when_unconfigured():
-    router = build_otp_sender(Settings(smtp_host=None, sms_provider_url=None))
+    router = build_otp_sender(Settings(_env_file=None, smtp_host=None, sms_provider_url=None))
     assert isinstance(router, RoutingOtpSender)
     assert isinstance(router._email, LoggingOtpSender)
     assert isinstance(router._sms, LoggingOtpSender)
@@ -56,6 +56,7 @@ def test_build_falls_back_to_logging_when_unconfigured():
 def test_build_uses_real_senders_when_configured():
     router = build_otp_sender(
         Settings(
+            _env_file=None,
             smtp_host="smtp.example", smtp_username="u", smtp_password="p",
             sms_provider_url="https://sms.example", sms_provider_token="tok",
         )

@@ -84,13 +84,49 @@ class Settings(BaseSettings):
     sms_provider_token: str | None = None  # jeton d'API (Authorization: Bearer)
     sms_sender_id: str = "Dorea"
 
+    # --- Messagerie (Infobip : WhatsApp + SMS de repli) ---
+    # Un seul fournisseur pour les deux canaux, et **un seul numéro** pour toute
+    # la plateforme (décision M1) : c'est Dorea qui parle, le nom de l'église
+    # est une variable du modèle.
+    # L'hôte est propre au compte Infobip (`xxxxx.api.infobip.com`).
+    infobip_base_url: str | None = None
+    infobip_api_key: str | None = None
+    whatsapp_sender: str | None = None  # numéro émetteur, international sans `+`
+    # Modèle approuvé pour les codes de connexion. Catégorie `authentication`
+    # chez l'opérateur : la moins chère, et la seule autorisée à porter un code.
+    whatsapp_otp_template: str = "dorea_otp"
+    whatsapp_otp_language: str = "fr"
+    # Secret partagé des webhooks Infobip. Ils ne signent pas leurs appels : ce
+    # jeton est la seule barrière, à traiter comme un mot de passe. Non
+    # configuré → les routes répondent 404 plutôt que d'accepter n'importe qui.
+    messaging_webhook_token: str | None = None
+    # Où le fournisseur nous rappelle. Posée sur chaque envoi plutôt que dans
+    # leur portail : le compte est unique, les environnements ne le sont pas —
+    # sans cela, les accusés du poste de développement partiraient en production.
+    # Non configurée → aucun accusé, et l'on envoie à l'aveugle.
+    messaging_notify_url: str | None = None
+
     @property
     def otp_email_enabled(self) -> bool:
         return self.smtp_host is not None
 
     @property
+    def messaging_enabled(self) -> bool:
+        """Vrai quand un vrai fournisseur répond — sinon, tout part au journal."""
+        return (
+            self.infobip_base_url is not None
+            and self.infobip_api_key is not None
+            and self.whatsapp_sender is not None
+        )
+
+    @property
     def otp_sms_enabled(self) -> bool:
-        return self.sms_provider_url is not None
+        """L'OTP mobile a-t-il un acheminement réel ?
+
+        WhatsApp d'abord, l'ancien fournisseur SMS générique ensuite : le temps
+        de la bascule, les deux valent.
+        """
+        return self.messaging_enabled or self.sms_provider_url is not None
 
     # --- Média (images d'annonces) ---
     # Dev : stockage **local** servi en statique. Prod : S3/MinIO si `s3_endpoint_url` défini.

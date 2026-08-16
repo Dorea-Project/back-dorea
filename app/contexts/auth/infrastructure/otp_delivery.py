@@ -23,6 +23,10 @@ import httpx
 from app.contexts.auth.application.ports import OtpSender
 from app.contexts.auth.domain.otp import OtpChannel, OtpPurpose
 from app.contexts.auth.infrastructure.otp import LoggingOtpSender
+from app.contexts.messaging.application.otp_sender import MessagingOtpSender
+from app.contexts.messaging.application.ports import TemplateRef
+from app.contexts.messaging.domain.enums import TemplateCategory
+from app.contexts.messaging.infrastructure.infobip import build_infobip_channels
 from app.core.config import Settings
 from app.core.logging import get_logger
 
@@ -138,13 +142,38 @@ def build_otp_sender(settings: Settings) -> OtpSender:
         if settings.otp_email_enabled
         else fallback
     )
-    sms: OtpSender = (
-        HttpSmsOtpSender(
+    return RoutingOtpSender(email=email, sms=_build_mobile_sender(settings, fallback))
+
+
+def _build_mobile_sender(settings: Settings, fallback: OtpSender) -> OtpSender:
+    """L'OTP du membre : WhatsApp, avec repli SMS chez le même fournisseur.
+
+    Trois états, dans cet ordre de préférence :
+
+    1. **Messagerie configurée** — WhatsApp par modèle `authentication`, repli
+       SMS automatique. C'est la voie normale.
+    2. **Ancien fournisseur SMS seul** — conservé le temps de la bascule, pour
+       qu'un déploiement en cours ne perde pas ses codes.
+    3. **Rien** — repli journal, interdit hors `local` par le garde ci-dessus.
+    """
+    if settings.messaging_enabled:
+        whatsapp, sms = build_infobip_channels(settings)
+
+        return MessagingOtpSender(
+            primary=whatsapp,
+            fallback=sms,
+            template=TemplateRef(
+                name=settings.whatsapp_otp_template,
+                language=settings.whatsapp_otp_language,
+                category=TemplateCategory.AUTHENTICATION,
+            ),
+        )
+
+    if settings.sms_provider_url is not None:
+        return HttpSmsOtpSender(
             provider_url=settings.sms_provider_url,
             token=settings.sms_provider_token,
             sender_id=settings.sms_sender_id,
         )
-        if settings.otp_sms_enabled
-        else fallback
-    )
-    return RoutingOtpSender(email=email, sms=sms)
+
+    return fallback
