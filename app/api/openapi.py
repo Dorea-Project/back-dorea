@@ -287,6 +287,16 @@ TAGS: list[dict[str, str]] = [
             "notification, jamais la diffusion."
         ),
     },
+    {
+        "name": "Messagerie · webhooks (public)",
+        "description": (
+            "Ce que le fournisseur nous renvoie : accusés de réception et messages entrants. "
+            "Appelées par un tiers, donc sans session — gardées par un secret partagé, faute "
+            "de signature côté fournisseur. **Aucune décision de sécurité n'en dépend** : "
+            "elles renseignent un journal d'acheminement et enregistrent les refus, elles "
+            "n'ouvrent aucun accès et ne valident aucun code."
+        ),
+    },
 ]
 
 

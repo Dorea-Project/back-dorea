@@ -45,6 +45,9 @@ from app.contexts.media.interface.router import (
 )
 from app.contexts.media.interface.router import mobile_router as mobile_media_router
 from app.contexts.mission.interface.mobile_router import router as mobile_mission_router
+from app.contexts.messaging.interface.webhook_router import (
+    router as messaging_webhook_router,
+)
 from app.contexts.mission.interface.public_router import router as public_mission_router
 from app.contexts.notifications.interface.mobile_router import (
     router as mobile_notifications_router,
@@ -168,6 +171,12 @@ public_router.include_router(
 # La carte d'un événement : la contrepartie de la cadence de publication. Ce qui est rationné est
 # la notification, jamais la diffusion — le lien se partage hors de Dorea autant qu'on veut.
 public_router.include_router(public_events_router, tags=["Vie d'église · events (public)"])
+# Retours du fournisseur de messagerie : accusés de réception et messages entrants.
+# Publique par nature — c'est un tiers qui appelle. Gardée par un secret partagé,
+# faute de signature côté Infobip (voir le module).
+public_router.include_router(
+    messaging_webhook_router, tags=["Messagerie · webhooks (public)"]
+)
 
 # Contextes à brancher au fil des modules :
 #   from app.contexts.attendance.interface.router import router as attendance_router  # M6
