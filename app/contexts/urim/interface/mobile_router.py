@@ -166,6 +166,7 @@ async def parler(
         actor_account_id=actor.account_id,
         study_id=study_id,
         raw_input=payload.raw_input,
+        idempotency_key=payload.idempotency_key,
     )
     return StudyView.avec_tour(dto)
 

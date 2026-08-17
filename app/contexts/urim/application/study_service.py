@@ -495,7 +495,12 @@ class UrimStudyService:
     # -- le tour de parole ------------------------------------------------------
 
     async def dire(
-        self, *, actor_account_id: UUID, study_id: UUID, raw_input: str
+        self,
+        *,
+        actor_account_id: UUID,
+        study_id: UUID,
+        raw_input: str,
+        idempotency_key: str | None = None,
     ) -> StudyDTO:
         """**Du texte libre en cours de préparation** — le trou 2 du contrat (§6).
 
@@ -519,6 +524,14 @@ class UrimStudyService:
         record = await self._charger(study_id)
         await self._ensure_owner_or_preacher(actor_account_id, record)
 
+        # ⚠️ **Deja entendue.** Un client sans reseau met ses gestes en file ; au
+        # retour, il renvoie. Decider et ecarter posent un etat et supportent le
+        # rejeu, mais une parole ferait un second passage du repondeur — donc un
+        # appel de modele en plus, et peut-etre une autre phrase que celle que le
+        # pasteur a deja lue. On rend l'etat, qui est ce qu'il attendait.
+        if idempotency_key is not None and idempotency_key == record.last_turn_key:
+            return await self._rejouer(record, persist=False)
+
         dto = await self._rejouer(record, persist=False)
         usage = await self.reservations.usage(
             record.church_id, record.author_id, self.clock()
@@ -538,21 +551,39 @@ class UrimStudyService:
         # renverrait s'il avait touché l'option au lieu de l'écrire.
         etage = dto.trace[-1][0] if dto.trace else ""
         if tour.decision is not None:
-            return await self.decide(
+            resultat = await self.decide(
                 actor_account_id=actor_account_id,
                 study_id=study_id,
                 stage_code=etage,
                 option_code=tour.decision,
             )
-        if tour.refus is not None:
-            return await self.dismiss(
+        elif tour.refus is not None:
+            resultat = await self.dismiss(
                 actor_account_id=actor_account_id,
                 study_id=study_id,
                 stage_code=etage,
                 option_code=tour.refus,
             )
-        dto.reponse = tour.reponse
-        return dto
+        else:
+            dto.reponse = tour.reponse
+            resultat = dto
+
+        # ⚠️ **La cle se pose apres, jamais avant.** La reclamer d'abord serait
+        # plus simple et perdrait la parole : un geste qui echoue laisserait sa
+        # cle brulee, et le renvoi serait ignore. Ici, seule une parole
+        # reellement traitee ferme la porte derriere elle.
+        if idempotency_key is not None:
+            await self._marquer_parole(study_id, idempotency_key)
+
+        return resultat
+
+    async def _marquer_parole(self, study_id: UUID, cle: str) -> None:
+        """Relit puis ecrit : le geste a pu remplacer l'enregistrement en cours."""
+        record = await self.studies.get(study_id)
+        if record is None:
+            return
+        record.last_turn_key = cle
+        await self.studies.save(record)
 
     def _ecran(self, dto: StudyDTO) -> Ecran:
         """Ce que le pasteur voit, **dans l'ordre où il le voit**.

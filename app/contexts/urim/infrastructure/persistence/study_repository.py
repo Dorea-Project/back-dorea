@@ -85,6 +85,7 @@ class SqlStudyRepository:
             last_stage_code=record.last_stage_code,
             last_outcome=record.last_outcome,
             last_turn_at=record.last_turn_at,
+            last_turn_key=record.last_turn_key,
             opened_at=record.opened_at or datetime.now(),
         ))
         await self._s.flush()
@@ -119,6 +120,7 @@ class SqlStudyRepository:
             last_stage_code=row.last_stage_code,
             last_outcome=row.last_outcome,
             last_turn_at=row.last_turn_at,
+            last_turn_key=row.last_turn_key,
             opened_at=row.opened_at,
             closed_at=row.closed_at,
         )
@@ -141,6 +143,7 @@ class SqlStudyRepository:
         row.last_stage_code = record.last_stage_code
         row.last_outcome = record.last_outcome
         row.last_turn_at = record.last_turn_at
+        row.last_turn_key = record.last_turn_key
         row.closed_at = record.closed_at
         if record.bounds_overridden:
             ref = record.resolved_ref.split("|") if record.resolved_ref else []
@@ -427,6 +430,7 @@ class SqlStudyRepository:
                 last_stage_code=row.last_stage_code,
                 last_outcome=row.last_outcome,
                 last_turn_at=row.last_turn_at,
+                last_turn_key=row.last_turn_key,
                 opened_at=row.opened_at,
                 closed_at=row.closed_at,
             )

@@ -63,6 +63,9 @@ class PreparationRecord:
     last_outcome: str | None = None
     last_turn_at: datetime | None = None
 
+    #: La derniere cle d'idempotence vue sur une parole. Voir le modele SQL.
+    last_turn_key: str | None = None
+
     opened_at: datetime | None = None
     closed_at: datetime | None = None
 

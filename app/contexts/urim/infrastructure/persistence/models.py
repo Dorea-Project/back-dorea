@@ -134,6 +134,14 @@ class UrimPreparationModel(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    #: La derniere cle d'idempotence vue sur une **parole**.
+    #:
+    #: Decider et ecarter posent un etat : les rejouer donne le meme resultat.
+    #: Une parole, non — le serveur y repond, et la renvoyer couterait un second
+    #: passage du repondeur, donc un second appel de modele. Une cle identique
+    #: fait rendre l'etat courant sans rien rejouer.
+    last_turn_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

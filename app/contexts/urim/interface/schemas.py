@@ -74,6 +74,18 @@ class TurnBody(BaseModel):
 
     raw_input: str = Field(min_length=1, max_length=4000)
 
+    #: ⚠️ **Ce qui rend une parole rejouable sans dommage.**
+    #:
+    #: Un client sans reseau met ses gestes en file. Decider et ecarter posent un
+    #: etat : les renvoyer donne le meme resultat. Une parole, non — le serveur y
+    #: repond, et la renvoyer couterait un second passage du repondeur, donc un
+    #: appel de modele en plus et peut-etre une autre phrase.
+    #:
+    #: Avec cette cle, une parole deja traitee ne rejoue rien : le serveur rend
+    #: l'etat courant, qui est exactement ce que le client attendait. Absente,
+    #: le comportement est celui d'avant — aucun client existant ne casse.
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=64)
+
 
 class ElementBody(BaseModel):
     element_code: str = Field(min_length=1, max_length=64)
