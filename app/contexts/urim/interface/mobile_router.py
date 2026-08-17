@@ -23,11 +23,13 @@ from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
 from app.contexts.urim.deliverable.application.ports import DiapositiveSoumise
 from app.contexts.urim.interface.dependencies import (
+    CorpusIndexDep,
     ArchiveServiceDep,
     DeliverableServiceDep,
     StudyServiceDep,
 )
 from app.contexts.urim.interface.schemas import (
+    StudySummaryView,
     ArchiveEntryView,
     ArchiveFromStudyBody,
     ArchiveManualBody,
@@ -47,6 +49,36 @@ from app.contexts.urim.interface.schemas import (
 )
 
 router = APIRouter()
+
+
+@router.get(
+    "/studies",
+    response_model=list[StudySummaryView],
+    summary="Mon fil — ou en est chaque preparation, sans rejouer le moteur",
+)
+async def list_studies(
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    index: CorpusIndexDep,
+) -> list[StudySummaryView]:
+    """L'ecran d'accueil.
+
+    ⚠️ **Aucune phrase d'Urim n'est servie ici.** Le `say` et le `why` viennent
+    du rejeu ; les rendre pour vingt lignes ferait tourner vingt pipelines a
+    l'ouverture de l'application. Le fil dit ou l'on en est — le reste s'obtient
+    en ouvrant la preparation.
+    """
+    records = await service.list_mine(actor_account_id=actor.account_id)
+
+    etiquettes = {p.id: p.label for p in index.pericopes}
+
+    return [
+        StudySummaryView.from_record(
+            record,
+            pericope_label=etiquettes.get(record.pericope_id) if record.pericope_id else None,
+        )
+        for record in records
+    ]
 
 
 @router.post(

@@ -120,6 +120,20 @@ class UrimPreparationModel(Base):
     service_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     service_timezone: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
+
+    #: **Projection du dernier tour** — ecrite quand le moteur s'arrete, jamais
+    #: recalculee a la lecture. Elle ne fait pas autorite : la verite reste le
+    #: rejeu. Elle existe pour qu'un fil de vingt lignes ne fasse pas tourner
+    #: vingt fois le pipeline.
+    last_stage_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: Le vocabulaire du moteur, tel quel : `continue`, `await_decision`,
+    #: `refuse`, `degrade`. `await_decision` **est** « rend la main ».
+    last_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_turn_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

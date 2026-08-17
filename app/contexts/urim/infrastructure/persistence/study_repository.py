@@ -82,6 +82,9 @@ class SqlStudyRepository:
             service_date=record.service_date,
             service_timezone=record.service_timezone,
             status=record.status,
+            last_stage_code=record.last_stage_code,
+            last_outcome=record.last_outcome,
+            last_turn_at=record.last_turn_at,
             opened_at=record.opened_at or datetime.now(),
         ))
         await self._s.flush()
@@ -113,6 +116,9 @@ class SqlStudyRepository:
             service_date=row.service_date,
             service_timezone=row.service_timezone,
             status=row.status,
+            last_stage_code=row.last_stage_code,
+            last_outcome=row.last_outcome,
+            last_turn_at=row.last_turn_at,
             opened_at=row.opened_at,
             closed_at=row.closed_at,
         )
@@ -132,6 +138,9 @@ class SqlStudyRepository:
         row.theme = record.theme
         row.service_date = record.service_date
         row.status = record.status
+        row.last_stage_code = record.last_stage_code
+        row.last_outcome = record.last_outcome
+        row.last_turn_at = record.last_turn_at
         row.closed_at = record.closed_at
         if record.bounds_overridden:
             ref = record.resolved_ref.split("|") if record.resolved_ref else []
@@ -371,6 +380,58 @@ class SqlStudyRepository:
         return PlanSuggestion(
             body=row.body, transition=row.transition or "", model=row.model
         )
+
+    async def list_for_author(
+        self, author_id: UUID, *, limit: int = 50
+    ) -> list[PreparationRecord]:
+        """Le fil : **ses** préparations, la plus fraîchement touchée en tête.
+
+        Clée sur l'auteur et non sur l'église : une préparation ouverte dans
+        l'antichambre — sans église — appartient au même fil que celle ouverte
+        sous une assemblée. C'est un seul homme qui prépare.
+
+        Les abandonnées ne remontent pas. Les closes, si : « j'ai prêché
+        celle-ci » est justement ce qu'on vient revoir.
+        """
+        rows = await self._s.execute(
+            select(UrimPreparationModel)
+            .where(UrimPreparationModel.author_id == author_id)
+            .where(UrimPreparationModel.status != "abandonnee")
+            .order_by(
+                # La dernière activité d'abord, et l'ouverture comme repli :
+                # une préparation ouverte dont le moteur n'a pas encore rendu
+                # de tour n'a pas de `last_turn_at`, et tomberait en fin de
+                # liste alors qu'elle vient d'être créée.
+                func.coalesce(
+                    UrimPreparationModel.last_turn_at,
+                    UrimPreparationModel.opened_at,
+                ).desc()
+            )
+            .limit(limit)
+        )
+
+        return [
+            PreparationRecord(
+                id=row.id,
+                church_id=row.church_id,
+                author_id=row.author_id,
+                raw_input=row.raw_input,
+                entry_mode=row.entry_mode,
+                entry_origin=row.entry_origin,
+                pericope_id=row.pericope_id,
+                axis_code=row.axis_code,
+                theme=row.theme,
+                service_date=row.service_date,
+                service_timezone=row.service_timezone,
+                status=row.status,
+                last_stage_code=row.last_stage_code,
+                last_outcome=row.last_outcome,
+                last_turn_at=row.last_turn_at,
+                opened_at=row.opened_at,
+                closed_at=row.closed_at,
+            )
+            for row in rows.scalars()
+        ]
 
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]:
         # **Son** archive, clée sur l'auteur. Aucune lecture d'un autre contexte : cette

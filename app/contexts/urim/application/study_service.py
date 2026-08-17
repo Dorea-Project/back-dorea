@@ -437,6 +437,22 @@ class UrimStudyService:
 
     # -- lecture ---------------------------------------------------------------
 
+    async def list_mine(
+        self, *, actor_account_id: UUID, limit: int = 50
+    ) -> list[PreparationRecord]:
+        """Le fil d'accueil — **sans rejouer le moteur**.
+
+        Rejouer est le mode normal de lecture d'une préparation ; le faire pour
+        vingt lignes à l'ouverture de l'application coûterait vingt pipelines.
+        La liste se contente donc de ce que l'enregistrement sait de lui-même,
+        y compris la projection du dernier tour.
+
+        Ce que le fil ne peut pas dire, et c'est assumé : la **phrase** du
+        dernier tour. Elle vient du rejeu, et l'écran l'obtiendra en ouvrant la
+        préparation. Le fil dit où l'on en est, pas ce qu'Urim a dit.
+        """
+        return await self.studies.list_for_author(actor_account_id, limit=limit)
+
     async def get(self, *, actor_account_id: UUID, study_id: UUID) -> StudyDTO:
         record = await self._charger(study_id)
         await self._ensure_owner_or_preacher(actor_account_id, record)
@@ -1581,6 +1597,16 @@ class UrimStudyService:
             record.plan_source = final.plan_source
             record.subject_matter = final.subject_matter
             record.theme = final.theme
+
+            # Ou le moteur s'est arrete, et pourquoi il a rendu la main. Ecrit
+            # ici parce que c'est le seul endroit qui le sait sans rejouer —
+            # le fil d'accueil, lui, ne peut pas se le permettre.
+            if dernier is not None:
+                record.last_outcome = str(dernier.outcome)
+                record.last_turn_at = maintenant
+            if final.trace:
+                record.last_stage_code = final.trace[-1].stage_code
+
             await self.studies.save(record)
 
             # ⚠️ **Seulement quand la résolution change.** Un rejeu n'est pas une

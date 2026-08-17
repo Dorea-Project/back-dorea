@@ -56,6 +56,13 @@ class PreparationRecord:
     service_date: date | None = None
     service_timezone: str = "Africa/Abidjan"
     status: str = "ouverte"
+
+    #: Ou en etait le moteur au dernier tour. Voir le modele SQL : c'est une
+    #: projection, pas une source.
+    last_stage_code: str | None = None
+    last_outcome: str | None = None
+    last_turn_at: datetime | None = None
+
     opened_at: datetime | None = None
     closed_at: datetime | None = None
 

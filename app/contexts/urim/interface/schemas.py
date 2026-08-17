@@ -472,6 +472,55 @@ class DeliverableView(BaseModel):
         )
 
 
+class StudySummaryView(BaseModel):
+    """Une ligne du fil d'accueil.
+
+    ⚠️ **Aucune phrase d'Urim ici.** Le `say` et le `why` d'un tour viennent du
+    rejeu ; les servir dans une liste obligerait à faire tourner le moteur
+    autant de fois qu'il y a de lignes. Le fil dit **où l'on en est**, l'écran
+    de la préparation dit **ce qu'Urim a dit**.
+    """
+
+    id: UUID
+
+    #: Ce que le pasteur a écrit en ouvrant. C'est le titre tant que rien n'est
+    #: résolu — « l'amour fraternel n'existe plus dans l'église ».
+    raw_input: str
+
+    #: L'unité une fois bornée, quand elle l'est.
+    pericope_label: str | None = None
+    theme: str | None = None
+    axis_code: str | None = None
+    service_date: date | None = None
+
+    #: `ouverte`, `close`.
+    status: str
+
+    #: Le vocabulaire du moteur : `await_decision` **est** « rend la main ».
+    #: NULL tant qu'aucun tour n'a été rendu.
+    last_outcome: str | None = None
+    last_stage_code: str | None = None
+    last_turn_at: datetime | None = None
+
+    opened_at: datetime | None = None
+
+    @classmethod
+    def from_record(cls, record, *, pericope_label: str | None = None) -> StudySummaryView:
+        return cls(
+            id=record.id,
+            raw_input=record.raw_input,
+            pericope_label=pericope_label,
+            theme=record.theme,
+            axis_code=record.axis_code,
+            service_date=record.service_date,
+            status=record.status,
+            last_outcome=record.last_outcome,
+            last_stage_code=record.last_stage_code,
+            last_turn_at=record.last_turn_at,
+            opened_at=record.opened_at,
+        )
+
+
 class ArchiveFromStudyBody(BaseModel):
     """« J'ai prêché cette préparation. »
 

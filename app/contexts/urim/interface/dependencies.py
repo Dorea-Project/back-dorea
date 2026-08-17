@@ -117,6 +117,9 @@ def get_study_service(
 
 StudyServiceDep = Annotated[UrimStudyService, Depends(get_study_service)]
 
+#: L'index du corpus, pour les routes qui nomment sans faire tourner le moteur.
+CorpusIndexDep = Annotated[CorpusIndex, Depends(get_corpus_index)]
+
 
 def get_archive_service(
     session: DbSession, index: Annotated[CorpusIndex, Depends(get_corpus_index)]
