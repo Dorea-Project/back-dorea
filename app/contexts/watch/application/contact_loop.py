@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.notifications.application.notifier import (
     NotificationScheduler,
     PushNotification,
@@ -119,8 +120,8 @@ class StartContact:
         await self._scheduler.schedule(
             [owner],
             PushNotification(
-                title="Un retour ?",
-                body=f"As-tu pu joindre {label} ?",
+                key=MessageKey.WATCH_CONTACT_RETURN,
+                params={"label": label},
                 data={
                     "type": "contact_return",
                     "attempt_id": str(attempt_id),

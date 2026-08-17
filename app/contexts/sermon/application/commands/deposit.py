@@ -13,7 +13,9 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID, uuid4
 
+from app._shared.domain.locale import DEFAULT_LOCALE
 from app.contexts.groups.application.group_access import GroupAccessPolicy
+from app.contexts.iam.application.ports import LocaleResolver
 from app.contexts.iam.domain.permissions import Permission
 from app.contexts.sermon.application.dtos import SermonDTO
 from app.contexts.sermon.application.mapping import to_sermon_dto
@@ -32,6 +34,7 @@ class DepositSermon:
         access: GroupAccessPolicy,
         digester: SermonDigester | None = None,
         extractor: SermonTextExtractor | None = None,
+        locales: LocaleResolver | None = None,
         *,
         clock,
     ) -> None:
@@ -39,6 +42,7 @@ class DepositSermon:
         self._access = access
         self._digester = digester
         self._extractor = extractor
+        self._locales = locales
         self._clock = clock
 
     async def execute(
@@ -115,8 +119,16 @@ class DepositSermon:
         )
         # Digestion IA en un appel (résumé/capsules/Q&R) — le pasteur la relira à l'approbation.
         if self._digester is not None:
+            # La langue de l'**église**, pas celle du pasteur : ce brouillon sera lu par toute
+            # l'assemblée. Un pasteur qui a mis son compte en anglais ne fait pas basculer en
+            # anglais le résumé d'un culte prêché en français.
+            locale = (
+                await self._locales.resolve_tenant(tenant_id)
+                if self._locales is not None
+                else DEFAULT_LOCALE
+            )
             digest = await self._digester.digest(
-                sermon.raw_text, title=sermon.title, reference=sermon.reference
+                sermon.raw_text, title=sermon.title, reference=sermon.reference, locale=locale
             )
             sermon.attach_digest(digest)
         await self._sermons.add(sermon)

@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import re
 
+from app._shared.domain.locale import DEFAULT_LOCALE, Locale
+from app._shared.messages import MessageKey, render
 from app.contexts.sermon.application.ports import SermonDigester
 from app.contexts.sermon.domain.digest import Capsule, CompanionQuestion, SermonDigest
 from app.core.config import Settings
@@ -21,16 +23,41 @@ from app.core.logging import get_logger
 
 _logger = get_logger("sermon.digester")
 
-_SYSTEM = (
-    "Tu es l'assistant d'un pasteur. On te donne le texte d'un sermon. Produis, FIDÈLEMENT au "
-    "sermon et en français, un brouillon que le pasteur relira et validera. N'invente aucune "
-    "doctrine, n'ajoute rien qui ne soit dans le texte. Réponds par un objet JSON avec exactement "
-    "les clés : summary (chaîne, 2-3 phrases), key_points (tableau de 3 à 5 chaînes : les points "
-    "essentiels, pour enseigner celui qui a manqué le culte), capsules (tableau de 2 à 4 objets "
-    "{title, body} : de courtes pastilles à publier au fil), questions (tableau de 2 à 4 objets "
-    "{prompt, guidance} : une question de réflexion et la réponse préparée qui aide à comprendre — "
-    "console, ne juge pas)."
-)
+#: Les trois étiquettes du message utilisateur. Elles n'atteignent jamais un humain — elles
+#: cadrent la lecture du modèle — mais un en-tête français devant un prompt anglais est
+#: exactement le genre de mélange qui fait dériver une sortie.
+_LABELS_BY_LOCALE: dict[Locale, dict[str, str]] = {
+    Locale.FR: {"title": "Titre", "passage": "Passage", "sermon": "Sermon"},
+    Locale.EN: {"title": "Title", "passage": "Passage", "sermon": "Sermon"},
+}
+
+#: ⚠️ **Deux consignes entières, pas une consigne à trou.** On aurait pu garder un seul prompt
+#: français et n'y remplacer que « en français » par la langue voulue. Un modèle à qui l'on parle
+#: français produit un anglais plus pauvre — et surtout, la consigne *est* ce qui protège le
+#: pasteur (« n'invente aucune doctrine ») : elle doit être lue dans la langue où le modèle
+#: travaille, pas traduite au vol par lui.
+_SYSTEM_BY_LOCALE: dict[Locale, str] = {
+    Locale.FR: (
+        "Tu es l'assistant d'un pasteur. On te donne le texte d'un sermon. Produis, FIDÈLEMENT au "
+        "sermon et en français, un brouillon que le pasteur relira et validera. N'invente aucune "
+        "doctrine, n'ajoute rien qui ne soit dans le texte. Réponds par un objet JSON avec "
+        "exactement les clés : summary (chaîne, 2-3 phrases), key_points (tableau de 3 à 5 "
+        "chaînes : les points essentiels, pour enseigner celui qui a manqué le culte), capsules "
+        "(tableau de 2 à 4 objets {title, body} : de courtes pastilles à publier au fil), "
+        "questions (tableau de 2 à 4 objets {prompt, guidance} : une question de réflexion et la "
+        "réponse préparée qui aide à comprendre — console, ne juge pas)."
+    ),
+    Locale.EN: (
+        "You are a pastor's assistant. You are given the text of a sermon. Produce, FAITHFULLY to "
+        "the sermon and in English, a draft the pastor will review and approve. Invent no "
+        "doctrine, add nothing that is not in the text. Answer with a JSON object with exactly "
+        "these keys: summary (string, 2-3 sentences), key_points (array of 3 to 5 strings: the "
+        "essential points, to teach someone who missed the service), capsules (array of 2 to 4 "
+        "objects {title, body}: short pieces to publish in the feed), questions (array of 2 to 4 "
+        "objects {prompt, guidance}: a reflection question and the prepared answer that helps "
+        "understanding — it consoles, it does not judge)."
+    ),
+}
 
 
 def _sentences(text: str) -> list[str]:
@@ -49,15 +76,21 @@ class MistralSermonDigester(SermonDigester):
         self._client = Mistral(api_key=api_key)
         self._model = model
 
-    async def digest(self, text: str, *, title: str, reference: str | None) -> SermonDigest:
-        header = f"Titre : {title}\n"
+    async def digest(
+        self, text: str, *, title: str, reference: str | None, locale: Locale = DEFAULT_LOCALE
+    ) -> SermonDigest:
+        labels = _LABELS_BY_LOCALE.get(locale, _LABELS_BY_LOCALE[DEFAULT_LOCALE])
+        header = f"{labels['title']} : {title}\n"
         if reference:
-            header += f"Passage : {reference}\n"
+            header += f"{labels['passage']} : {reference}\n"
         response = await self._client.chat.complete_async(
             model=self._model,
             messages=[
-                {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": header + "\nSermon :\n" + text},
+                {
+                    "role": "system",
+                    "content": _SYSTEM_BY_LOCALE.get(locale, _SYSTEM_BY_LOCALE[DEFAULT_LOCALE]),
+                },
+                {"role": "user", "content": header + f"\n{labels['sermon']} :\n" + text},
             ],
             response_format={"type": "json_object"},
         )
@@ -70,14 +103,18 @@ class MistralSermonDigester(SermonDigester):
         if not digest.summary and not digest.capsules:
             # Sortie inexploitable : on retombe sur le digesteur **déterministe** plutôt que
             # de rendre un digest vide. Le modèle est un accélérateur, jamais une dépendance.
-            return await KeywordSermonDigester().digest(text, title=title, reference=reference)
+            return await KeywordSermonDigester().digest(
+                text, title=title, reference=reference, locale=locale
+            )
         return digest
 
 
 class KeywordSermonDigester(SermonDigester):
     """Repli sans IA : un digest **déterministe** tiré du texte lui-même."""
 
-    async def digest(self, text: str, *, title: str, reference: str | None) -> SermonDigest:
+    async def digest(
+        self, text: str, *, title: str, reference: str | None, locale: Locale = DEFAULT_LOCALE
+    ) -> SermonDigest:
         sentences = _sentences(text) or [text.strip()]
         summary = " ".join(sentences[:2])[:400]
         key_points = tuple(sentences[:4])
@@ -89,12 +126,11 @@ class KeywordSermonDigester(SermonDigester):
             for i, c in enumerate(chunks)
             if c.strip()
         )
-        questions = (
-            CompanionQuestion(
-                prompt="Qu'est-ce qui t'a le plus parlé dans ce message ?",
-                guidance=summary,
-            ),
-        )
+        # Le résumé et les pastilles sont **découpés dans le sermon** : ils parlent déjà la
+        # langue du pasteur, quelle qu'elle soit, et rien n'est à traduire. Seule la question
+        # est de Dorea — d'où le catalogue, et d'où `locale` sur un digesteur pourtant sans IA.
+        asked = render(MessageKey.SERMON_FALLBACK_QUESTION, locale, {"summary": summary})
+        questions = (CompanionQuestion(prompt=asked.title, guidance=asked.body),)
         return SermonDigest(
             summary=summary, key_points=key_points, capsules=capsules, questions=questions
         )

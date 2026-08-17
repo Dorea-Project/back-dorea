@@ -33,6 +33,7 @@ from app.contexts.iam.application.commands.transfer_member import (
     RequestTransfer,
 )
 from app.contexts.iam.application.commands.transition_status import TransitionStatus
+from app.contexts.iam.application.language import SetMyLanguage
 from app.contexts.iam.application.queries.check_permission import CheckPermission
 from app.contexts.iam.application.queries.get_membership_status import GetMembershipStatus
 from app.contexts.iam.application.queries.get_my_memberships import GetMyMemberships
@@ -50,6 +51,10 @@ from app.contexts.iam.infrastructure.persistence.church_invitation_repository im
 )
 from app.contexts.iam.infrastructure.persistence.enrollment import SqlMemberEnrollmentStore
 from app.contexts.iam.infrastructure.persistence.lifecycle import SqlMembershipLifecycleStore
+from app.contexts.iam.infrastructure.persistence.locale_resolver import (
+    SqlLanguageStore,
+    SqlLocaleResolver,
+)
 from app.contexts.iam.infrastructure.persistence.profile_reader import SqlProfileReader
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyAccountRepository,
@@ -289,8 +294,14 @@ def get_my_profile_query(repo: MembershipRepositoryDep, session: DbSession) -> G
     """Réutilise `GetMyMemberships` au lieu de relire les appartenances : une seconde
     définition de « mes églises » aurait divergé de la première."""
     return GetMyProfile(
-        SqlProfileReader(session), GetMyMemberships(repo, SqlOwnershipRepository(session))
+        SqlProfileReader(session),
+        GetMyMemberships(repo, SqlOwnershipRepository(session)),
+        SqlLocaleResolver(session),
     )
+
+
+def get_set_my_language_command(session: DbSession) -> SetMyLanguage:
+    return SetMyLanguage(SqlLanguageStore(session), SqlLocaleResolver(session))
 
 
 def get_is_confirmed_member_query(repo: MembershipRepositoryDep) -> IsConfirmedMember:
@@ -313,6 +324,7 @@ def get_birthdays_today_query(session: DbSession) -> BirthdaysToday:
 
 
 SetMyBirthdayDep = Annotated[SetMyBirthday, Depends(get_set_my_birthday_command)]
+SetMyLanguageDep = Annotated[SetMyLanguage, Depends(get_set_my_language_command)]
 BirthdaysTodayDep = Annotated[BirthdaysToday, Depends(get_birthdays_today_query)]
 
 GetMembershipStatusDep = Annotated[GetMembershipStatus, Depends(get_membership_status_query)]

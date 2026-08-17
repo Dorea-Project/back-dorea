@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.events.domain.aggregates import EventParticipant, EventReactionEntry
 from app.contexts.events.domain.enums import EventReaction
 from app.contexts.events.domain.errors import (
@@ -117,12 +118,15 @@ class ConfirmParticipation:
             # On confirme parfois le matin même. Un rappel daté d'hier partirait immédiatement et
             # ferait doublon avec le geste qu'on vient de poser.
             return
-        where = f" — {event.place_label}" if event.place_label else ""
+        # Deux clés plutôt qu'un bout de f-string : le tiret qui sépare le titre du lieu est de
+        # Dorea, pas de l'auteur. Laissé au point d'appel, il serait introuvable en anglais.
+        place = event.place_label
         await self._scheduler.schedule(
             [account_id],
             PushNotification(
-                title="C'est demain",
-                body=f"« {event.title} »{where}.",
+                key=MessageKey.EVENT_TOMORROW_AT if place else MessageKey.EVENT_TOMORROW,
+                params={"title": event.title, "place": place} if place
+                else {"title": event.title},
                 data={"type": "event", "id": str(event.id)},
             ),
             at=at,
@@ -149,8 +153,8 @@ class ConfirmParticipation:
             await self._notifier.notify(
                 [event.author_account_id],
                 PushNotification(
-                    title="Nouvelle présence confirmée",
-                    body=f"Quelqu'un sera présent à « {event.title} ».",
+                    key=MessageKey.EVENT_PARTICIPANT_CONFIRMED,
+                    params={"title": event.title},
                     data={"type": "event", "id": str(event.id)},
                 ),
             )

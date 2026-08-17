@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from app._shared.messages import MessageKey
 from app.contexts.announcements.application.commands.archive_announcement import (
     ArchiveAnnouncement,
 )
@@ -435,7 +436,7 @@ async def test_church_wide_announcement_broadcasts_to_the_church():
     await pub.execute(
         actor_account_id=secretary, tenant_id=tenant, category=Cat.INFO, title="Culte à 9h"
     )
-    broadcast = [c for c in notifier.calls if c[1].title == "Nouvelle annonce"]
+    broadcast = [c for c in notifier.calls if c[1].key is MessageKey.ANNOUNCEMENT_BROADCAST]
     assert broadcast and sorted(broadcast[0][0]) == sorted([m1, m2])  # pas la secrétaire
 
 
@@ -454,7 +455,7 @@ async def test_group_scoped_announcement_enqueues_the_subtree_broadcast():
         title="Salle changée", scope_group_id=cell.id,
     )
     # portée groupe → enqueue (outbox), pas d'envoi synchrone du broadcast
-    assert not [c for c in notifier.calls if c[1].title == "Nouvelle annonce"]
+    assert not [c for c in notifier.calls if c[1].key is MessageKey.ANNOUNCEMENT_BROADCAST]
     assert scheduler.calls
     targets, notif, at = scheduler.calls[0]
     assert sorted(targets) == sorted([m1, m2]) and at == _NOW  # pas le responsable (auteur)
@@ -475,7 +476,7 @@ async def test_an_announcement_that_concerns_someone_notifies_them():
     )
     concerned = [
         c for c in notifier.calls
-        if c[0] == [widow] and c[1].body == "Une annonce vous concerne."
+        if c[0] == [widow] and c[1].key is MessageKey.ANNOUNCEMENT_TARGETED
     ]
     assert concerned  # la personne concernée est prévenue personnellement
 

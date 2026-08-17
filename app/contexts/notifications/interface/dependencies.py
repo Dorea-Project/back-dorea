@@ -12,6 +12,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DbSession
+from app.contexts.iam.infrastructure.persistence.locale_resolver import SqlLocaleResolver
 from app.contexts.notifications.application.commands.register_device import (
     RegisterDevice,
     UnregisterDevice,
@@ -43,8 +44,11 @@ def _sender() -> PushSender:
 
 
 def build_notifier(session: AsyncSession) -> Notifier:
-    """L'adaptateur `Notifier` (push) — appelé par les autres contextes via ce point unique."""
-    return PushNotifier(SqlDeviceRepository(session), _sender())
+    """L'adaptateur `Notifier` (push) — appelé par les autres contextes via ce point unique.
+
+    Il reçoit le résolveur de langue : c'est au dispatch, et là seulement, qu'on sait **qui**
+    lit — donc dans quelle langue rendre le catalogue."""
+    return PushNotifier(SqlDeviceRepository(session), _sender(), SqlLocaleResolver(session))
 
 
 def build_scheduler(session: AsyncSession) -> NotificationScheduler:

@@ -13,11 +13,12 @@ L'IA **retrouve**, elle n'**invente** pas.
 
 from __future__ import annotations
 
+from app._shared.domain.locale import DEFAULT_LOCALE, Locale
 from app.contexts.media.application.media_store import MediaStore
 from app.contexts.mission.application.dtos import VerseCardDTO
 from app.contexts.mission.application.ports import (
     CardRenderer,
-    ScriptureSource,
+    ScriptureLibrary,
     VerseResolver,
 )
 from app.contexts.mission.domain.errors import (
@@ -30,23 +31,28 @@ class GenerateVerseCard:
     def __init__(
         self,
         resolver: VerseResolver,
-        scripture: ScriptureSource,
+        library: ScriptureLibrary,
         renderer: CardRenderer,
         media: MediaStore,
     ) -> None:
         self._resolver = resolver
-        self._scripture = scripture
+        self._library = library
         self._renderer = renderer
         self._media = media
 
-    async def execute(self, *, query: str) -> VerseCardDTO:
-        ref = await self._resolver.resolve(query)
+    async def execute(self, *, query: str, locale: Locale = DEFAULT_LOCALE) -> VerseCardDTO:
+        # 🔴 **Une seule décision de langue, pour les deux moitiés du geste.** L'IA rend un nom
+        # de livre qui sera la clé de recherche du texte : la faire travailler en anglais devant
+        # une Bible française, c'est reconnaître « John 3:16 » puis ne rien trouver. On demande
+        # donc à la bibliothèque ce qu'elle sert *vraiment*, et le résolveur suit.
+        served = self._library.serving(locale)
+        ref = await self._resolver.resolve(query, locale=served)
         if ref is None:
             raise VerseNotFoundError(
                 "Impossible de reconnaître un verset dans cette citation.",
                 details={"query": query},
             )
-        text = await self._scripture.text_of(ref)
+        text = await self._library.source(served).text_of(ref)
         if text is None:
             raise VerseTextUnavailableError(
                 "Verset reconnu mais absent de la Bible disponible.",

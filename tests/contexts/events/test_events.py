@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from app._shared.messages import MessageKey
 from app.contexts.events.application.commands.engage_event import (
     REMINDER_LEAD_HOURS,
     ConfirmParticipation,
@@ -1171,7 +1172,10 @@ async def test_the_one_who_committed_is_reminded():
 
     (cibles, notification, quand), = scheduler.calls
     assert cibles == [awa]
-    assert notification.title == "C'est demain"
+    # Sans lieu : la clé sans lieu. Le tiret qui sépare titre et lieu appartient au catalogue,
+    # pas au point d'appel — sinon il serait introuvable le jour où l'on traduit.
+    assert notification.key is MessageKey.EVENT_TOMORROW
+    assert notification.params == {"title": events._e[0].title}
     assert quand == events._e[0].starts_at - timedelta(hours=REMINDER_LEAD_HOURS)
 
 

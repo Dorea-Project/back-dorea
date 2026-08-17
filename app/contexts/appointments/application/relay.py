@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.appointments.application.assigned_pastor import ResolveAssignedPastor
 from app.contexts.appointments.domain.repositories import AppointmentRepository
 from app.contexts.notifications.application.notifier import Notifier, PushNotification
@@ -176,8 +177,7 @@ class RelayUnansweredRequests:
         await self._notifier.notify(
             [appointment.requester_account_id],
             PushNotification(
-                title="Rendez-vous",
-                body="C'est un autre pasteur qui te recevra.",
+                key=MessageKey.APPOINTMENT_RELAY,
                 data={"type": "appointment_relay", "id": str(appointment.id)},
             ),
         )

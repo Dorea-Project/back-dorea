@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.events.application.dtos import EventDTO
 from app.contexts.events.application.mapping import to_event_dto
 from app.contexts.events.application.ports import BusinessTierPort, EventAudiencePort
@@ -83,8 +84,8 @@ class PublishEvent:
         if self._audience is None:
             return
         notification = PushNotification(
-            title="Nouvel événement",
-            body=f"« {event.title} »",
+            key=MessageKey.EVENT_PUBLISHED,
+            params={"title": event.title},
             data={"type": "event", "id": str(event.id)},
         )
         if event.scope is EventScope.PLATFORM:
@@ -259,8 +260,8 @@ class CancelEvent:
             await self._notifier.notify(
                 [p.account_id for p in confirmed],
                 PushNotification(
-                    title="Événement annulé",
-                    body=f"« {event.title} » a été annulé.",
+                    key=MessageKey.EVENT_CANCELLED,
+                    params={"title": event.title},
                     data={"type": "event", "id": str(event.id)},
                 ),
             )

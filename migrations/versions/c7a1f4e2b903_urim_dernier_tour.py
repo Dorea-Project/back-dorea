@@ -12,6 +12,8 @@ rien — la verite reste le rejeu — mais elles suffisent a ranger une liste.
 `refuse`, `degrade`) plutot qu'un etat invente cote client : `await_decision`
 **est** « rend la main ».
 
+Trois colonnes, et **aucun index** : voir le commentaire dans `upgrade`.
+
 Revision ID: c7a1f4e2b903
 Revises: 0be963a24a19
 Create Date: 2026-08-17 09:00:00.000000
@@ -43,16 +45,18 @@ def upgrade() -> None:
         "urim_preparation",
         sa.Column("last_turn_at", sa.DateTime(timezone=True), nullable=True),
     )
-    # L'index du fil : mes preparations ouvertes, la plus fraiche en premier.
-    op.create_index(
-        "ix_urim_preparation_fil",
-        "urim_preparation",
-        ["author_id", "status", "last_turn_at"],
-    )
+    # Aucun index nouveau, et c'est un revirement : j'en avais cree un sur
+    # `(author_id, status, last_turn_at)`. Il ne servait a rien.
+    #
+    # `ix_urim_prep_auteur` couvre deja `author_id`, et c'est tout ce que la
+    # requete du fil peut tirer d'un index : `status <> 'abandonnee'` n'ouvre
+    # aucune plage, et le tri porte sur `COALESCE(last_turn_at, opened_at)` —
+    # une expression qu'aucun index ordinaire ne sert. Le tri se fait donc en
+    # memoire sur les quelques dizaines de lignes d'un seul auteur, ce qui est
+    # gratuit. Le second index n'aurait coute que des ecritures.
 
 
 def downgrade() -> None:
-    op.drop_index("ix_urim_preparation_fil", table_name="urim_preparation")
     op.drop_column("urim_preparation", "last_turn_at")
     op.drop_column("urim_preparation", "last_outcome")
     op.drop_column("urim_preparation", "last_stage_code")

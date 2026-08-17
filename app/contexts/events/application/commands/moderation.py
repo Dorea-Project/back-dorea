@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from app._shared.messages import MessageKey
 from app.contexts.events.application.dtos import EventDTO
 from app.contexts.events.application.mapping import to_event_dto
 from app.contexts.events.domain.aggregates import EventReport
@@ -84,8 +85,7 @@ class TakeDownEvent:
             await self._notifier.notify(
                 [event.author_account_id],
                 PushNotification(
-                    title="Événement retiré",
-                    body="Votre événement a été retiré par la modération.",
+                    key=MessageKey.EVENT_REMOVED,
                     data={"type": "event", "id": str(event.id)},
                 ),
             )

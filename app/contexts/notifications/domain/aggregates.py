@@ -10,6 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app._shared.domain.entity import AggregateRoot
+from app._shared.messages import MessageKey
 from app.contexts.notifications.domain.enums import DevicePlatform, ScheduledStatus
 from app.contexts.notifications.domain.errors import DeviceTokenRequiredError
 
@@ -66,31 +67,43 @@ class ScheduledNotification(AggregateRoot):
     """Une notification **planifiée** (outbox) : cible déjà résolue + quand l'envoyer.
 
     Enqueue par un contexte (rappel de RDV, broadcast différé), dispatch plus tard par le
-    dispatcher — hors du chemin de la requête."""
+    dispatcher — hors du chemin de la requête.
+
+    ⚠️ **Ce qui est mis en file est la clé, jamais la phrase.** Un rappel de rendez-vous se pose
+    des semaines à l'avance — et surtout *avant* qu'on sache dans quelle langue il sera lu. Une
+    phrase écrite ici se figerait dans la langue du jour où elle a été planifiée, et un membre
+    anglophone recevrait en français un rappel posé pendant qu'il était encore rattaché à une
+    église francophone. `title`/`body` ne subsistent que pour les lignes d'avant le bilingue.
+    """
 
     def __init__(
         self,
         *,
         id: UUID,
         account_ids: list[UUID],
-        title: str,
-        body: str,
+        key: MessageKey | None,
+        params: dict,
         data: dict | None,
         scheduled_for: datetime,
         status: ScheduledStatus,
         created_at: datetime,
         sent_at: datetime | None,
+        legacy_title: str | None = None,
+        legacy_body: str | None = None,
     ) -> None:
         super().__init__()
         self.id = id
         self.account_ids = account_ids
-        self.title = title
-        self.body = body
+        self.key = key
+        self.params = params
         self.data = data
         self.scheduled_for = scheduled_for
         self.status = status
         self.created_at = created_at
         self.sent_at = sent_at
+        # Transitoire : le texte déjà rendu des lignes posées avant le catalogue.
+        self.legacy_title = legacy_title
+        self.legacy_body = legacy_body
 
     @classmethod
     def schedule(
@@ -98,17 +111,19 @@ class ScheduledNotification(AggregateRoot):
         *,
         id: UUID,
         account_ids: list[UUID],
-        title: str,
-        body: str,
+        key: MessageKey,
+        params: dict,
         data: dict | None,
         at: datetime,
         now: datetime,
     ) -> ScheduledNotification:
+        """Rien de neuf n'entre en file sans clé — d'où `key` obligatoire ici, là où le
+        constructeur l'accepte encore nulle (relecture d'une ligne ancienne)."""
         return cls(
             id=id,
             account_ids=account_ids,
-            title=title,
-            body=body,
+            key=key,
+            params=params,
             data=data,
             scheduled_for=at,
             status=ScheduledStatus.PENDING,

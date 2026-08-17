@@ -32,8 +32,16 @@ class ScheduledNotificationModel(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     account_ids: Mapped[list[str]] = mapped_column(JSON)  # comptes cibles (UUID en str)
-    title: Mapped[str] = mapped_column(String)
-    body: Mapped[str] = mapped_column(Text)
+    # La **clé** du catalogue et le contenu humain à y glisser — jamais la phrase. Une phrase
+    # écrite ici se figerait dans la langue du jour où le rappel a été posé, des semaines avant
+    # d'être lu (voir `ScheduledNotification`).
+    message_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # ⚠️ Transitoires : le texte déjà rendu des lignes planifiées **avant** le bilingue. Elles
+    # partent telles quelles, puis la file se draine (24 h au plus) et ces deux colonnes s'en
+    # vont. Nullables depuis la même migration : rien de neuf ne les remplit.
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
     data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String)

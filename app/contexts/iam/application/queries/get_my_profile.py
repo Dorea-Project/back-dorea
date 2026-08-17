@@ -25,8 +25,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app._shared.domain.locale import Locale, parse_locale
 from app.contexts.iam.application.dtos import MembershipStatusDTO
-from app.contexts.iam.application.ports import ProfileReader
+from app.contexts.iam.application.ports import LocaleResolver, ProfileReader
 from app.contexts.iam.application.queries.get_my_memberships import GetMyMemberships
 
 
@@ -45,13 +46,26 @@ class MyProfileDTO:
     birth_day: int | None
     birth_month: int | None
     birthday_scope: str
+    #: Le **réglage** — `None` quand la personne suit son église.
+    language: Locale | None = None
+    #: Ce que Dorea **utilise vraiment**, chaîne parcourue. Les deux voyagent ensemble parce
+    #: qu'ils ne disent pas la même chose : sans le premier, l'écran de réglage ne sait pas
+    #: quelle case cocher ; sans le second, personne ne peut dire *pourquoi* c'est cette
+    #: langue-là — et « je n'ai rien choisi » se confondrait avec « on m'a mis en français ».
+    resolved_language: Locale = Locale.FR
     memberships: tuple[MembershipStatusDTO, ...] = ()
 
 
 class GetMyProfile:
-    def __init__(self, profiles: ProfileReader, memberships: GetMyMemberships) -> None:
+    def __init__(
+        self,
+        profiles: ProfileReader,
+        memberships: GetMyMemberships,
+        locales: LocaleResolver | None = None,
+    ) -> None:
         self._profiles = profiles
         self._memberships = memberships
+        self._locales = locales
 
     async def execute(self, *, account_id: UUID) -> MyProfileDTO | None:
         profil = await self._profiles.read(account_id)
@@ -67,5 +81,11 @@ class GetMyProfile:
             birth_day=profil.birth_day,
             birth_month=profil.birth_month,
             birthday_scope=profil.birthday_scope,
+            language=parse_locale(profil.language),
+            resolved_language=(
+                await self._locales.resolve(account_id)
+                if self._locales is not None
+                else Locale.FR
+            ),
             memberships=tuple(appartenances),
         )

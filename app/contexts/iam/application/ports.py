@@ -8,10 +8,12 @@ genèse (un rôle exige `confirmed_member`, M0 §3.2).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from app._shared.domain.locale import Locale
 from app.contexts.iam.domain.aggregates import Account, Membership
 from app.contexts.iam.domain.enums import (
     AccountCreationSource,
@@ -44,6 +46,9 @@ class ProfileRow:
     birth_day: int | None = None
     birth_month: int | None = None
     birthday_scope: str = "groups"
+    #: Le réglage, pas la langue effective : `None` veut dire « celle de mon église ». La
+    #: résolution est le travail du `LocaleResolver`, jamais celui d'un lecteur de profil.
+    language: str | None = None
 
 
 class ProfileReader(ABC):
@@ -51,6 +56,52 @@ class ProfileReader(ABC):
 
     @abstractmethod
     async def read(self, account_id: UUID) -> ProfileRow | None: ...
+
+
+class LocaleResolver(ABC):
+    """Dans quelle langue **Dorea** parle à quelqu'un — chaîne *personne → église → `fr`*.
+
+    Le port vit dans l'IAM parce que la première réponse est un fait du compte
+    (`accounts.language`) ; le repli est un fait du tenant (`tenants.language`), et l'adaptateur
+    SQL fait la jointure. Les contextes qui parlent aux gens — le catalogue de push, l'OTP,
+    les prompts IA — dépendent de ce port et jamais des deux tables.
+
+    ⚠️ **Aucune méthode ne lève.** Un compte inconnu, une valeur illisible, une personne sans
+    église : la réponse est `DEFAULT_LOCALE`. C'est délibéré — le premier client est le fan-out
+    des notifications, qui est *best-effort et ne casse jamais l'action qui le déclenche*.
+    Une langue introuvable ne doit pas empêcher une push de partir ; elle doit la faire partir
+    en français.
+    """
+
+    @abstractmethod
+    async def resolve_many(self, account_ids: Sequence[UUID]) -> dict[UUID, Locale]:
+        """La langue de chaque compte demandé — **une seule requête**, et une entrée par
+        identifiant reçu (jamais de trou à combler par l'appelant).
+
+        C'est la méthode que le dispatch appelle : il regroupe N destinataires par langue avant
+        de rendre le texte. La faire abstraite (plutôt que `resolve`) empêche le N+1 d'exister.
+        """
+        ...
+
+    async def resolve(self, account_id: UUID) -> Locale:
+        """Confort pour le destinataire unique — s'appuie sur `resolve_many`."""
+        return (await self.resolve_many([account_id]))[account_id]
+
+    @abstractmethod
+    async def resolve_tenant(self, tenant_id: UUID) -> Locale:
+        """La langue de l'**église** — pas celle d'un lecteur en particulier.
+
+        ⚠️ Ce n'est pas un raccourci vers `resolve` : les deux répondent à des questions
+        différentes, et confondre les deux produirait un vrai défaut. Une push se rend *par
+        lecteur*. Un digest de sermon, lui, est **écrit une fois et lu par toute l'assemblée** —
+        il n'a qu'une langue possible, celle de l'église qui a entendu la prédication. Prendre
+        celle du pasteur ferait basculer en anglais le résumé d'un culte tenu en français, pour
+        tout le monde, parce qu'un seul homme a changé son réglage.
+
+        Une église dont la langue est illisible ou absente rend `DEFAULT_LOCALE` — jamais
+        d'exception : ici aussi, le contenu doit sortir.
+        """
+        ...
 
 
 class InvitationCodeGenerator(ABC):

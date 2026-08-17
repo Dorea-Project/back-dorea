@@ -49,6 +49,16 @@ class AccountModel(Base):
     birth_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     birthday_scope: Mapped[str] = mapped_column(String, server_default=text("'groups'"))
+    # --- La langue de la personne -----------------------------------------------------
+    #
+    # **Nullable, et le `NULL` veut dire quelque chose** : il ne signifie pas « français »,
+    # il signifie *« je suis la langue de mon église »* — y compris le jour où elle change.
+    # Une valeur posée ici est un choix explicite du membre et gagne sur `tenants.language` ;
+    # c'est ce qui permet à un anglophone d'exister dans une église francophone, cas courant
+    # à Abidjan. Personne ne l'écrit pour lui : ni l'enrôlement, ni l'import.
+    #
+    # Lue par un seul organe — `SqlLocaleResolver` (chaîne *personne → église → fr*).
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

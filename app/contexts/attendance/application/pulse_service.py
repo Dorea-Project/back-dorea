@@ -43,6 +43,10 @@ class TrajectoryPoint:
     scheduled_at: datetime
     outcome: Outcome  # present / excused / absent
     title: str | None
+    #: Le **type** voyage avec le titre, et c'est indispensable depuis que le culte
+    #: n'écrit plus « Culte » en base : un titre nul se nomme par son type, dans la
+    #: langue du lecteur, côté client. Sans lui la rencontre serait sans nom.
+    type: str = "service"
 
 
 @dataclass(frozen=True)
@@ -196,7 +200,7 @@ class GroupPulseComputer:
             (a for a in tenant_absences if a.account_id == account_id and a.covers(now)), None
         )
         points = [
-            TrajectoryPoint(g.id, g.scheduled_at, o, g.title)
+            TrajectoryPoint(g.id, g.scheduled_at, o, g.title, g.type.value)
             for g, o in zip(since_join, outcomes, strict=True)
         ]
         return MemberTrajectory(

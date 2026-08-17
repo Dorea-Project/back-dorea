@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app._shared.domain.locale import Locale
 from app.contexts.iam.application.dtos import (
     BulkEnrollResult,
     ChurchInvitationDTO,
@@ -20,6 +21,7 @@ from app.contexts.iam.application.dtos import (
     TransferListDTO,
     TransitionResult,
 )
+from app.contexts.iam.application.language import MyLanguage
 from app.contexts.iam.application.queries.get_my_profile import MyProfileDTO
 from app.contexts.iam.domain.birthday import DEFAULT_SCOPE, BirthdayScope
 from app.contexts.iam.domain.enums import (
@@ -302,6 +304,13 @@ class MyProfileResponse(BaseModel):
     birth_day: int | None
     birth_month: int | None
     birthday_scope: str = Field(description="groups | referent_only | hidden")
+    language: str | None = Field(
+        default=None,
+        description="Mon réglage : 'fr', 'en', ou null = je suis la langue de mon église",
+    )
+    resolved_language: str = Field(
+        default="fr", description="La langue que Dorea utilise réellement pour me parler"
+    )
     memberships: list[MembershipStatusResponse]
 
     @classmethod
@@ -315,6 +324,8 @@ class MyProfileResponse(BaseModel):
             birth_day=dto.birth_day,
             birth_month=dto.birth_month,
             birthday_scope=dto.birthday_scope,
+            language=dto.language.value if dto.language is not None else None,
+            resolved_language=dto.resolved_language.value,
             memberships=[MembershipStatusResponse.from_dto(m) for m in dto.memberships],
         )
 
@@ -355,3 +366,28 @@ class BirthdayOfTheDayResponse(BaseModel):
     first_name: str | None
     last_name: str | None
     is_today: bool = Field(description="False = demain, et seul le référent le voit")
+
+
+class SetMyLanguageRequest(BaseModel):
+    """`null` est une valeur, pas un champ oublié.
+
+    C'est la réponse *« je suis la langue de mon église »* — et il faut pouvoir y **revenir**
+    après avoir choisi l'anglais. Le champ est donc obligatoire dans le corps, avec `null`
+    permis : omettre la clé n'est pas la même chose que la poser à `null`, et un réglage qui ne
+    se défait pas n'est pas un réglage."""
+
+    language: Locale | None = Field(
+        description="'fr', 'en', ou null pour suivre la langue de mon église"
+    )
+
+
+class MyLanguageResponse(BaseModel):
+    language: str | None = Field(description="Mon réglage — null = je suis mon église")
+    resolved_language: str = Field(description="Ce que Dorea utilise réellement")
+
+    @classmethod
+    def from_result(cls, result: MyLanguage) -> MyLanguageResponse:
+        return cls(
+            language=result.chosen.value if result.chosen is not None else None,
+            resolved_language=result.resolved.value,
+        )

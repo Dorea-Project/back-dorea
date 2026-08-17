@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app._shared.messages import MessageKey
 from app.contexts.notifications.domain.aggregates import Device, ScheduledNotification
 from app.contexts.notifications.domain.enums import DevicePlatform, ScheduledStatus
 from app.contexts.notifications.domain.repositories import (
@@ -76,24 +77,31 @@ class SqlDeviceRepository(DeviceRepository):
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_device(r) for r in rows]
 
-    async def tokens_for_accounts(self, account_ids: list[UUID]) -> list[str]:
+    async def tokens_by_account(self, account_ids: list[UUID]) -> dict[UUID, list[str]]:
         if not account_ids:
-            return []
-        stmt = select(DeviceModel.token).where(DeviceModel.account_id.in_(account_ids))
-        return list((await self._session.execute(stmt)).scalars().all())
+            return {}
+        stmt = select(DeviceModel.account_id, DeviceModel.token).where(
+            DeviceModel.account_id.in_(account_ids)
+        )
+        grouped: dict[UUID, list[str]] = {}
+        for account_id, token in (await self._session.execute(stmt)).all():
+            grouped.setdefault(account_id, []).append(token)
+        return grouped
 
 
 def _to_job(row: ScheduledNotificationModel) -> ScheduledNotification:
     return ScheduledNotification(
         id=row.id,
         account_ids=[UUID(str(a)) for a in (row.account_ids or [])],
-        title=row.title,
-        body=row.body,
+        key=MessageKey(row.message_key) if row.message_key else None,
+        params=row.params or {},
         data=row.data,
         scheduled_for=row.scheduled_for,
         status=ScheduledStatus(row.status),
         created_at=row.created_at,
         sent_at=row.sent_at,
+        legacy_title=row.title,
+        legacy_body=row.body,
     )
 
 
@@ -106,8 +114,8 @@ class SqlScheduledNotificationRepository(ScheduledNotificationRepository):
             ScheduledNotificationModel(
                 id=job.id,
                 account_ids=[str(a) for a in job.account_ids],
-                title=job.title,
-                body=job.body,
+                message_key=job.key.value if job.key else None,
+                params=dict(job.params),
                 data=job.data,
                 scheduled_for=job.scheduled_for,
                 status=job.status.value,
