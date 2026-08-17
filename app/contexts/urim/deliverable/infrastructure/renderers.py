@@ -205,8 +205,21 @@ def rendre_note(note: Note) -> bytes:
         # part.
         _sous_texte(document, note.motif_unite)
 
+    # ⚠️ **La section existe meme vide, et c'est le contraire d'un oubli.**
+    #
+    # Une section absente se lit comme une negligence du document ; une section qui
+    # dit « a ecrire » se lit comme une place laissee. La note sans plan est un
+    # document de travail — tout ce que le moteur a etabli, et un cadre pour ce que
+    # le pasteur va ecrire dessus.
+    document.add_heading("Votre plan", level=1)
+    if not note.plan:
+        _sous_texte(
+            document,
+            "À écrire. Le document met en page ce que vous aurez écrit ; il ne "
+            "l'écrit pas à votre place.",
+        )
+
     if note.plan:
-        document.add_heading("Votre plan", level=1)
         for code, corps, appuis in note.plan:
             # ⚠️ **Chaque point est un TITRE, pas une puce.** En liste, les trois points d'un
             # sermon tiennent en cinq lignes et le document n'offre nulle part où les

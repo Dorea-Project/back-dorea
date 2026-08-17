@@ -37,6 +37,25 @@ class SqlDeliverableRepository:
         self._s = session
 
     async def add(self, record: LivrableRecord, controles: list[ControleRecord]) -> None:
+        """⚠️ **Le livrable est vidé AVANT ses contrôles, et l'ordre n'est pas cosmétique.**
+
+        🔴 Un seul `flush` à la fin échouait contre PostgreSQL :
+        `urim_citation_check_deliverable_id_fkey` — la ligne fille partait la
+        première, la clé étrangère refusait, et l'insertion du parent n'était
+        jamais émise puisque la transaction était déjà avortée.
+
+        La cause est que ces deux modèles ne sont liés que par une clé étrangère
+        **de table**, sans `relationship()` : l'unité de travail n'a alors aucune
+        dépendance à trier et ordonne par nom de table — et
+        `urim_citation_check` précède `urim_deliverable` dans l'alphabet.
+
+        Le défaut ne pouvait pas se voir : les tests tournent sur SQLite, qui
+        n'applique pas les clés étrangères sans `PRAGMA foreign_keys=ON`. Le
+        livrable n'avait donc jamais été écrit contre une vraie base.
+
+        Deux `flush` plutôt qu'une `relationship()` : celle-ci n'existerait que
+        pour ordonner, et ouvrirait un chargement paresseux dont ce dépôt ne
+        veut nulle part."""
         self._s.add(UrimDeliverableModel(
             id=record.id,
             preparation_id=record.preparation_id,
@@ -49,6 +68,9 @@ class SqlDeliverableRepository:
             corpus_snapshot=record.corpus_snapshot,
             content_fingerprint=record.content_fingerprint,
         ))
+        # Le parent existe en base avant qu'une ligne fille ne le désigne.
+        await self._s.flush()
+
         for controle in controles:
             self._s.add(UrimCitationCheckModel(
                 deliverable_id=record.id,

@@ -130,11 +130,27 @@ class UrimDeliverableService:
         await ensure_may_read(self.access, actor_account_id, record)
 
         plan = await self._plan(study_id)
-        if not point_central_renseigne(plan):
+
+        # ⚠️ **La garde appartient au deck, et à lui seul.**
+        #
+        # 🔴 Elle gardait les deux, et refusait donc quatorze sections du travail du
+        # moteur parce que la quinzième était vide. Un pasteur qui avait borné son
+        # unité, retenu son axe, lu dix pesées motivées et six refus argumentés
+        # s'entendait dire qu'il n'y avait « rien à imprimer ».
+        #
+        # Pour le deck, le refus reste juste : projeter des diapositives vides est
+        # absurde. Pour la note, il était faux — la note est d'abord ce que le moteur
+        # a établi, et le plan en est **une** section. Sans plan, elle devient un
+        # document de travail : le pasteur l'emporte dans son bureau et écrit dessus.
+        #
+        # Rien n'est écrit à sa place pour autant, et c'est ce qui autorise la
+        # bascule : les versets sont **servis par le corpus**, les motifs viennent du
+        # moteur, et la section de son plan dit « à écrire » au lieu de proposer.
+        if kind == DECK and not point_central_renseigne(plan):
             # Le refus **oriente** — un refus qui n'oriente pas est une porte fermée (S2).
             raise LivrableSansPlanError(
-                "Il n'y a pas encore de plan à imprimer. Le document met en page ce que vous "
-                "avez écrit ; le moteur ne l'écrit pas à votre place."
+                "Il n'y a pas encore de plan à projeter. Les diapositives mettent en page ce "
+                "que vous avez écrit ; le moteur ne l'écrit pas à votre place."
             )
 
         controles = [
