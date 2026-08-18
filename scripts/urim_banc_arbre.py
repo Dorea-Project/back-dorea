@@ -8,18 +8,30 @@ jamais le pipeline, les adaptateurs `Null*` sont des états de production, une p
 n'est jamais une panne d'Urim. **Un chemin conversationnel sans issue viole cette règle**, et
 il ne se voit pas en lisant le code — il se voit en marchant.
 
-## Ce que ce banc mesure, et rien d'autre
+## Ce que ce banc mesure
 
-Une seule propriété, posée à chaque tour :
+**Deux** propriétés, et il a longtemps n'en mesuré qu'une.
 
-> **Après ce tour, le pasteur a-t-il quelque chose à faire ?**
+> **1. Après ce tour, le pasteur a-t-il quelque chose à faire ?**
 
 Des options à toucher, une action ouverte, ou une barre de saisie **dont la passerelle est
 nommée**. Un tour qui n'offre rien des trois est un mur, et le banc le nomme.
 
+> **2. Après ce tour, a-t-il quelque chose de plus qu'avant ?**
+
+🔴 La première garantit qu'il n'est pas **coincé**. Elle ne dit rien de ce qu'il a **gagné** —
+et c'est le second échec qui coûte du temps à un homme qui n'en a pas. Un mur se voit et se
+contourne ; un vide ne se voit pas : le pasteur a lu, il a répondu, et il a reçu la même chose.
+
+Un tour est **vide** quand toute sa matière était déjà dans le précédent — mêmes options,
+mêmes pesées, mêmes couples, même thème. Une phrase seule ne compte pas comme un gain : un
+répondeur qui explique ce qu'est un thème au-dessus de blocs inchangés passe la première
+propriété et échoue à la seconde.
+
     murs sur les chemins reels           DOIT etre 0
     murs sur les chemins confessionnels  DOIT etre 0 — catholique, protestant, orthodoxe
     murs sur les chemins absurdes        DOIT etre 0 — micro ouvert, livre inconnu, saisie vide
+    tours vides sur les chemins reels    DOIT etre 0
     cellules de l'arbre visitees         informatif : ce que la marche a effectivement touche
 
 **Les trois premiers chiffres sont des échecs.** Le quatrième ne l'est pas : une cellule non
@@ -87,6 +99,18 @@ SUIVRE = "suivre"  # prendre la première option offerte, tour après tour, jusq
 ECARTER_TOUT = "ecarter_tout"  # repousser tout ce qui est proposé — le cas de la liste épuisée
 ABANDONNER = "abandonner"  # « ce n'est pas ça » — le micro resté ouvert, refermé en un tap
 MES_BORNES = "mes_bornes"  # garder sa demande telle quelle au bornage (S22), puis continuer
+PARLER = "parler"  # suivre jusqu'au bout, puis DIRE quelque chose — le seul chemin vers le vide
+
+#: ⚠️ **`PARLER` est le seul geste qui atteigne le tour ou vit le vide.**
+#:
+#: 🔴 La boucle du banc s'arrete des que le pipeline continue — donc elle n'allait
+#: jamais au-dela du theme, et le canal par lequel arrive tout l'imprevisible n'etait
+#: pas marche du tout. Le tour mesure en seance reelle — douze plans a toucher, dix
+#: pesees, dix-huit couples, **tous deja lus**, sous une phrase neuve qui explique ce
+#: qu'est un theme — passait donc sous le banc sans etre vu.
+#:
+#: La phrase dite ne designe rien de ce qui est a l'ecran : c'est la question la plus
+#: naturelle une fois le texte sous les yeux, et celle qui doit rapporter quelque chose.
 
 #: ⚠️ **`MES_BORNES` n'est pas un cas tordu : c'est un bouton de l'écran de bornage.**
 #:
@@ -123,6 +147,8 @@ _BANC: tuple[Cas, ...] = (
     Cas("1 Roi ou 2 Roi, il s'agit de Jezabel", REELLE, note="S24 — l'hesitation sur le livre"),
     Cas("Romains 8:1", REELLE, MES_BORNES,
         note="LE MUR N.2 — un verset garde tel quel, et plus rien de cure n'est lisible"),
+    Cas("Marc 10:46-52", REELLE, PARLER,
+        note="LE VIDE — suivre jusqu'au theme, puis poser sa vraie question"),
 
     # ------------------------------------------------- les trois confessions
     #
@@ -181,7 +207,10 @@ class Prise:
     blocs: tuple[tuple[str, int], ...]
     touchables: int
     actions: int
+    #: Ce que ce tour a servi — pour que le suivant puisse dire s'il apporte quelque chose.
+    matiere: frozenset[tuple[str, str]] = frozenset()
     mur: str | None = None
+    vide: str | None = None
 
 
 def _touchables(tour) -> int:
@@ -226,6 +255,60 @@ def mur(tour) -> str | None:
         return "ni option, ni action, ni saisie"
     if not tour.ask.strip():
         return "barre ouverte, mais aucune passerelle nommee"
+    return None
+
+
+def matiere(tour) -> frozenset[tuple[str, str]]:
+    """**Ce que ce tour met sous les yeux du pasteur**, réduit à des identités.
+
+    Les libellés ne comptent pas — ils viennent parfois d'un modèle et bougent d'un
+    appel à l'autre. Ce qui compte est ce qui est *désigné* : un code d'option, un
+    axe, un couple plan x matière, un thème.
+    """
+    servi: set[tuple[str, str]] = set()
+
+    for bloc in tour.blocks:
+        for item in getattr(bloc, "items", ()):
+            cle = (
+                getattr(item, "code", None)
+                or getattr(item, "axis_code", None)
+                or (
+                    f"{item.plan_source}x{item.subject_matter}"
+                    if hasattr(item, "plan_source") else None
+                )
+            )
+            if cle:
+                servi.add((bloc.kind, str(cle)))
+        for groupe in getattr(bloc, "groups", ()):
+            servi |= {(bloc.kind, item.code) for item in groupe.items}
+        if corps := getattr(bloc, "body", ""):
+            servi.add((bloc.kind, corps))
+        servi |= {(bloc.kind, "!" + reserve) for reserve in getattr(bloc, "caveats", ())}
+
+    return frozenset(servi)
+
+
+def vide(tour, precedent: frozenset[tuple[str, str]] | None) -> str | None:
+    """**La seconde question du banc** : ce tour apporte-t-il quelque chose ?
+
+    ⚠️ Un tour d'ouverture n'a pas de précédent : il apporte tout. Et un tour qui
+    ne sert **rien** n'est pas un vide mais un mur — l'autre mesure s'en charge,
+    et compter les deux ferait un chiffre qui ne dit plus lequel des deux réparer.
+
+    ⚠️ **La phrase ne compte pas.** C'est tout l'objet : le tour qui a motivé cette
+    mesure servait douze plans à toucher, dix pesées et dix-huit couples — tous
+    déjà lus — sous une phrase neuve qui expliquait ce qu'est un thème. Compter la
+    phrase l'aurait déclaré plein.
+    """
+    if precedent is None:
+        return None
+
+    servi = matiere(tour)
+    if not servi:
+        return None
+
+    if servi <= precedent:
+        return f"rien de plus qu'au tour precedent ({len(servi)} elements deja servis)"
     return None
 
 
@@ -341,6 +424,9 @@ _PAUSE_ENTRE_CAS = 2.0
 
 #: Le rang de la prise de relecture — elle n'est pas le tour n+1 d'un fil, c'est un autre geste.
 _RELECTURE = -1
+#: Le tour rendu apres une parole libre — compte comme un tour, parce qu'il repond
+#: bien a un geste du pasteur.
+_PAROLE = -2
 
 
 @dataclass
@@ -407,12 +493,29 @@ async def _marcher(service, cas: Cas, marche: Marche) -> None:
         if cas.geste == ABANDONNER:
             break
 
+    if cas.geste == PARLER:
+        # ⚠️ **Apres la derniere decision, le pasteur parle.** C'est le geste le plus
+        # naturel une fois le texte sous les yeux — « quel plan je peux tenir » — et
+        # c'est le seul chemin que la boucle des decisions n'atteint pas : elle
+        # s'arrete des que le pipeline continue.
+        dit = await service.dire(
+            actor_account_id=AUTEUR, study_id=dto.record.id,
+            raw_input="quel plan je peux tenir sur ce texte ?",
+        )
+        _garder(marche, cas, _PAROLE, StudyView.avec_tour(dit))
+        dto = dit
+
     relu = await service.get(actor_account_id=AUTEUR, study_id=dto.record.id)
     _garder(marche, cas, _RELECTURE, StudyView.avec_tour(relu))
 
 
 def _garder(marche: Marche, cas: Cas, rang: int, vue) -> None:
     tour = vue.turn
+    # Le tour precedent **du meme cas** : deux marches differentes ne se comparent
+    # pas, et la relecture finale rejoue le dernier etat plutot que d'avancer.
+    precedentes = [p for p in marche.prises if p.cas is cas]
+    avant = precedentes[-1].matiere if precedentes else None
+
     marche.prises.append(Prise(
         cas=cas, rang=rang, etage=tour.stage_code, outcome=vue.outcome,
         say=tour.say, why=tour.why, ask=tour.ask, expects=tour.expects,
@@ -425,7 +528,13 @@ def _garder(marche: Marche, cas: Cas, rang: int, vue) -> None:
             for b in tour.blocks
         ),
         touchables=_touchables(tour), actions=_actions_ouvertes(tour),
+        matiere=matiere(tour),
         mur=mur(tour),
+        # ⚠️ **La relecture n'est pas un tour vide.** 🔴 Elle l'a d'abord ete : 22
+        # vides sur 127, tous au rang -1. Or une relecture rejoue le meme etat par
+        # **definition** — c'est `GET /studies/{id}`, pas une reponse a un geste.
+        # Un tour est vide quand il repond a un geste sans rien apporter.
+        vide=None if rang == _RELECTURE else vide(tour, avant),
     ))
 
 
@@ -441,7 +550,10 @@ _ISSUES = ("continue", "await_decision", "refuse", "degrade")
 
 def _relire(prise: Prise) -> None:
     """Une prise, en entier. C'est ce qui permet de contredire le banc."""
-    rang = "RELECTURE" if prise.rang == _RELECTURE else f"tour {prise.rang}"
+    rang = {
+        _RELECTURE: "RELECTURE",
+        _PAROLE: "PAROLE",
+    }.get(prise.rang, f"tour {prise.rang}")
     print(f"\n  --- [{prise.cas.famille}] « {prise.cas.saisie[:56]} »  {rang}")
     if prise.cas.note:
         print(f"      ({prise.cas.note})")
@@ -465,6 +577,18 @@ def _rapport(marche: Marche, tout: bool) -> None:
         murs = [p for p in lot if p.mur]
         print(f"  murs sur les chemins {famille:<12} {len(murs)}/{len(lot)} tours")
     print("  -> un tour qui n'offre rien est un mur, quelle que soit la beaute de sa phrase")
+
+    print()
+    for famille in (REELLE, CONFESSION, ABSURDE):
+        lot = [p for p in prises if p.cas.famille == famille]
+        vides = [p for p in lot if p.vide]
+        print(f"  tours vides sur les chemins {famille:<12} {len(vides)}/{len(lot)}")
+    print("  -> un tour qui n'apporte rien de plus fait perdre du temps, et il n'a pas le temps")
+
+    for prise in [p for p in prises if p.vide]:
+        print(f"\n  >>> VIDE  « {prise.cas.saisie[:44]} » · tour {prise.rang} · {prise.etage}")
+        print(f"      {prise.vide}")
+        print(f"      say : {prise.say[:110]}")
 
     creuses = [p for p in prises if _promesse_creuse(p)]
     print(f"\n  promesses creuses (« Voici… » sur zero bloc)   {len(creuses)}/{len(prises)}")
