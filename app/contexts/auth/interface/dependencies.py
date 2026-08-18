@@ -15,6 +15,7 @@ from app.contexts.auth.application.commands.account_security import (
     ChangePhone,
     ResetSecretCode,
 )
+from app.contexts.auth.application.commands.delete_account import DeleteAccount
 from app.contexts.auth.application.commands.login import Login
 from app.contexts.auth.application.commands.refresh_token import RefreshToken
 from app.contexts.auth.application.commands.register_member import RegisterMember
@@ -32,6 +33,7 @@ from app.contexts.auth.infrastructure.persistence.repositories import (
     SqlLoginAttemptRepository,
 )
 from app.contexts.auth.interface.otp_dependencies import OtpServiceDep
+from app.contexts.urim.infrastructure.persistence.erasure import SqlUrimContentEraser
 
 # Le hasher est sans état → instance unique réutilisée.
 _hasher = Argon2PasswordHasher()
@@ -176,6 +178,28 @@ def get_change_password_command(
     )
 
 
+def get_delete_account_command(
+    credentials: CredentialsRepositoryDep,
+    otp: OtpServiceDep,
+    session: DbSession,
+) -> DeleteAccount:
+    """Les effaceurs de contenu se déclarent ici, et nulle part ailleurs.
+
+    Le jour où un autre contexte gardera du contenu personnel, il ajoute son port à ce
+    tuple. Oublier de le faire est le risque réel de cette conception — un contenu qui
+    survit à la suppression de son auteur — d'où la liste unique et visible plutôt
+    qu'une découverte automatique qui échouerait en silence.
+    """
+    return DeleteAccount(
+        credentials,
+        SqlAccountSecurityRepository(session),
+        SqlDeviceRepository(session),
+        otp,
+        (SqlUrimContentEraser(session),),
+        clock=lambda: datetime.now(UTC),
+    )
+
+
 def get_change_phone_command(otp: OtpServiceDep, session: DbSession) -> ChangePhone:
     return ChangePhone(SqlAccountSecurityRepository(session), otp)
 
@@ -205,3 +229,4 @@ def get_reset_secret_code_command(
 ChangePasswordDep = Annotated[ChangePassword, Depends(get_change_password_command)]
 ChangePhoneDep = Annotated[ChangePhone, Depends(get_change_phone_command)]
 ResetSecretCodeDep = Annotated[ResetSecretCode, Depends(get_reset_secret_code_command)]
+DeleteAccountDep = Annotated[DeleteAccount, Depends(get_delete_account_command)]

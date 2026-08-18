@@ -25,6 +25,13 @@ class AccountStatus(StrEnum):
 
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    #: Compte **supprimé par son titulaire**. La ligne survit, l'identité non : le numéro
+    #: est remplacé par une pierre tombale, les noms et l'e-mail tombent, les empreintes
+    #: de code disparaissent. On ne détruit pas la ligne parce que la vie d'église s'y
+    #: accroche — présences, dons, groupes : effacer la ligne emporterait les registres
+    #: d'une église avec le compte d'une personne. Ce que la loi demande est qu'elle ne
+    #: soit plus identifiable, et un compte `closed` ne l'est plus.
+    CLOSED = "closed"
 
 
 class MembershipStatus(StrEnum):

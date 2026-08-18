@@ -149,3 +149,28 @@ class SqlAccountSecurityRepository(AccountSecurityRepository):
             .where(AccountModel.id == account_id)
             .values(phone_number=phone_number)
         )
+
+    async def close(self, account_id: UUID, *, tombstone_phone: str) -> None:
+        # Un seul UPDATE : la ligne ne doit jamais exister à moitié anonyme. Le numéro
+        # part en premier dans l'ordre de lecture parce que c'est lui l'identifiant —
+        # tant qu'il est là, le compte désigne quelqu'un.
+        await self._session.execute(
+            update(AccountModel)
+            .where(AccountModel.id == account_id)
+            .values(
+                phone_number=tombstone_phone,
+                email=None,
+                first_name=None,
+                last_name=None,
+                password_hash=None,
+                pin_hash=None,
+                hash_algo_version=None,
+                birth_day=None,
+                birth_month=None,
+                birth_year=None,
+                is_phone_verified=False,
+                is_email_verified=False,
+                status=AccountStatus.CLOSED.value,
+            )
+        )
+        await self._session.flush()

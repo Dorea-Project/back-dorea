@@ -41,6 +41,19 @@ class PasswordHasher(ABC):
     def hash(self, plain: str) -> str: ...
 
 
+class AccountContentEraser(ABC):
+    """Efface ce qu'un compte a produit, hors du contexte Auth.
+
+    Auth sait fermer un compte ; il ne sait pas ce qu'il y a dedans, et ne doit pas
+    l'apprendre. Chaque contexte qui garde du contenu personnel implémente ce port et
+    se charge de son propre ménage — c'est ce qui évite qu'`auth` importe les tables
+    des autres pour les vider.
+    """
+
+    @abstractmethod
+    async def erase(self, account_id: UUID) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class TokenClaims:
     """Ce qu'un jeton valide désigne : **qui**, et **depuis quel appareil**.

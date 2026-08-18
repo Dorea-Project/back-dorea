@@ -33,6 +33,11 @@ class OtpPurpose(StrEnum):
     #: dans un contexte anonyme un code émis pour un porteur déjà authentifié : le motif est
     #: précisément ce qui empêche un OTP de voyager d'une porte à l'autre.
     RESET_SECRET_CODE = "reset_secret_code"  # membre — code secret oublié
+    #: Supprimer son compte. Motif distinct pour la même raison que les autres : un code
+    #: obtenu pour changer un numéro ne doit pas pouvoir détruire un compte. C'est
+    #: l'opération irréversible du lot — c'est celle qui a le plus besoin d'une preuve
+    #: de possession, un téléphone déverrouillé volé suffirait sans elle.
+    DELETE_ACCOUNT = "delete_account"  # membre — suppression du compte
 
 
 class OtpChallenge(Entity):

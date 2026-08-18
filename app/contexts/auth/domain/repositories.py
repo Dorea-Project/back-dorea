@@ -70,6 +70,18 @@ class AccountSecurityRepository(Repository):
     @abstractmethod
     async def set_phone(self, account_id: UUID, phone_number: str) -> None: ...
 
+    @abstractmethod
+    async def close(self, account_id: UUID, *, tombstone_phone: str) -> None:
+        """Ferme le compte et **efface l'identité** qui restait sur la ligne.
+
+        Le numéro devient `tombstone_phone` — il doit rester unique, la colonne l'exige,
+        et libérer le vrai numéro permet de se réinscrire avec. Noms, e-mail et empreintes
+        de code tombent : ce sont les seuls moyens de désigner ou de reconnaître la
+        personne. Le statut passe à `closed`, ce qui suffit à refuser toute connexion,
+        `is_active` se lisant déjà sur lui.
+        """
+        ...
+
 
 class DeviceRepository(Repository):
     """Appareils **de confiance** : un appareil déjà vérifié par OTP ne redemande pas."""

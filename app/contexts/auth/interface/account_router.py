@@ -11,6 +11,7 @@ from app.contexts.auth.interface.dependencies import (
     ChangePasswordDep,
     ChangePhoneDep,
     CurrentActor,
+    DeleteAccountDep,
 )
 
 router = APIRouter()
@@ -27,6 +28,10 @@ class ChangePhoneRequestSchema(BaseModel):
 
 class ChangePhoneConfirmSchema(BaseModel):
     new_phone: str
+    otp: str = Field(examples=["123456"])
+
+
+class DeleteAccountConfirmSchema(BaseModel):
     otp: str = Field(examples=["123456"])
 
 
@@ -74,3 +79,30 @@ async def change_phone_confirm(
     await command.confirm(
         account_id=actor.account_id, new_phone=payload.new_phone, otp=payload.otp
     )
+
+
+# --- Supprimer son compte -----------------------------------------------------------
+#
+# Deux temps comme les autres opérations sensibles, et pour une raison plus forte :
+# celle-ci ne se défait pas. Un téléphone déverrouillé oublié sur une table ne doit pas
+# suffire à effacer des années de préparations.
+
+
+@router.post(
+    "/delete/request",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Demander un OTP pour supprimer son compte",
+)
+async def delete_account_request(actor: CurrentActor, command: DeleteAccountDep) -> None:
+    await command.request(account_id=actor.account_id)
+
+
+@router.post(
+    "/delete/confirm",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Confirmer la suppression du compte (OTP) — irréversible",
+)
+async def delete_account_confirm(
+    payload: DeleteAccountConfirmSchema, actor: CurrentActor, command: DeleteAccountDep
+) -> None:
+    await command.confirm(account_id=actor.account_id, otp=payload.otp)
