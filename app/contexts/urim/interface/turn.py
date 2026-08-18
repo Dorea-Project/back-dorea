@@ -365,6 +365,26 @@ class TurnView(BaseModel):
     signature: str | None = None
     blocks: list[Block] = []
 
+    #: ⚠️ **Le bloc dont ce tour parle** — et la seule chose qui permette au client
+    #: de ne pas tout redéplier.
+    #:
+    #: Cette valeur était déjà calculée : `_forme` la produit pour choisir la
+    #: phrase, puis la jetait. Le client recevait donc des blocs sans savoir
+    #: lequel est le sujet et lesquels sont du **décor ambiant** — les pesées et
+    #: les couples accompagnent tous les tours qui suivent l'étage qui les a
+    #: produits, et se réaffichaient à l'identique à chaque fois.
+    #:
+    #: 🔴 Mesuré sur un téléphone : un tour de `shape_homiletic` fait **onze
+    #: écrans**, dont neuf de matière déjà lue. Le pasteur traverse son propre
+    #: passé pour atteindre son geste. Il n'a pas le temps — c'est la raison
+    #: d'être du compagnon.
+    #:
+    #: Porte un `kind` de bloc, ou `rien` / `epuise` / `correction` quand ce qui
+    #: parle n'est pas un bloc. Le client déplie celui-là et replie le reste,
+    #: **sans rien cacher** : les refusés voyagent toujours avec les faisables,
+    #: repliés sous leur nombre.
+    speaks: str = ""
+
 
 #: Le livrable reste fermé tant qu'une citation projetée n'est pas contrôlée (trou 3). Le motif
 #: voyage avec le bouton : c'est la seule façon honnête de le montrer.
@@ -570,6 +590,7 @@ def construire_tour(vue, say: str | None = None) -> TurnView:
         # Où en est la préparation, aux deux seuls tours qui n'offrent rien — c'est le seul
         # service qu'un tour vide puisse rendre, et c'est l'incise des répondeurs.
         say=dit + (situer(vue.resolved) if sans_rien else ""),
+        speaks=forme,
         # Le motif du moteur, tel quel. C'est le filet doré, et il ne se réécrit pas.
         why=vue.rationale,
         ask=ask if attend or not vivantes else "",
