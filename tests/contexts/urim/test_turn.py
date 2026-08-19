@@ -356,3 +356,38 @@ def test_une_pastille_qui_ne_designe_aucun_passage_n_invente_pas_de_reference() 
     """Un locus, un couple plan x matière, « mes bornes » : rien à situer dans l'Écriture."""
     vue = _Vue(options=[_Option("axe:ecclesiologie")])
     assert construire_tour(vue).blocks[0].items[0].reference == ""
+
+
+def test_une_aide_trop_longue_se_coupe_sur_un_mot_entier() -> None:
+    """🔴 Le pasteur lisait « plus d'alerte de risque de proof-te ».
+
+    La coupe tombait à quatre-vingts caractères, où qu'elle tombe — au milieu du mot, et
+    à l'endroit précis où on l'avertit d'un risque. Trouvé en séance, sur l'écran du
+    bornage."""
+    from app.contexts.urim.interface.turn import _ecourter
+
+    motif = (
+        "Vos bornes exactes — mais hors unité curée : plus d'alerte de risque de "
+        "proof-texting sur ce bornage."
+    )
+    aide = _ecourter(motif)
+
+    assert aide.endswith("…")
+    assert len(aide) <= 81, "le budget tient, le point de suspension compris"
+    assert not aide.removesuffix("…").endswith(" ")
+    assert "proof-te…" not in aide, "un mot coupé en deux n'aide personne"
+
+
+def test_une_aide_courte_n_est_pas_touchee() -> None:
+    from app.contexts.urim.interface.turn import _ecourter
+
+    assert _ecourter("Risque de proof-texting : faible.") == (
+        "Risque de proof-texting : faible."
+    )
+
+
+def test_un_mot_plus_long_que_le_budget_se_coupe_net() -> None:
+    """Rien à sauver : mieux vaut une coupe franche qu'une aide vide."""
+    from app.contexts.urim.interface.turn import _ecourter
+
+    assert _ecourter("a" * 200).endswith("…")

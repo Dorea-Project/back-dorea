@@ -415,10 +415,34 @@ _GROUPES = tuple(
 )
 
 
+#: Le budget d'une aide de pastille. Au-delà, le motif complet se lit dans le bloc des
+#: pesées, où il n'est pas coupé.
+_AIDE_MAX = 80
+
+
+def _ecourter(texte: str, budget: int = _AIDE_MAX) -> str:
+    """Le motif ramené à son budget, **sur un mot entier**.
+
+    🔴 C'était `texte[:80]`, et la coupe tombait où elle tombait : le pasteur lisait
+    « plus d'alerte de risque de proof-te » — un mot tranché au milieu, à l'endroit précis
+    où on l'avertit d'un risque. Une aide qui s'interrompt ainsi n'aide pas, elle inquiète.
+
+    Le point de suspension dit que la suite existe ; elle se lit entière dans les pesées.
+    """
+    if len(texte) <= budget:
+        return texte
+
+    coupe = texte[:budget].rstrip()
+    espace = coupe.rfind(" ")
+    # Un mot plus long que le budget entier : rien à sauver, on coupe net.
+    return f"{coupe[:espace].rstrip() if espace > 0 else coupe}…"
+
+
 def _pastilles(options: list) -> list[ChipItem]:
     return [
         ChipItem(
-            code=o.code, label=o.label, reference=o.reference, hint=o.rationale[:80],
+            code=o.code, label=o.label, reference=o.reference,
+            hint=_ecourter(o.rationale),
             origin=o.origin, selected=False, signature=o.signature,
         )
         for o in options
