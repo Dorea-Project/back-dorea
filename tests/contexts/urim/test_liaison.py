@@ -297,3 +297,51 @@ def test_un_verset_hors_des_bornes_affichees_ne_designe_rien() -> None:
     foi d'une touche voisine. La saisie repart donc à l'aiguilleur."""
     lues = (Reference(book="Hébreux", chapter=2, verse_start=29),)
     assert lier("Hb 2v29", UNITES, AXES, lues).option is None
+
+
+def test_deux_axes_nommes_rendent_la_main() -> None:
+    """Le défaut trouvé en séance, le 19/08.
+
+    Un pasteur écrit « Christologie et Anthropologie » devant les pastilles d'axes. La
+    liaison posait christologie — et l'ordre inverse donnait le même résultat, puisque
+    c'est l'écran qui tranchait, jamais ses mots. Le second axe tombait en silence et la
+    décision partait en base."""
+    for saisie in ("Le salut offert et La vie de l'assemblée",
+                   "La vie de l'assemblée et Le salut offert"):
+        assert lier(saisie, OPTIONS, AXES).axe is None, saisie
+
+
+def test_un_seul_axe_nomme_se_lie_toujours() -> None:
+    """La garde ne doit pas emporter le cas normal."""
+    assert lier("Le salut offert", OPTIONS, AXES).axe == "soteriologie"
+
+
+def test_deux_passages_nommes_par_leurs_jetons_rendent_la_main() -> None:
+    """Même règle que pour la notation lue : plusieurs visés, on rend la main."""
+    assert lier("Romains 12 et Luc 15", OPTIONS, AXES).option is None
+
+
+def test_un_seul_passage_nomme_par_ses_jetons_se_lie() -> None:
+    assert lier("Romains 12", OPTIONS, AXES).option == 0
+
+
+def test_le_plus_precis_gagne_sur_son_prefixe() -> None:
+    """« Hébreux 13:1 » est un préfixe de « Hébreux 13:1-2 ».
+
+    Les deux se reconnaissent dans la saisie ; les compter à égalité ferait rendre la main
+    sur une phrase qui ne porte aucune ambiguïté — le pasteur a écrit ses deux bornes."""
+    deux = (
+        Reference(book="Hébreux", chapter=13, verse_start=1, verse_end=2),
+        Reference(book="Hébreux", chapter=13, verse_start=1),
+    )
+    assert lier("Hébreux 13:1-2", deux, AXES).option == 0
+    assert lier("Hébreux 13:1", deux, AXES).option == 1
+
+
+def test_sans_bornes_ecrites_deux_unites_du_meme_chapitre_rendent_la_main() -> None:
+    """Le livre et le chapitre seuls ne départagent pas deux unités du même chapitre."""
+    deux = (
+        Reference(book="Hébreux", chapter=13, verse_start=1, verse_end=2),
+        Reference(book="Hébreux", chapter=13, verse_start=3, verse_end=6),
+    )
+    assert lier("Hébreux 13", deux, AXES).option is None

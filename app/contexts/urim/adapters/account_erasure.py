@@ -4,6 +4,12 @@ Ce fichier vit dans `urim` et non dans `auth` pour une raison simple : c'est ici
 les tables sont connues. Auth sait fermer un compte ; il n'a pas à apprendre ce qu'une
 préparation contient pour le détruire.
 
+Et il vit dans `adapters/`, pas dans `infrastructure/`, parce qu'il **importe un port
+d'un autre contexte** — c'est la seule zone où Urim a le droit de le faire (Structure
+§1). Écrit d'abord sous `infrastructure/persistence/`, il franchissait la frontière que
+`test_urim_n_importe_rien_hors_de_lui_meme` existe pour tenir : le cœur — `engine/`,
+`application/`, `domain/`, `infrastructure/` — n'importe rien du dehors.
+
 ## L'ordre n'est pas décoratif
 
 Deux tables pointent vers `urim_preparation` **sans** `ON DELETE CASCADE` —

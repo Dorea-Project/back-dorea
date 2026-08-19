@@ -260,6 +260,19 @@ def _rang(mots: tuple[str, ...], combien: int) -> int | None:
     return None
 
 
+def _gabarit_precis(reference: Reference) -> tuple[str, ...]:
+    """Le livre, le chapitre, **et les bornes** — ce que le pasteur a écrit en entier."""
+    bornes = " ".join(
+        str(v) for v in (reference.verse_start, reference.verse_end) if v is not None
+    )
+    return tokens(f"{reference.book} {reference.chapter or ''} {bornes}")
+
+
+def _gabarit_large(reference: Reference) -> tuple[str, ...]:
+    """Le livre et son chapitre — *le pasteur écrit « Romains 12 », pas « Romains 12:9-16 »*."""
+    return tokens(f"{reference.book} {reference.chapter or ''}")
+
+
 def lier(
     saisie: str,
     options: tuple[Reference, ...],
@@ -310,12 +323,42 @@ def lier(
     # désignerait toutes les trois — et l'appariement par jetons prendrait alors la première.
     option: int | None = _par_reference_lue(lues, options)
     if option is None:
-        for rang, reference in enumerate(options):
-            empan = _empan_de(tokens(f"{reference.book} {reference.chapter or ''}"), mots)
-            if empan is not None:
-                option = rang
+        # ⚠️ **Plusieurs passages nommés ne se tranchent pas au premier venu.** Même règle
+        # qu'au-dessus, et elle manquait ici : la boucle sortait sur le premier appariement,
+        # donc « Romains 12 et Jean 14 » désignait Romains — parce qu'il est affiché avant,
+        # pas parce que le pasteur l'a voulu.
+        #
+        # Deux passes, et l'ordre compte. Le pasteur qui écrit « Hébreux 13:1-2 » devant
+        # deux unités du même chapitre **a donné ses versets** : ne comparer que le livre
+        # et le chapitre jetterait ce qu'il vient de dire, puis appellerait le modèle pour
+        # une ambiguïté que sa phrase ne portait pas. La passe précise tranche d'abord ;
+        # la large ne sert qu'aux saisies qui ne bornent rien.
+        # ⚠️ **Le plus précis gagne ; à précision égale, on rend la main.** « Hébreux 13:1 »
+        # est un préfixe de « Hébreux 13:1-2 » : les deux gabarits se reconnaissent dans la
+        # saisie, et les compter à égalité ferait rendre la main sur une phrase qui ne porte
+        # aucune ambiguïté — le pasteur a écrit ses deux bornes.
+        vises = [
+            (len(gabarit), rang, empan)
+            for rang, reference in enumerate(options)
+            if (gabarit := _gabarit_precis(reference))
+            and (empan := _empan_de(gabarit, mots)) is not None
+        ]
+        if vises:
+            tetes = [v for v in vises if v[0] == max(v[0] for v in vises)]
+            if len(tetes) == 1:
+                _, option, empan = tetes[0]
                 pris.update(empan)
-                break
+        else:
+            # Aucune borne écrite : il ne reste que le livre et son chapitre, et là,
+            # plusieurs visés sont vraiment indiscernables.
+            larges = [
+                (rang, empan)
+                for rang, reference in enumerate(options)
+                if (empan := _empan_de(_gabarit_large(reference), mots)) is not None
+            ]
+            if len(larges) == 1:
+                option, empan = larges[0]
+                pris.update(empan)
 
     bornes = None
     if option is None:
@@ -328,13 +371,25 @@ def lier(
         else:
             option = _rang(mots, len(options))
 
+    # ⚠️ **Deux axes nommés rendent la main**, comme deux passages.
+    #
+    # 🔴 La boucle sortait sur le premier appariement. « Christologie et Anthropologie »
+    # posait christologie — et « Anthropologie et Christologie » aussi, puisque c'est
+    # l'ordre de l'écran qui gagnait, jamais celui des mots du pasteur. Le second axe
+    # tombait sans un mot, et la décision partait en base : exactement ce que cet étage
+    # existe pour empêcher — *agir sur le mauvais objet*.
+    #
+    # Une intention qui porte deux cibles n'est pas une désignation, c'est une phrase.
+    # Elle appartient à l'aiguilleur, qui sait demander laquelle.
+    vises_axes = [
+        (code, empan)
+        for code, titre in axes
+        if titre and (empan := _empan_de(tokens(titre), mots)) is not None
+    ]
     axe = None
-    for code, titre in axes:
-        empan = _empan_de(tokens(titre), mots) if titre else None
-        if empan is not None:
-            axe = code
-            pris.update(empan)
-            break
+    if len(vises_axes) == 1:
+        axe, empan_axe = vises_axes[0]
+        pris.update(empan_axe)
 
     # ⚠️ **Le geste se cherche hors de ce qui a été désigné.** « La charité sans hypocrisie »
     # porte un « sans » qui appartient à l'intitulé : le compter ferait écarter l'unité que le

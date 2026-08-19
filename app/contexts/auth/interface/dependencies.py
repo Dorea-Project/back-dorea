@@ -33,7 +33,7 @@ from app.contexts.auth.infrastructure.persistence.repositories import (
     SqlLoginAttemptRepository,
 )
 from app.contexts.auth.interface.otp_dependencies import OtpServiceDep
-from app.contexts.urim.infrastructure.persistence.erasure import SqlUrimContentEraser
+from app.contexts.urim.adapters.account_erasure import SqlUrimContentEraser
 
 # Le hasher est sans état → instance unique réutilisée.
 _hasher = Argon2PasswordHasher()
