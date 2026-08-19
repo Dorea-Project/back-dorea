@@ -345,3 +345,22 @@ def test_sans_bornes_ecrites_deux_unites_du_meme_chapitre_rendent_la_main() -> N
         Reference(book="Hébreux", chapter=13, verse_start=3, verse_end=6),
     )
     assert lier("Hébreux 13", deux, AXES).option is None
+
+
+def test_des_bornes_se_disent_comme_le_pasteur_les_ecrit() -> None:
+    """« Colossiens 1:1-14 », et non deux bornes qu'il faudrait recoller soi-même."""
+    from app.contexts.urim.engine.state import Bounds
+
+    meme_chapitre = Bounds(
+        Reference("Colossiens", 1, 1, 1), Reference("Colossiens", 1, 14, 14)
+    )
+    a_cheval = Bounds(
+        Reference("Colossiens", 3, 18, 18), Reference("Colossiens", 4, 1, 1)
+    )
+    un_seul = Bounds(
+        Reference("Colossiens", 4, 18, 18), Reference("Colossiens", 4, 18, 18)
+    )
+
+    assert meme_chapitre.label == "Colossiens 1:1-14"
+    assert a_cheval.label == "Colossiens 3:18-4:1"
+    assert un_seul.label == "Colossiens 4:18"

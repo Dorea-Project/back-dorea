@@ -24,7 +24,7 @@ from app.contexts.urim.interface.turn import (
 def _option(code, libelle, *, force=None, ecartee=False, origine="moteur"):
     return SimpleNamespace(
         code=code, label=libelle, rationale="motif", origin=origine,
-        dismissed=ecartee, strength=force, signature=None,
+        dismissed=ecartee, strength=force, signature=None, reference="",
     )
 
 

@@ -210,6 +210,9 @@ _FAUTE_DE_MIEUX = ("Voici où nous en sommes.", "")
 class ChipItem(BaseModel):
     code: str
     label: str
+    #: La référence du passage, quand la pastille en désigne un — « Colossiens 3:18-25 ».
+    #: Vide pour un locus ou un couple plan x matière, qui n'en désignent aucun.
+    reference: str = ""
     hint: str = ""
     origin: str = "moteur"
     selected: bool = False
@@ -415,7 +418,7 @@ _GROUPES = tuple(
 def _pastilles(options: list) -> list[ChipItem]:
     return [
         ChipItem(
-            code=o.code, label=o.label, hint=o.rationale[:80],
+            code=o.code, label=o.label, reference=o.reference, hint=o.rationale[:80],
             origin=o.origin, selected=False, signature=o.signature,
         )
         for o in options
@@ -445,7 +448,9 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
                 items=[
                     UnitItem(
                         code=o.code, label=o.label,
-                        reference=o.code, rationale=o.rationale,
+                        # 🔴 Ce champ portait `o.code` — « texte:9269b12d-… ». Le client ne
+                        # l'affichait pas, et il avait raison : ce n'est pas une référence.
+                        reference=o.reference, rationale=o.rationale,
                     )
                     for o in pesees if o.strength == role
                 ],

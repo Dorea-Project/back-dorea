@@ -215,6 +215,10 @@ class WeighConviction:
                             label=_dire_reference(p.reference),
                             rationale=p.rationale or "Traite cet axe.",
                             origin="sens",
+                            # L'intitulé *est* la référence ici ; le champ la
+                            # porte quand même, pour que le client n'ait jamais
+                            # à la deviner dans un libellé.
+                            reference=_dire_reference(p.reference),
                         )
                         for p in state.suggested_passages
                     ),
@@ -240,6 +244,9 @@ class WeighConviction:
                 code=f"texte:{site.pericope_id}",
                 label=f"{site.label} — {_CE_QUE_LE_TEXTE_FAIT.get(site.strength, site.strength)}",
                 rationale=site.rationale,
+                # L'intitulé curé nomme ce que le texte fait ; la référence dit **où** il
+                # est. Sans elle, dix-huit unités du canon se choisissent à l'aveugle.
+                reference=site.bounds.label,
                 # Ce que le texte fait de l'axe voyage **aussi** en clair : le libellé le dit
                 # au pasteur, ce champ le dit au client, qui peut alors grouper sans lire.
                 strength=site.strength,

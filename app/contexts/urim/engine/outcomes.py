@@ -44,6 +44,17 @@ class Option:
     #: sans avoir à deviner la provenance depuis la forme du motif.
     origin: str = "moteur"
 
+    #: ⚠️ **La référence du passage, quand l'option en désigne un** — « Colossiens 1:1-14 ».
+    #:
+    #: 🔴 Elle existait et n'allait nulle part. L'écran des unités proposait dix-huit textes
+    #: du canon sous leur seul intitulé curé, et « Adresse et action de grâces initiale »
+    #: convient à quatre épîtres : le pasteur choisissait sans savoir lequel. Même raison que
+    #: `strength` — l'information était calculée, puis jetée avant l'écran.
+    #:
+    #: Vide pour ce qui ne désigne aucun passage : un locus, un couple plan x matière, un
+    #: choix de bornes.
+    reference: str = ""
+
     #: ⚠️ **Ce que le texte fait de l'axe** — `dominant`, `porte`, `resiste`, ou `None`.
     #:
     #: 🔴 L'information existait et voyageait **collée dans le libellé** : « La charité sans

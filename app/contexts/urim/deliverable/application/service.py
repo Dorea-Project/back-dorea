@@ -411,9 +411,11 @@ def _note_depuis(etude) -> Note:
         # d'un verset. Le libellé se lit sur l'index ; l'identifiant seul ne dirait rien.
         version="",
         ecartees=tuple(
-            (libelle, motif)
-            for _code, libelle, motif, _origine, ecartee in etude.options
-            if ecartee
+            # Par tranche, et non par déballage exact : la ligne d'option a gagné trois
+            # champs depuis que cette boucle existe, et elle en gagnera d'autres.
+            (ligne[1], ligne[2])
+            for ligne in etude.options
+            if ligne[4]
         ),
         signature=etude.pericope_reviewed_by,
         corpus_snapshot=etude.record.corpus_snapshot,

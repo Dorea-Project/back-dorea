@@ -102,6 +102,24 @@ class TraceEntryView(BaseModel):
     rationale: str
 
 
+def _option_view(ligne: tuple) -> OptionView:
+    """Une ligne d'option du DTO, quel que soit le nombre de champs qu'elle porte.
+
+    ⚠️ **Le déballage positionnel strict était une bombe à retardement.** La ligne a gagné
+    `strength`, puis `signature`, puis `reference` : chaque ajout cassait tous les appelants
+    d'un coup, et l'un d'eux — la note du livrable — en déballait cinq depuis longtemps sans
+    que personne ne s'en aperçoive, parce que l'étage qui la produit n'a pas d'options.
+
+    Les champs qui arrivent après sont donc facultatifs à la lecture. Ce qui manque prend sa
+    valeur par défaut, et rien ne se tait."""
+    code, label, rationale, origin, dismissed, *reste = ligne
+    strength, signature, reference = [*reste, None, None, ""][:3]
+    return OptionView(
+        code=code, label=label, rationale=rationale, origin=origin, dismissed=dismissed,
+        strength=strength, signature=signature, reference=reference or "",
+    )
+
+
 class OptionView(BaseModel):
     """⚠️ `origin` dit **d'où vient la proposition** — deux options côte à côte ne valent pas
     la même chose.
@@ -134,6 +152,10 @@ class OptionView(BaseModel):
     #: se confonde avec une relecture*. Sept des dix loci portent le mot de la dogmatique, les
     #: autres celui du pasteur — et ils avaient exactement la même apparence.
     signature: str | None = None
+
+    #: La référence du passage désigné — « Colossiens 1:1-14 ». Vide quand l'option n'en
+    #: désigne aucun : un locus, un couple plan x matière, un choix de bornes.
+    reference: str = ""
 
 
 class ElementView(BaseModel):
@@ -304,13 +326,7 @@ class StudyView(BaseModel):
             outcome=dto.outcome,
             rationale=dto.rationale,
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
-            options=[
-                OptionView(
-                    code=c, label=lib, rationale=m, origin=o, dismissed=e, strength=f,
-                    signature=s,
-                )
-                for c, lib, m, o, e, f, s in dto.options
-            ],
+            options=[_option_view(ligne) for ligne in dto.options],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,
             pericope_label=dto.pericope_label,

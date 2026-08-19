@@ -156,7 +156,10 @@ def _marquer_les_ecartees(
     offerte par deux étages, et l'écarter à l'un ne dit rien de l'autre."""
     repoussees = {code for etage, code in ecartees if etage == stage_code}
     rendues = tuple(
-        (o.code, o.label, o.rationale, o.origin, o.code in repoussees, o.strength, o.signature)
+        (
+            o.code, o.label, o.rationale, o.origin, o.code in repoussees, o.strength,
+            o.signature, o.reference,
+        )
         for o in options
     )
     # Tri **stable** : l'ordre du moteur est une décision d'étage, on ne fait que descendre

@@ -25,9 +25,12 @@ class _Option:
         dismissed: bool = False,
         strength: str | None = None,
         signature: str | None = None,
+        reference: str = "",
     ) -> None:
         self.code = code
         self.label = f"libellé {code}"
+        #: La référence du passage désigné, vide pour un locus.
+        self.reference = reference
         self.rationale = "parce que ce texte traite le sujet"
         self.origin = "locus"
         self.dismissed = dismissed
@@ -331,3 +334,25 @@ def test_les_options_non_pesees_restent_des_pastilles() -> None:
     blocs = construire_tour(vue).blocks
     assert [b.kind for b in blocs[:2]] == ["units", "chips"]
     assert [i.code for i in blocs[1].items] == ["Hébreux 13:1-2"]
+
+
+def test_une_unite_proposee_porte_sa_reference() -> None:
+    """🔴 **Le champ `reference` portait l'identifiant de l'unité.**
+
+    `UnitItem.reference` valait `o.code` — « texte:9269b12d-… ». Le client ne l'affichait
+    pas, et il avait raison : ce n'est pas une référence. Le pasteur se voyait donc offrir
+    dix-huit textes du canon sous leur seul intitulé curé, et « Adresse et action de grâces
+    initiale » convient à quatre épîtres. Trouvé en séance : il a choisi sans savoir où il
+    allait."""
+    vue = _Vue(options=[
+        _Option("texte:a", strength="dominant", reference="Colossiens 1:1-14"),
+    ])
+    unite = construire_tour(vue).blocks[0].groups[0].items[0]
+    assert unite.reference == "Colossiens 1:1-14"
+    assert not unite.reference.startswith("texte:")
+
+
+def test_une_pastille_qui_ne_designe_aucun_passage_n_invente_pas_de_reference() -> None:
+    """Un locus, un couple plan x matière, « mes bornes » : rien à situer dans l'Écriture."""
+    vue = _Vue(options=[_Option("axe:ecclesiologie")])
+    assert construire_tour(vue).blocks[0].items[0].reference == ""

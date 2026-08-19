@@ -70,6 +70,21 @@ class Bounds:
     start: Reference
     end: Reference
 
+    @property
+    def label(self) -> str:
+        """« Colossiens 1:1-14 », ou « Colossiens 1:1-2:5 » quand l'unité change de chapitre.
+
+        ⚠️ **Une unité proposée sans sa référence ne se choisit pas.** L'écran offrait
+        « Adresse et action de grâces initiale » — intitulé qui convient à quatre épîtres —
+        et le pasteur devait ouvrir pour savoir laquelle. La donnée était là, dans ces deux
+        bornes ; elle n'allait simplement nulle part."""
+        debut = f"{self.start.book} {self.start.chapter}:{self.start.verse_start}"
+        if self.start.chapter != self.end.chapter:
+            return f"{debut}-{self.end.chapter}:{self.end.verse_start}"
+        if self.end.verse_start == self.start.verse_start:
+            return debut
+        return f"{debut}-{self.end.verse_start}"
+
 
 @dataclass(frozen=True, slots=True)
 class AxisGloss:

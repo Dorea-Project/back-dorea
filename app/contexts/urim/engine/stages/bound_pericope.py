@@ -235,5 +235,5 @@ def _bornes_de(reference: Reference) -> Bounds:
 def _option_unite(unite: PericopeView) -> Option:
     return Option(
         code=str(unite.id), label=unite.label, rationale=unite.rationale,
-        origin="curation",
+        origin="curation", reference=unite.bounds.label,
     )
