@@ -62,6 +62,8 @@ class _Vue:
         self.bearings = []
         self.caveats = []
         self.couples = []
+        #: Le squelette écrit par le pasteur — vide tant qu'il n'a rien posé.
+        self.elements = []
         self.theme = None
         self.curation_reviewed_by = None
         for cle, valeur in remplace.items():

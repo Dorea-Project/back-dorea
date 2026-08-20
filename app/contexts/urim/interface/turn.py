@@ -49,6 +49,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.contexts.urim.domain.squelette import POINT_CENTRAL
+
 from app.contexts.urim.engine.liaison import ORDRE_DES_FORCES
 from app.contexts.urim.engine.repondeurs import situer
 
@@ -389,10 +391,17 @@ class TurnView(BaseModel):
     speaks: str = ""
 
 
-#: Le livrable reste fermé tant qu'une citation projetée n'est pas contrôlée (trou 3). Le motif
-#: voyage avec le bouton : c'est la seule façon honnête de le montrer.
-_LIVRABLE_FERME = (
-    "Le livrable n'est pas ouvert : une citation projetée doit d'abord être contrôlée."
+#: 🔴 **Les deux livrables étaient annoncés fermés alors qu'ils fonctionnent.** Ce motif
+#: datait du trou 3 — avant que le module du livrable existe. Depuis, `POST
+#: /studies/{id}/deliverable` soumet, contrôle et rend un fichier ; l'écran, lui, continuait
+#: d'annoncer une porte close. Un bouton fermé doit porter son motif, mais un motif périmé
+#: est pire qu'un bouton muet : il décrit un produit qui n'existe plus.
+#:
+#: Ce qui reste vrai, et le seul refus légitime : **le deck sans plan**. Le service le dit
+#: lui-même, dans ces termes.
+_DECK_SANS_PLAN = (
+    "Il n'y a pas encore de plan à projeter. Les diapositives mettent en page ce que vous "
+    "avez écrit ; le moteur ne l'écrit pas à votre place."
 )
 
 #: ⚠️ **Les groupes suivent la donnée, pas le nom de l'étage.**
@@ -436,6 +445,18 @@ def _ecourter(texte: str, budget: int = _AIDE_MAX) -> str:
     espace = coupe.rfind(" ")
     # Un mot plus long que le budget entier : rien à sauver, on coupe net.
     return f"{coupe[:espace].rstrip() if espace > 0 else coupe}…"
+
+
+def _a_un_point(vue) -> bool:
+    """Le plan porte-t-il un point écrit par lui ? — le seuil du deck.
+
+    Même question que `point_central_renseigne`, posée sur la vue plutôt que sur le plan
+    replié : l'écran doit pouvoir fermer le bouton **avant** que le service refuse, sans quoi
+    le pasteur touche une sortie pour apprendre qu'elle n'existe pas."""
+    return any(
+        e.element_code == POINT_CENTRAL and (e.body or "").strip()
+        for e in vue.elements
+    )
 
 
 def _pastilles(options: list) -> list[ChipItem]:
@@ -530,13 +551,14 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
         blocs.append(ActionsBlock(items=[
             ActionItem(code="elements", label="Écrire mes points", enabled=True),
             ActionItem(
-                code="deck", label="PowerPoint", enabled=False,
-                unavailable_reason=_LIVRABLE_FERME,
+                code="deck", label="PowerPoint", enabled=_a_un_point(vue),
+                unavailable_reason="" if _a_un_point(vue) else _DECK_SANS_PLAN,
             ),
-            ActionItem(
-                code="sheet", label="Fiche de chaire", enabled=False,
-                unavailable_reason=_LIVRABLE_FERME,
-            ),
+            # La note n'exige aucun plan, et c'est délibéré : sans plan elle
+            # devient un document de travail — le pasteur l'emporte à son
+            # bureau et écrit dessus. La section de son plan y dit « à écrire »
+            # au lieu de proposer.
+            ActionItem(code="sheet", label="Fiche de chaire", enabled=True),
         ]))
 
     return blocs

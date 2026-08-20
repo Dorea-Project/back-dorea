@@ -41,6 +41,7 @@ def _vue(**kw):
         bearings=[],
         caveats=[],
         couples=[],
+        elements=[],
         theme=None,
         outcome="await_decision",
         rationale="le motif du moteur",
