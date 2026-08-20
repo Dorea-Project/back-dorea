@@ -29,10 +29,28 @@ from __future__ import annotations
 from io import BytesIO
 
 from app.contexts.urim.deliverable.domain.documents import Deck, Note
+from app.contexts.urim.deliverable.infrastructure import charte
 
 #: 16:9 en EMU (914 400 par pouce) — 13,333 x 7,5 pouces.
 _LARGEUR_16_9 = 12192000
 _HAUTEUR_16_9 = 6858000
+
+#: La géométrie de la diapositive, en EMU. Une marge d'un pouce : moins, et le texte touche le
+#: bord d'un écran mal réglé — ce qui arrive dans toutes les salles.
+_MARGE = 914400
+_LARGEUR_UTILE = _LARGEUR_16_9 - 2 * _MARGE
+
+#: Le filet de brique : deux points d'épaisseur, un tiers de la largeur utile. Il marque, il
+#: ne souligne pas.
+_FILET = 25400
+_LARGEUR_FILET = _LARGEUR_UTILE // 3
+
+#: La bande d'un pied de page ou d'un intitulé.
+_PIED = 457200
+
+#: Le texte projeté commence sous l'intitulé et s'arrête avant le pied.
+_HAUT_DU_TEXTE = _MARGE + 3 * _PIED // 2
+_HAUTEUR_DU_TEXTE = _HAUTEUR_16_9 - _HAUT_DU_TEXTE - _MARGE - _PIED
 
 #: Les codes de section, rendus lisibles. Le dictionnaire ne **ferme** rien : un code inconnu
 #: s'imprime tel quel, parce que la colonne est libre et qu'un pasteur peut nommer ses sections.
@@ -140,10 +158,17 @@ class RenduIndisponibleError(RuntimeError):
 
 
 def rendre_deck(deck: Deck) -> bytes:
-    """Le `.pptx` — un titre, puis une diapositive par texte projeté."""
+    """Le `.pptx` — une couverture, puis une diapositive par texte projeté.
+
+    ⚠️ **Rien ne vient du gabarit par défaut.** `python-pptx` ouvre sur un modèle Office —
+    fond blanc, Calibri, filets bleus — et une présentation qui garde ces traits n'est celle
+    de personne. On dessine donc sur la disposition vide et on pose tout : le fond, le filet,
+    la référence, le pied de page.
+    """
     try:
         from pptx import Presentation
-        from pptx.util import Pt
+        from pptx.dml.color import RGBColor
+        from pptx.util import Emu, Pt
     except ImportError as exc:  # pragma: no cover - dépend de l'installation
         raise RenduIndisponibleError(
             "`python-pptx` n'est pas installé : le rendu des diapositives est indisponible."
@@ -153,28 +178,115 @@ def rendre_deck(deck: Deck) -> bytes:
     presentation.slide_width = _LARGEUR_16_9
     presentation.slide_height = _HAUTEUR_16_9
 
-    couverture = presentation.slides.add_slide(presentation.slide_layouts[0])
-    couverture.shapes.title.text = deck.titre
+    #: La disposition **vide** — la septième du gabarit. Les autres portent des cadres de
+    #: texte qu'on ne veut pas : un « Cliquez pour ajouter un titre » resté en place au mur
+    #: d'une assemblée, ça arrive, et ça ne s'oublie pas.
+    vierge = presentation.slide_layouts[6]
+
+    def zone(page, gauche, haut, largeur, hauteur):
+        cadre = page.shapes.add_textbox(
+            Emu(gauche), Emu(haut), Emu(largeur), Emu(hauteur)
+        ).text_frame
+        cadre.word_wrap = True
+        return cadre
+
+    def ecrire(cadre, texte, *, taille, couleur, police, gras=False, premier=False):
+        paragraphe = cadre.paragraphs[0] if premier else cadre.add_paragraph()
+        paragraphe.text = texte
+        for morceau in paragraphe.runs:
+            morceau.font.size = Pt(taille)
+            morceau.font.color.rgb = RGBColor(*couleur)
+            morceau.font.name = police
+            morceau.font.bold = gras
+        return paragraphe
+
+    def fond(page, couleur):
+        page.background.fill.solid()
+        page.background.fill.fore_color.rgb = RGBColor(*couleur)
+
+    def filet(page, haut, largeur):
+        """Le trait de brique. Un rectangle sans contour — la forme la plus sûre qui soit."""
+        from pptx.enum.shapes import MSO_SHAPE
+
+        trait = page.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Emu(_MARGE), Emu(haut), Emu(largeur), Emu(_FILET)
+        )
+        trait.fill.solid()
+        trait.fill.fore_color.rgb = RGBColor(*charte.BRIQUE)
+        trait.line.fill.background()
+        trait.shadow.inherit = False
+
+    # ------------------------------------------------------------------ la couverture
+    #
+    # Fond marine et titre clair : c'est la seule diapositive que l'assemblée regarde
+    # pendant qu'on s'installe, et c'est là que le document dit d'où il vient.
+    couverture = presentation.slides.add_slide(vierge)
+    fond(couverture, charte.MARINE)
+    filet(couverture, _HAUTEUR_16_9 // 3 - 2 * _PIED, _LARGEUR_FILET)
+    titre = zone(couverture, _MARGE, _HAUTEUR_16_9 // 3, _LARGEUR_UTILE, _HAUTEUR_16_9 // 3)
+    ecrire(
+        titre,
+        deck.titre,
+        taille=40,
+        couleur=(0xF7, 0xF4, 0xE4),
+        police=charte.SERIF,
+        premier=True,
+    )
     # Le sous-titre reste **vide** : y mettre le thème proposé par le moteur ferait monter à
     # l'écran une phrase que personne n'a écrite.
-    for diapositive in deck.diapositives:
-        page = presentation.slides.add_slide(presentation.slide_layouts[1])
-        page.shapes.title.text = diapositive.titre or diapositive.reference
-        corps = page.placeholders[1].text_frame
-        corps.text = diapositive.texte_projete
-        corps.word_wrap = True
-        for paragraphe in corps.paragraphs:
-            for morceau in paragraphe.runs:
-                morceau.font.size = Pt(28)
-        # La référence sous le texte — une projection sans référence est une citation
-        # invérifiable pour qui la lit depuis le banc. ⚠️ **Sauf quand elle est déjà le
-        # titre** : sans ce garde, une diapositive sans titre affiche deux fois la même
-        # référence, ce qui se voit du fond de la salle et fait amateur.
-        if diapositive.titre:
-            rappel = corps.add_paragraph()
-            rappel.text = diapositive.reference
-            for morceau in rappel.runs:
-                morceau.font.size = Pt(18)
+    signature_couverture = zone(
+        couverture, _MARGE, _HAUTEUR_16_9 - _MARGE - _PIED, _LARGEUR_UTILE, _PIED
+    )
+    ecrire(
+        signature_couverture,
+        charte.SIGNATURE,
+        taille=11,
+        couleur=charte.GRIS,
+        police=charte.GROTESQUE,
+        premier=True,
+    )
+
+    # ------------------------------------------------------------------ les textes projetés
+    for rang, diapositive in enumerate(deck.diapositives, start=1):
+        page = presentation.slides.add_slide(vierge)
+        fond(page, charte.SABLE)
+        filet(page, _MARGE, _LARGEUR_FILET)
+
+        entete = zone(page, _MARGE, _MARGE + _FILET * 3, _LARGEUR_UTILE, _PIED)
+        ecrire(
+            entete,
+            (diapositive.titre or diapositive.reference).upper(),
+            taille=14,
+            couleur=charte.BRIQUE,
+            police=charte.GROTESQUE,
+            gras=True,
+            premier=True,
+        )
+
+        corps = zone(page, _MARGE, _HAUT_DU_TEXTE, _LARGEUR_UTILE, _HAUTEUR_DU_TEXTE)
+        ecrire(
+            corps,
+            diapositive.texte_projete,
+            taille=charte.corps_du_verset(diapositive.texte_projete),
+            couleur=charte.ENCRE,
+            police=charte.SERIF,
+            premier=True,
+        )
+
+        pied = zone(page, _MARGE, _HAUTEUR_16_9 - _MARGE - _PIED, _LARGEUR_UTILE, _PIED)
+        # La référence en pied — une projection sans référence est une citation invérifiable
+        # pour qui la lit depuis le banc. ⚠️ **Sauf quand elle est déjà l'intitulé** : sans ce
+        # garde, une diapositive sans titre affiche deux fois la même référence, ce qui se voit
+        # du fond de la salle et fait amateur.
+        rappel = diapositive.reference if diapositive.titre else charte.SIGNATURE
+        ecrire(
+            pied,
+            f"{rappel}   ·   {rang}",
+            taille=11,
+            couleur=charte.GRIS,
+            police=charte.GROTESQUE,
+            premier=True,
+        )
 
     flux = BytesIO()
     presentation.save(flux)
@@ -192,10 +304,10 @@ def rendre_note(note: Note) -> bytes:
         ) from exc
 
     document = Document()
+    _habiller(document)
     _pied_de_page(document)
 
-    document.add_heading(note.titre or note.reference, level=0)
-    document.add_paragraph(note.reference)
+    _titre_du_document(document, note.titre or note.reference, note.reference)
 
     if note.unite:
         document.add_heading("L'unité littéraire", level=1)
@@ -432,15 +544,93 @@ def _pesees(document, note: Note) -> None:
         )
 
 
+def _habiller(document) -> None:
+    """La charte, posée sur les styles du document — **une fois, pas paragraphe par paragraphe**.
+
+    Word applique ses propres styles : Calibri 11, titres bleu Office. Une note qui les garde
+    est une note de Word, pas d'Urim. On réécrit donc le style « Normal » et les trois niveaux
+    de titre, et tout ce qui s'ajoute ensuite en hérite.
+    """
+    from docx.shared import Pt, RGBColor
+
+    normal = document.styles["Normal"]
+    normal.font.name = charte.SERIF
+    normal.font.size = Pt(11)
+    normal.font.color.rgb = RGBColor(*charte.ENCRE)
+    normal.paragraph_format.space_after = Pt(8)
+    normal.paragraph_format.line_spacing = 1.25
+
+    for niveau, taille, couleur in (
+        (1, 16, charte.MARINE),
+        (2, 13, charte.BRIQUE),
+        (3, 11, charte.MARINE),
+    ):
+        style = document.styles[f"Heading {niveau}"]
+        style.font.name = charte.GROTESQUE
+        style.font.size = Pt(taille)
+        style.font.bold = True
+        style.font.color.rgb = RGBColor(*couleur)
+        style.paragraph_format.space_before = Pt(16)
+        style.paragraph_format.space_after = Pt(4)
+
+
+def _titre_du_document(document, titre: str, reference: str) -> None:
+    """Le bloc de tête : le titre, la référence sous lui, un filet.
+
+    ⚠️ **Pas de style « Title » de Word.** Il porte une bordure bleue et une police que
+    personne n'a choisie ; on écrit le bloc à la main pour qu'il soit celui de la charte.
+    """
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, RGBColor
+
+    paragraphe = document.add_paragraph()
+    paragraphe.paragraph_format.space_after = Pt(2)
+    morceau = paragraphe.add_run(titre)
+    morceau.font.size = Pt(24)
+    morceau.font.name = charte.SERIF
+    morceau.font.bold = True
+    morceau.font.color.rgb = RGBColor(*charte.MARINE)
+
+    sous_titre = document.add_paragraph()
+    sous_titre.paragraph_format.space_after = Pt(10)
+    rappel = sous_titre.add_run(reference.upper())
+    rappel.font.size = Pt(10)
+    rappel.font.name = charte.GROTESQUE
+    rappel.font.bold = True
+    rappel.font.color.rgb = RGBColor(*charte.BRIQUE)
+
+    # Le filet : une bordure basse sur un paragraphe vide. C'est la seule façon de tracer un
+    # trait en `python-docx` sans dessiner une image.
+    _filet(document.add_paragraph())
+    document.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
+def _filet(paragraphe) -> None:
+    """Un trait de brique sous un paragraphe vide."""
+    from docx.oxml.ns import qn
+    from docx.oxml.parser import OxmlElement
+
+    bordures = OxmlElement("w:pBdr")
+    bas = OxmlElement("w:bottom")
+    bas.set(qn("w:val"), "single")
+    bas.set(qn("w:sz"), "12")
+    bas.set(qn("w:space"), "1")
+    bas.set(qn("w:color"), "CC3C1F")
+    bordures.append(bas)
+    paragraphe._p.get_or_add_pPr().append(bordures)
+
+
 def _sous_texte(document, texte: str) -> None:
     if not texte:
         return
-    from docx.shared import Pt
+    from docx.shared import Pt, RGBColor
 
     paragraphe = document.add_paragraph()
     morceau = paragraphe.add_run(texte)
     morceau.italic = True
     morceau.font.size = Pt(9)
+    morceau.font.name = charte.GROTESQUE
+    morceau.font.color.rgb = RGBColor(*charte.GRIS)
 
 
 def _pied_de_page(document) -> None:
@@ -448,10 +638,19 @@ def _pied_de_page(document) -> None:
 
     Une page de garde ne survit ni à une capture d'écran, ni à un partage partiel, ni à une
     impression recto — et le PDF, lui, circule pour de bon."""
-    from docx.shared import Pt
+    from docx.shared import Pt, RGBColor
 
     for section in document.sections:
         paragraphe = section.footer.paragraphs[0]
         morceau = paragraphe.add_run(MENTION)
         morceau.italic = True
         morceau.font.size = Pt(8)
+        morceau.font.name = charte.GROTESQUE
+        morceau.font.color.rgb = RGBColor(*charte.GRIS)
+
+        # La signature suit la mention, sur la même ligne : deux lignes de pied mangeraient une
+        # ligne de travail sur chaque page.
+        signature = paragraphe.add_run(f"   ·   {charte.SIGNATURE}")
+        signature.font.size = Pt(8)
+        signature.font.name = charte.GROTESQUE
+        signature.font.color.rgb = RGBColor(*charte.GRIS)
