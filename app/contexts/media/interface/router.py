@@ -52,12 +52,34 @@ async def _do_upload(request: Request, store, settings) -> UploadResponse:
 mobile_router = APIRouter()
 backoffice_router = APIRouter()
 
+#: Ce que la route accepte, **dans le contrat**. La liste vient des réglages
+#: (`media_allowed_types`) et les octets sont recoupés contre le type annoncé (DOREA-024) ;
+#: ce bloc dit au lecteur du contrat ce qu'il peut envoyer, il ne décide de rien.
+_CORPS_MEDIA = {
+    "requestBody": {
+        "required": True,
+        "description": "L'image ou la vidéo, telle quelle. Le type annoncé est recoupé "
+        "contre les octets réels.",
+        "content": {
+            type_: {"schema": {"type": "string", "format": "binary"}}
+            for type_ in (
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+                "image/gif",
+                "video/mp4",
+            )
+        },
+    }
+}
+
 
 @mobile_router.put(
     "/media",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Téléverser une image (corps brut) → renvoie l'URL pour media_urls (M8)",
+    openapi_extra=_CORPS_MEDIA,
 )
 async def upload_mobile(
     request: Request,
@@ -73,6 +95,7 @@ async def upload_mobile(
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Téléverser une image depuis le backoffice → renvoie l'URL",
+    openapi_extra=_CORPS_MEDIA,
 )
 async def upload_backoffice(
     request: Request,

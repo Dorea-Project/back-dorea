@@ -66,11 +66,29 @@ async def deposit_sermon(
     return SermonView.from_dto(dto)
 
 
+#: Ce que la route accepte, **dans le contrat**. FastAPI ne peut pas le deviner : le corps est
+#: lu à la main (anti-DoS mémoire), sans modèle Pydantic, et l'opération sortait donc sans
+#: `requestBody` — un bouton « Execute » sans champ, et un client généré qui poste du vide.
+_CORPS_SERMON = {
+    "requestBody": {
+        "required": True,
+        "description": "Le fichier, tel quel. Le type déclaré est recoupé contre les octets.",
+        "content": {
+            "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {"type": "string", "format": "binary"}
+            },
+        },
+    }
+}
+
+
 @router.post(
     "/tenants/{tenant_id}/upload",
     response_model=SermonView,
     status_code=status.HTTP_201_CREATED,
     summary="Déposer un sermon depuis un fichier PDF/PPTX (corps brut) → texte extrait, brouillon",
+    openapi_extra=_CORPS_SERMON,
 )
 async def upload_sermon(
     tenant_id: UUID,

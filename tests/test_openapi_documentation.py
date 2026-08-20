@@ -103,3 +103,130 @@ def test_les_trois_surfaces_sont_expliquees_en_tete():
 
     for surface in ("/api/mobile", "/api/backoffice", "le code est l'autorisation"):
         assert surface in entete
+
+
+# --------------------------------------------------------------- le corps qu'on ne déclare pas
+#
+# Deux routes reçoivent un **fichier** — un PDF ou un PPTX déposé comme sermon, une image de
+# marque — et le lisent en corps brut, sans modèle Pydantic. FastAPI ne peut pas le deviner :
+# l'opération sort donc **sans `requestBody`**, et le contrat annonce une route qu'on appelle
+# sans rien envoyer.
+#
+# Ce n'est pas cosmétique. Un client généré depuis ce contrat ne sait pas quoi poster, et la
+# prochaine route de ce genre — celle qui recevra l'audio d'une prédication — héritera du même
+# silence, avec la reprise et le découpage par-dessus.
+
+_LECTURE_BRUTE = "read_body_capped"
+
+
+def _fonctions_a_corps_brut() -> set[str]:
+    """Le nom des fonctions de route qui lisent elles-mêmes le corps de la requête.
+
+    On lit **la source de la fonction**, pas la signature : un paramètre `Request` sert aussi à
+    lire une en-tête ou une adresse, et le compter ferait rougir des routes sans corps. L'appel
+    à `read_body_capped`, lui, ne laisse aucun doute.
+
+    ⚠️ **On ne passe pas par `app.routes`.** L'application monte ses routeurs en différé
+    (`_IncludedRouter`) : à la racine il n'y a que huit entrées, et les chemins des routes
+    internes sont relatifs à leur préfixe. On descend donc dans les routeurs d'origine, et on
+    rejoint le contrat par l'`operationId`, que FastAPI dérive du nom de la fonction.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from fastapi.routing import APIRoute
+
+    from app.main import app as application
+
+    def descendre(routeur, vues: list) -> list:
+        for route in getattr(routeur, "routes", []):
+            if isinstance(route, APIRoute):
+                vues.append(route)
+            else:
+                interne = getattr(route, "original_router", None) or getattr(route, "app", None)
+                if interne is not None:
+                    descendre(interne, vues)
+        return vues
+
+    def lit_le_corps(fonction, profondeur: int = 1) -> bool:
+        """La fonction lit-elle le corps, elle-même ou par une aide de son module ?
+
+        ⚠️ **Un saut, et il en faut un.** `PUT /media` délègue à `_do_upload`, où vit la
+        lecture bornée : s'arrêter à la fonction de route laisserait passer la seule autre
+        route à corps brut du dépôt — et le test aurait l'air de marcher."""
+        try:
+            source = inspect.getsource(fonction)
+        except (OSError, TypeError):  # pragma: no cover — fonction sans source lisible
+            return False
+
+        if _LECTURE_BRUTE in source:
+            return True
+        if profondeur <= 0:
+            return False
+
+        appels = {
+            noeud.func.id
+            for noeud in ast.walk(ast.parse(textwrap.dedent(source)))
+            if isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Name)
+        }
+        portee = getattr(fonction, "__globals__", {})
+
+        return any(
+            callable(portee.get(appel)) and lit_le_corps(portee[appel], profondeur - 1)
+            for appel in appels
+        )
+
+    return {
+        route.endpoint.__name__
+        for route in descendre(application, [])
+        if lit_le_corps(route.endpoint)
+    }
+
+
+def _operations_de(nom: str) -> list[tuple[str, str, dict]]:
+    """Les opérations du contrat qui viennent de cette fonction."""
+    return [
+        (methode, chemin, operation)
+        for chemin, operations in _SPEC["paths"].items()
+        for methode, operation in operations.items()
+        if isinstance(operation, dict)
+        and operation.get("operationId", "").startswith(nom)
+    ]
+
+
+def test_la_garde_voit_bien_les_routes_a_corps_brut():
+    """Le témoin fautif, comme pour le résumé fabriqué.
+
+    Une garde qui ne trouve aucun sujet passe au vert sans rien vérifier — c'est exactement
+    ainsi que la garde du `summary` a promis pendant des mois d'attraper « la première
+    omission »."""
+    fonctions = _fonctions_a_corps_brut()
+
+    assert fonctions, (
+        "Aucune route ne lit de corps brut : soit le dépôt a changé, soit la détection est "
+        "cassée. Dans les deux cas, le test suivant ne prouve plus rien."
+    )
+    assert all(_operations_de(nom) for nom in fonctions), (
+        f"Une de ces fonctions n'est pas retrouvée dans le contrat : {sorted(fonctions)}. "
+        "L'appariement par `operationId` a cassé."
+    )
+
+
+def test_une_route_qui_lit_un_corps_le_declare():
+    """**Ce qu'on envoie fait partie du contrat.**
+
+    Sans `requestBody`, Swagger affiche un bouton « Execute » sans champ, et un client généré
+    poste une requête vide. La route existe, elle est documentée, et elle est inutilisable."""
+    muettes = [
+        f"{methode.upper()} {chemin}"
+        for nom in _fonctions_a_corps_brut()
+        for methode, chemin, operation in _operations_de(nom)
+        if not operation.get("requestBody")
+    ]
+
+    assert not muettes, (
+        f"Ces routes lisent un corps brut sans le déclarer : {sorted(muettes)}. "
+        "Déclarez les types acceptés avec `openapi_extra={'requestBody': …}` — le contrat doit "
+        "dire ce qu'il reçoit, pas seulement ce qu'il rend."
+    )
