@@ -144,3 +144,56 @@ def test_le_pied_porte_la_mention_et_la_signature():
 
     assert "les mises en garde s'adressent au prédicateur" in pied
     assert charte.SIGNATURE in pied
+
+
+# ------------------------------------------------------------------ le titre du document
+
+
+class _Trace(tuple):
+    pass
+
+
+def _etude(theme: str | None, axe: str = "christologie"):
+    """Le strict nécessaire pour titrer — le reste de la note ne s'en sert pas."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        record=SimpleNamespace(
+            theme=theme,
+            axis_code=axe,
+            plan_source="thematique",
+            subject_matter="doctrinal",
+        ),
+        pericope_label="Adresse et action de grâces pour les Colossiens",
+        resolved_label="Colossiens 1:1-14",
+    )
+
+
+def test_le_gabarit_du_moteur_ne_titre_pas_le_document():
+    """🔴 La note s'intitulait « christologie, en thematique doctrinal ».
+
+    C'est un code d'axe et deux codes de forme recollés. Imprimé en tête d'une fiche qu'on
+    emporte en chaire, il fait passer un état interne pour une intention — et le moteur dit
+    lui-même *« un thème, jamais un titre »*."""
+    from app.contexts.urim.deliverable.application.service import _titre_de
+
+    assert (
+        _titre_de(_etude("christologie, en thematique doctrinal"))
+        == "Adresse et action de grâces pour les Colossiens"
+    )
+
+
+def test_une_phrase_du_pasteur_titre_le_document():
+    """Dès qu'il a réécrit, c'est sa voix — et elle passe avant l'unité relue."""
+    from app.contexts.urim.deliverable.application.service import _titre_de
+
+    assert _titre_de(_etude("Jésus, notre vrai trésor")) == "Jésus, notre vrai trésor"
+
+
+def test_sans_theme_ni_unite_il_reste_la_reference():
+    from app.contexts.urim.deliverable.application.service import _titre_de
+
+    etude = _etude(None)
+    etude.pericope_label = None
+
+    assert _titre_de(etude) == "Colossiens 1:1-14"

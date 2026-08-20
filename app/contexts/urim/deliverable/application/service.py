@@ -75,6 +75,7 @@ from app.contexts.urim.domain.errors import (
     LivrableSansPlanError,
     PreparationIntrouvableError,
 )
+from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.infrastructure.corpus.index import CorpusIndex, verses_between
 from app.contexts.urim.infrastructure.corpus.readers import IndexedCorpusReader
 from app.core.logging import get_logger
@@ -361,6 +362,38 @@ def _deck_depuis(dossier: LivrableDTO) -> Deck:
     )
 
 
+def _titre_de(etude) -> str:
+    """Le titre du document — **et le thème du moteur n'en est pas un**.
+
+    🔴 La note s'intitulait « christologie, en thematique doctrinal ». C'est le gabarit de
+    `theme_propose` : un code d'axe et deux codes de forme recollés, que l'étage rend tant que
+    le pasteur n'a rien réécrit. Imprimé en tête d'une fiche qu'on emporte en chaire, il fait
+    passer un état interne pour une intention.
+
+    Le moteur le dit lui-même à l'écran : *un thème, jamais un titre — le titre, c'est votre
+    voix.* Tant que cette voix ne s'est pas exprimée, le document prend ce qui est **vrai et
+    lisible** : l'unité relue, sinon la référence.
+
+    ⚠️ **On ne compare pas des chaînes au hasard.** `theme_propose` est public et déterministe
+    précisément pour cette question : si le thème enregistré est ce que le gabarit rendrait,
+    personne ne l'a réécrit. C'est le même mécanisme qui périme un thème du moteur sans jamais
+    effacer une phrase du pasteur.
+    """
+    theme = (etude.record.theme or "").strip()
+    if not theme:
+        return etude.pericope_label or etude.resolved_label or ""
+
+    du_moteur = theme_propose(
+        etude.record.axis_code,
+        etude.record.plan_source,
+        etude.record.subject_matter,
+    )
+
+    if theme == du_moteur:
+        return etude.pericope_label or etude.resolved_label or theme
+    return theme
+
+
 def _note_depuis(etude) -> Note:
     """La note se bâtit depuis le **dossier d'étude rejoué** — la seule source qui porte tout.
 
@@ -369,7 +402,7 @@ def _note_depuis(etude) -> Note:
     qu'inventée : une section muette se lit comme « ce passage n'a rien à montrer », ce qui est
     faux."""
     return Note(
-        titre=etude.record.theme or "",
+        titre=_titre_de(etude),
         reference=etude.resolved_label or "",
         unite=etude.pericope_label or "",
         motif_unite=next(
