@@ -256,6 +256,37 @@ class SuggestionSnapshot:
     passages: tuple[PassageSuggestion, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class WeighedOption:
+    """Une proposition **telle qu'un étage l'a pesée** — et ce que le pasteur en a fait.
+
+    `rationale` est le motif de l'étage, pas celui du pasteur : on n'enregistre nulle part
+    pourquoi il écarte. Ce qu'on peut dire honnêtement, c'est *ce qu'Urim avançait* et *qu'il
+    ne l'a pas retenu* — et c'est exactement ce qui manque quand une option disparaît."""
+
+    code: str
+    label: str
+    rationale: str
+    dismissed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class StageWeighing:
+    """Un étage traversé, et **ce qu'il a eu en main**.
+
+    ⚠️ Le pipeline pèse à chaque étage et **ne garde que le dernier** : `StudyDTO.options`
+    porte les propositions de l'étage qui a rendu la main, les autres tombent. Le pasteur voit
+    donc ce qu'Urim conclut, jamais par où il est passé.
+
+    `weighed` est vide sans que ce soit un défaut — la plupart des étages continuent sans rien
+    proposer. **On ne remplit pas d'une phrase pour meubler** : un étage qui n'a rien pesé rend
+    une liste vide, et son motif suffit."""
+
+    stage_code: str
+    rationale: str
+    weighed: tuple[WeighedOption, ...] = ()
+
+
 @dataclass(slots=True)
 class StudyDTO:
     """Ce que le pasteur voit — la trace **rejouée**, pas relue."""
@@ -264,6 +295,10 @@ class StudyDTO:
     outcome: str
     rationale: str
     trace: tuple[tuple[str, str], ...] = ()
+
+    #: **Le même parcours, avec ce que chaque étage tenait** — la trace dit *pourquoi*, ceci
+    #: dit *sur quoi*. Additif : `trace` ne change pas d'un octet.
+    weighings: tuple[StageWeighing, ...] = ()
     #: `(code, label, rationale, origin, dismissed)` — la provenance voyage avec l'option,
     #: sinon le client la devine depuis la forme du motif, ce qui marche jusqu'au jour où non.
     #:

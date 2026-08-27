@@ -41,6 +41,7 @@ def _vue(**kw):
         bearings=[],
         caveats=[],
         couples=[],
+        weighings=[],
         elements=[],
         theme=None,
         outcome="await_decision",

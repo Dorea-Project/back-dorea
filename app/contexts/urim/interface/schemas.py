@@ -137,6 +137,26 @@ class TraceEntryView(BaseModel):
     rationale: str
 
 
+class WeighedOptionView(BaseModel):
+    """Une proposition qu'un étage a eue en main, et ce que le pasteur en a fait.
+
+    `rationale` est le motif de **l'étage** : nulle part on n'enregistre pourquoi le pasteur
+    écarte, et lui en prêter un serait inventer. Ce qu'on dit honnêtement, c'est *ce qu'Urim
+    avançait* et *qu'il ne l'a pas retenu*."""
+
+    code: str
+    label: str
+    rationale: str
+    dismissed: bool = False
+
+
+class StageWeighingView(BaseModel):
+    stage_code: str
+    rationale: str
+    #: Vide sans que ce soit un défaut — la plupart des étages continuent sans rien proposer.
+    weighed: list[WeighedOptionView] = []
+
+
 def _option_view(ligne: tuple) -> OptionView:
     """Une ligne d'option du DTO, quel que soit le nombre de champs qu'elle porte.
 
@@ -321,6 +341,10 @@ class StudyView(BaseModel):
     outcome: str
     rationale: str
     trace: list[TraceEntryView]
+
+    #: **Le même parcours, avec ce que chaque étage tenait.** `trace` dit *pourquoi*, ceci dit
+    #: *sur quoi* — et le tour en fait le bloc `trace`, replié.
+    weighings: list[StageWeighingView] = []
     options: list[OptionView]
 
     resolved: str | None
@@ -389,6 +413,19 @@ class StudyView(BaseModel):
             outcome=dto.outcome,
             rationale=dto.rationale,
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
+            weighings=[
+                StageWeighingView(
+                    stage_code=w.stage_code, rationale=w.rationale,
+                    weighed=[
+                        WeighedOptionView(
+                            code=o.code, label=o.label, rationale=o.rationale,
+                            dismissed=o.dismissed,
+                        )
+                        for o in w.weighed
+                    ],
+                )
+                for w in dto.weighings
+            ],
             options=[_option_view(ligne) for ligne in dto.options],
             resolved=dto.resolved_label,
             pericope_id=r.pericope_id,

@@ -62,6 +62,8 @@ class _Vue:
         self.bearings = []
         self.caveats = []
         self.couples = []
+        #: Ce que chaque étage tenait — le bloc `trace`, replié, en fin de tour.
+        self.weighings = []
         #: Le squelette écrit par le pasteur — vide tant qu'il n'a rien posé.
         self.elements = []
         self.theme = None

@@ -41,6 +41,7 @@ from app.contexts.urim.application.ports import (
     PreparationRecord,
     ReferenceElsewhere,
     ReservationPort,
+    StageWeighing,
     StudyDTO,
     StudyRepository,
     SuggestionSnapshot,
@@ -48,6 +49,7 @@ from app.contexts.urim.application.ports import (
     UnlimitedTierPort,
     VariantSeen,
     VerseServed,
+    WeighedOption,
     WitnessRead,
 )
 from app.contexts.urim.application.reference_libre import (
@@ -175,6 +177,45 @@ def _marquer_les_ecartees(
     # Tri **stable** : l'ordre du moteur est une décision d'étage, on ne fait que descendre
     # ce qui a été repoussé sans toucher au reste.
     return tuple(sorted(rendues, key=lambda o: o[4]))
+
+
+def _ce_que_chaque_etage_tenait(
+    trace, results, ecartees: list[tuple[str, str]]
+) -> tuple[StageWeighing, ...]:
+    """Le parcours **avec sa matière** — « comment j'en suis arrivé là ».
+
+    Le pipeline pèse à chaque étage et n'en garde qu'un : `options` porte les propositions de
+    celui qui a rendu la main, les autres tombent. Le pasteur lisait donc une conclusion sans
+    le chemin — et un compagnon qu'on ne peut pas suivre est un oracle.
+
+    ⚠️ **`StageResult` ne porte pas son code**, et c'est voulu : un étage n'a pas à se nommer.
+    L'appariement vient de `run()`, qui pousse le résultat et le passage de trace dans la même
+    itération — ils sont donc parallèles par construction.
+
+    🔴 **Aligné par la fin, jamais par le début.** La trace est un accumulateur (`*state.trace,
+    …`) : le jour où un rejeu partirait d'un état déjà tracé, un `zip` depuis le début
+    attribuerait à chaque étage le motif de son prédécesseur. Rien ne lèverait, et l'écran qui
+    explique le raisonnement deviendrait celui qui le décale d'un cran.
+
+    Les écartées **restent**, marquées — même règle que `_marquer_les_ecartees`, et pour la
+    même raison : *les cacher laisserait croire qu'on n'y a pas pensé*. Le filtre porte sur
+    `(étage, code)`, une option offerte par deux étages n'étant écartée qu'à l'un."""
+    recents = trace[-len(results):] if results else ()
+    repoussees = set(ecartees)
+    return tuple(
+        StageWeighing(
+            stage_code=passage.stage_code,
+            rationale=passage.rationale,
+            weighed=tuple(
+                WeighedOption(
+                    code=o.code, label=o.label, rationale=o.rationale,
+                    dismissed=(passage.stage_code, o.code) in repoussees,
+                )
+                for o in resultat.options
+            ),
+        )
+        for passage, resultat in zip(recents, results, strict=False)
+    )
 
 
 def _resistent_ailleurs(index: CorpusIndex, axe: str | None, unite: UUID | None):
@@ -2037,6 +2078,9 @@ class UrimStudyService:
 
         final = run.state
         dernier = run.results[-1] if run.results else None
+        # Lues **une fois**, servies deux : les options offertes et le parcours qui y mène
+        # appliquent la même règle, et deux lectures pourraient les faire diverger.
+        ecartees = await self.studies.list_dismissals(record.id)
 
         if persist:
             avant_ref = record.resolved_ref
@@ -2145,8 +2189,9 @@ class UrimStudyService:
             options=_marquer_les_ecartees(
                 dernier.options if dernier else (),
                 final.trace[-1].stage_code if final.trace else "",
-                await self.studies.list_dismissals(record.id),
+                ecartees,
             ),
+            weighings=_ce_que_chaque_etage_tenait(final.trace, run.results, ecartees),
             elements=tuple(await self.studies.list_elements(record.id)),
             # **Le fil est lu, pas rejoué.** Tout ce qui l'entoure se recalcule ; ces
             # paroles-là ne peuvent pas — elles ont été dites une fois.

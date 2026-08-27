@@ -363,9 +363,48 @@ class ActionsBlock(BaseModel):
     items: list[ActionItem]
 
 
+class TraceItemView(BaseModel):
+    """Une proposition qu'un étage a eue en main.
+
+    `rationale` est le motif de **l'étage**, jamais celui du pasteur : on n'enregistre nulle
+    part pourquoi il écarte, et lui en prêter un serait inventer."""
+
+    code: str
+    label: str
+    rationale: str
+    dismissed: bool = False
+
+
+class TraceStageView(BaseModel):
+    stage_code: str
+    rationale: str
+    #: Vide sans que ce soit un défaut : la plupart des étages continuent sans rien proposer.
+    #: **Aucune phrase pour meubler** — le motif de l'étage suffit.
+    weighed: list[TraceItemView] = []
+
+
+class TraceBlock(BaseModel):
+    """**« Comment j'en suis arrivé là »** — les étages, dans l'ordre où le pipeline les a joués.
+
+    Le pasteur voyait ce qu'Urim conclut, jamais par où il est passé : le pipeline pèse à
+    chaque étage et ne garde que le dernier. Le libellé existait côté application depuis le
+    sprint 4 et n'était utilisé nulle part, faute de donnée.
+
+    ⚠️ **Ce bloc voyage replié**, et il est classé `_DECOR` pour ça : il ne peut jamais devenir
+    le bloc qui parle. 🔴 Un décor déplié à chaque tour est exactement ce que D42 a corrigé —
+    un tour de `shape_homiletic` faisait onze écrans, dont neuf de matière déjà lue. Le
+    raisonnement se consulte quand on le cherche ; s'il s'impose, il enterre le geste.
+
+    ⚠️ **Les écartées voyagent avec leur motif**, comme les couples refusés : les cacher
+    laisserait croire qu'on n'y a pas pensé."""
+
+    kind: Literal["trace"] = "trace"
+    stages: list[TraceStageView]
+
+
 Block = (
     ChipsBlock | UnitsBlock | BoundsBlock | BearingsBlock
-    | FeasibilityBlock | ThemeBlock | ActionsBlock
+    | FeasibilityBlock | ThemeBlock | ActionsBlock | TraceBlock
 )
 
 
@@ -581,11 +620,32 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
             ActionItem(code="sheet", label="Fiche de chaire", enabled=True),
         ]))
 
+    # **En dernier, et replié.** C'est de l'histoire : elle se lit après le geste, pas avant.
+    if vue.weighings:
+        blocs.append(TraceBlock(stages=[
+            TraceStageView(
+                stage_code=w.stage_code, rationale=w.rationale,
+                weighed=[
+                    TraceItemView(
+                        code=o.code, label=o.label, rationale=o.rationale,
+                        dismissed=o.dismissed,
+                    )
+                    for o in w.weighed
+                ],
+            )
+            for w in vue.weighings
+        ]))
+
     return blocs
 
 
-#: Une sortie, pas un écran : `actions` accompagne le thème, il ne le remplace pas.
-_DECOR = frozenset({"actions"})
+#: Ce qui **accompagne** un tour sans jamais en être le sujet.
+#:
+#: `actions` est une sortie, pas un écran : elle accompagne le thème, elle ne le remplace pas.
+#: `trace` est le raisonnement passé — il se consulte quand on le cherche. 🔴 L'un ou l'autre
+#: promu « bloc qui parle » ferait annoncer au tour ce qu'il vient de faire par sa sortie ou
+#: par son historique, au lieu de ce qu'il propose.
+_DECOR = frozenset({"actions", "trace"})
 
 #: Les forces sur lesquelles un sermon se construit. `absent` en est exclu — *un axe absent
 #: n'affiche rien, et aucun plan ne se construit dessus* — et `resiste` aussi : c'est un
