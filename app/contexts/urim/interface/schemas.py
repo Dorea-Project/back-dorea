@@ -15,9 +15,43 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
+from app.contexts.urim.domain.libelles import LOCI, en_clair, forme_en_clair
+from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.engine.state import EntryOrigin
 from app.contexts.urim.infrastructure.corpus import morphology, morphology_hebrew
 from app.contexts.urim.interface.turn import TurnView, construire_tour
+
+
+def theme_en_clair(record) -> str | None:
+    """Le theme du moteur, dit en francais — **et rien quand la phrase est du pasteur**.
+
+    `theologie_propre, en textuel doctrinal` est du vocabulaire de schema montre a un
+    predicateur. Ce champ le double en clair : « Dieu lui-meme — un plan colle au texte sur une
+    doctrine ». Le client affiche `theme_label` s'il existe, `theme` sinon.
+
+    🔴 **Le gabarit ne bouge pas d'un caractere.** `theme_propose` est une **empreinte** : le
+    moteur compare le theme enregistre a ce qu'il rendrait pour savoir si le pasteur l'a
+    reecrit. Le rendre lisible ferait cesser de correspondre *tous les themes deja en base*, et
+    le systeme conclurait que chaque pasteur a reecrit le sien — sans lever la moindre erreur.
+    On ajoute donc a cote, on ne traduit jamais en place.
+
+    Et l'empreinte sert **ici aussi** : un theme qui ne correspond plus au gabarit est une
+    phrase d'homme, deja lisible. La traduire serait la recouvrir. On rend `None`, et c'est la
+    sienne qui s'affiche."""
+    theme = record.theme
+    if not theme:
+        return None
+
+    plan = getattr(record, "plan_source", None)
+    matiere = getattr(record, "subject_matter", None)
+    if theme != theme_propose(record.axis_code, plan, matiere):
+        return None
+
+    axe = en_clair(record.axis_code, LOCI) if record.axis_code else ""
+    forme = forme_en_clair(plan, matiere)
+    if axe and forme:
+        return f"{axe} — {forme}"
+    return axe or forme or None
 
 
 def _decrire(code: str | None, langue: str) -> str:
@@ -300,6 +334,10 @@ class StudyView(BaseModel):
     subject_matter: str | None
     theme: str | None
 
+    #: Le meme theme en francais, ou NULL quand `theme` est deja une phrase du pasteur.
+    #: Voir `theme_en_clair` : l'empreinte reste intacte, on ajoute a cote.
+    theme_label: str | None = None
+
     elements: list[ElementView]
 
     #: **Ce qui s'est dit**, dans l'ordre. Lu en base, jamais rejoué.
@@ -372,6 +410,7 @@ class StudyView(BaseModel):
             plan_source=r.plan_source,
             subject_matter=r.subject_matter,
             theme=r.theme,
+            theme_label=theme_en_clair(r),
             elements=[
                 ElementView(element_code=e.element_code, ordinal=e.ordinal, body=e.body)
                 for e in dto.elements
@@ -574,6 +613,8 @@ class StudySummaryView(BaseModel):
     #: L'unité une fois bornée, quand elle l'est.
     pericope_label: str | None = None
     theme: str | None = None
+    #: Voir `theme_en_clair`. NULL quand le pasteur a ecrit le sien.
+    theme_label: str | None = None
     axis_code: str | None = None
     service_date: date | None = None
 
@@ -597,6 +638,7 @@ class StudySummaryView(BaseModel):
             title=record.title,
             pericope_label=pericope_label,
             theme=record.theme,
+            theme_label=theme_en_clair(record),
             axis_code=record.axis_code,
             service_date=record.service_date,
             status=record.status,
@@ -637,6 +679,8 @@ class ArchiveEntryView(BaseModel):
     #: retenir. Le client doit le nommer plutôt que de masquer la ligne.
     axis_code: str | None
     theme: str | None
+    #: Voir `theme_en_clair`. NULL quand le pasteur a ecrit le sien.
+    theme_label: str | None = None
     capture_kind: str | None
     preparation_id: UUID | None
     church_id: UUID | None
@@ -647,6 +691,7 @@ class ArchiveEntryView(BaseModel):
         return cls(
             id=r.id, preached_on=r.preached_on, reference=dto.reference,
             pericope_label=dto.pericope_label, axis_code=r.axis_code, theme=r.theme,
+            theme_label=theme_en_clair(r),
             capture_kind=r.capture_kind, preparation_id=r.preparation_id,
             church_id=r.church_id,
         )

@@ -30,6 +30,14 @@ from io import BytesIO
 
 from app.contexts.urim.deliverable.domain.documents import Deck, Note
 from app.contexts.urim.deliverable.infrastructure import charte
+from app.contexts.urim.domain.libelles import (
+    FORCES,
+    LOCI,
+    MATIERES,
+    PLANS,
+    RISQUES,
+    en_clair,
+)
 
 #: 16:9 en EMU (914 400 par pouce) — 13,333 x 7,5 pouces.
 _LARGEUR_16_9 = 12192000
@@ -85,62 +93,13 @@ _SECTIONS = {
 # lisibles est un travail d'**invite de curation**, pas de mise en page — les réécrire ici
 # reviendrait à faire dire à un relecteur ce qu'il n'a pas écrit.
 
-#: Les dix, tels qu'un prédicateur les nomme. Le libellé du corpus dit « Pneumatologie — le
-#: Saint-Esprit » ; on garde la moitié qui parle.
-_LOCI = {
-    "theologie_propre": "Dieu lui-même",
-    "christologie": "Jésus-Christ",
-    "pneumatologie": "le Saint-Esprit",
-    "anthropologie": "l'homme",
-    "hamartiologie": "le péché",
-    "soteriologie": "le salut",
-    "ecclesiologie": "l'Église",
-    "angelologie": "les anges",
-    "demonologie": "Satan et les démons",
-    "eschatologie": "les derniers temps",
-}
-
-#: Les quatre forces. `resiste` garde son avertissement : c'est celle qui protège.
-_FORCES = {
-    "dominant": "au cœur du texte",
-    "porte": "présent, en appui",
-    "resiste": "⚠ complique ce point",
-    "absent": "le texte n'en dit rien",
-}
-
-#: « proof-texting » ne se traduit pas, il s'explique : c'est faire dire au texte ce qu'on
-#: voulait déjà entendre.
-_RISQUES = {
-    "faible": "peu de risque de faire dire au texte plus qu'il ne dit",
-    "moyen": "attention à ne pas faire dire au texte plus qu'il ne dit",
-    "eleve": "⚠ risque réel de faire dire au texte ce qu'on voulait déjà entendre",
-}
-
-_PLANS = {
-    "thematique": "un plan par thème",
-    "expositif": "un plan verset par verset",
-    "textuel": "un plan collé au texte",
-}
-
-_MATIERES = {
-    "doctrinal": "une doctrine",
-    "ethique": "une conduite",
-    "biographique": "un personnage",
-    "historique": "un récit",
-    "typologique": "une figure",
-    "prophetique": "une annonce",
-}
-
-
-def _clair(valeur: str, table: dict[str, str]) -> str:
-    """Le mot du corpus, rendu en français — **et tel quel si on ne le connaît pas**.
-
-    Un code inconnu s'affiche plutôt que de disparaître : mieux vaut un mot technique qu'un
-    trou dans la note de quelqu'un."""
-    if valeur in table:
-        return table[valeur]
-    # Le corpus écrit parfois « Pneumatologie — le Saint-Esprit » : on garde la moitié droite.
-    return valeur.split("—")[-1].strip() if "—" in valeur else valeur
+#: ⚠️ **Le vocabulaire a demenage** vers `domain/libelles.py` le 27/08, sans changer d'un mot.
+#: Il vivait ici, et il y etait bien : c'est le document qui a eu besoin le premier de dire
+#: « textuel doctrinal » a un predicateur. Un second lecteur est arrive — l'ecran, qui montrait
+#: le code brut au pasteur — et deux copies auraient diverge au premier mot ajoute.
+_LOCI, _FORCES, _RISQUES = LOCI, FORCES, RISQUES
+_PLANS, _MATIERES = PLANS, MATIERES
+_clair = en_clair
 
 
 #: Ce qu'un pied de page de note doit dire, et à qui elle est destinée. Voir l'en-tête.
