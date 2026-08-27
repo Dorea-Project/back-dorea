@@ -107,6 +107,28 @@ class UrimArchiveService:
             raise ArchiveIllisibleError("Cette préparation n'existe pas.")
         await ensure_may_read(self.access, actor_account_id, record)
 
+        # ── D57 — archiver ferme la préparation ──────────────────────────────────────────
+        #
+        # « J'ai prêché celle-ci » écrivait une ligne d'archive et laissait la préparation
+        # `ouverte`. Le pasteur devait donc faire **deux gestes pour une seule réalité** :
+        # dire qu'il a prêché, puis dire qu'il a terminé — et le fil montrait « en cours » un
+        # travail déjà passé en chaire.
+        #
+        # 🔴 **La garde sur l'auteur n'est pas une précaution, c'est le sujet.** Cette route
+        # appelle `ensure_may_read`, pas `ensure_may_prepare`, et c'est voulu : deux pasteurs
+        # d'une même église se relisent, et le second qui prêche enregistre **sa** prédication
+        # — *l'archive est celle de qui archive*. Fermer sans cette garde clôturerait le
+        # travail de l'auteur **parce qu'un confrère l'a prêché**, ce qui est exactement le
+        # dommage que ce service existe pour empêcher : *rien ne peut salir l'archive de
+        # quelqu'un d'autre*.
+        #
+        # Et seulement depuis `ouverte` : une préparation **rangée** reste rangée, une close
+        # l'est déjà.
+        if record.author_id == actor_account_id and record.status == "ouverte":
+            record.status = "close"
+            record.closed_at = self.clock()
+            await self.studies.save(record)
+
         reference = self._passage(record)
         return await self._ecrire(
             PreachedRecord(

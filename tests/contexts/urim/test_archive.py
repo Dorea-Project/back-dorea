@@ -95,6 +95,12 @@ class _Studies:
     async def get(self, study_id):
         return self.records.get(study_id)
 
+    async def save(self, record) -> None:
+        """⚠️ **Le double garde**, et il le faut depuis D57 : archiver **ferme** la
+        préparation de son auteur. Une doublure qui avalerait l'écriture sans la conserver
+        laisserait passer une fermeture faite au nom du mauvais pasteur."""
+        self.records[record.id] = record
+
 
 def _preparation(*, church_id=EGLISE, author_id=AUTEUR, **kw) -> PreparationRecord:
     return PreparationRecord(
@@ -200,6 +206,55 @@ async def test_l_archive_est_celle_de_qui_archive():
 
     assert entree.record.author_id == AUTRE
     assert entree.record.preparation_id == prep.id
+
+
+# ================================================== 2-bis. archiver ferme (D57)
+
+
+@pytest.mark.asyncio
+async def test_archiver_ferme_la_preparation_de_son_auteur():
+    """**Un geste, une réalité.** « J'ai prêché celle-ci » écrivait l'archive et laissait la
+    préparation ouverte : le pasteur devait dire deux fois la même chose, et le fil montrait
+    « en cours » un travail déjà passé en chaire."""
+    prep = _preparation(author_id=AUTEUR, status="ouverte")
+    service = _service(prep)
+
+    await service.record_from_study(actor_account_id=AUTEUR, study_id=prep.id)
+
+    assert prep.status == "close"
+    assert prep.closed_at == MAINTENANT
+
+
+@pytest.mark.asyncio
+async def test_un_lecteur_qui_archive_ne_ferme_pas_la_preparation_de_l_auteur():
+    """🔴 **Le test qui garde la garde.**
+
+    Cette route passe par `ensure_may_read`, pas `ensure_may_prepare` : deux pasteurs d'une
+    même église se relisent, et le second qui prêche enregistre **sa** prédication. Fermer
+    sans regarder `author_id` clôturerait donc le travail du premier **parce qu'un confrère
+    l'a prêché**.
+
+    Sans ce test, la garde disparaîtra au premier remaniement et personne ne le verra : fermer
+    une préparation ne lève aucune erreur."""
+    prep = _preparation(author_id=AUTEUR, status="ouverte")
+    service = _service(prep)
+
+    await service.record_from_study(actor_account_id=AUTRE, study_id=prep.id)
+
+    assert prep.status == "ouverte", "le travail de l'auteur ne se ferme pas sans lui"
+    assert prep.closed_at is None
+
+
+@pytest.mark.asyncio
+async def test_une_preparation_rangee_reste_rangee():
+    """Seulement depuis `ouverte`. Ranger et clore sont deux intentions, et `rangee` a été
+    ajouté précisément pour ne pas les confondre."""
+    prep = _preparation(author_id=AUTEUR, status="rangee")
+    service = _service(prep)
+
+    await service.record_from_study(actor_account_id=AUTEUR, study_id=prep.id)
+
+    assert prep.status == "rangee"
 
 
 # ============================================================ 3. prêché deux fois
