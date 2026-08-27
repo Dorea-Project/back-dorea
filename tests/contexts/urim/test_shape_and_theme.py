@@ -17,6 +17,7 @@ from uuid import uuid4
 import pytest
 
 from app.contexts.urim.calendar.domain.ports import NullEcclesialContext
+from app.contexts.urim.domain.libelles import RISQUES as _EN_CLAIR
 from app.contexts.urim.engine import (
     Bounds,
     ContextNote,
@@ -165,8 +166,10 @@ def test_les_couples_impossibles_sont_signales_avec_les_possibles():
 
     resultat = ShapeHomiletic().execute(_state(), _deps(homiletics=homiletique))
 
-    assert resultat.outcome is Outcome.AWAIT
-    assert [o.code for o in resultat.options] == ["expositif:doctrinal"]
+    assert resultat.outcome is Outcome.CONTINUE
+    assert (resultat.state.plan_source, resultat.state.subject_matter) == (
+        "expositif", "doctrinal"
+    )
     assert "aucun personnage" in resultat.rationale
 
 
@@ -199,7 +202,7 @@ def test_le_risque_est_porte_par_le_couple_pas_par_le_texte():
     resultat = ShapeHomiletic().execute(state, _deps(homiletics=homiletique))
 
     assert resultat.outcome is Outcome.CONTINUE
-    assert "eleve" in resultat.rationale
+    assert _EN_CLAIR["eleve"] in resultat.rationale.lower()
 
 
 def test_une_intention_declaree_releve_le_risque_d_un_cran():
@@ -212,13 +215,13 @@ def test_une_intention_declaree_releve_le_risque_d_un_cran():
 
     resultat = ShapeHomiletic().execute(state, _deps(homiletics=homiletique))
 
-    assert "moyen" in resultat.rationale  # relevé depuis « faible »
+    assert _EN_CLAIR["moyen"] in resultat.rationale.lower()  # relevé depuis « faible »
     assert "textes qui résistent" in resultat.rationale
     for diagnostic in ("plainte", "détresse", "colère", "vous êtes"):
         assert diagnostic not in resultat.rationale.lower()
 
 
-def test_la_charge_releve_le_risque_sur_les_couples_offerts():
+def test_la_charge_releve_le_risque_dans_le_motif_du_plan_retenu():
     """🔴 **Le relèvement ne se lisait nulle part, et c'est une marche qui l'a montré.**
 
     Les trois tests voisins appellent `execute()` sur un état où `plan_source` **et**
@@ -234,10 +237,8 @@ def test_la_charge_releve_le_risque_sur_les_couples_offerts():
 
     resultat = ShapeHomiletic().execute(state, _deps(homiletics=homiletique))
 
-    assert resultat.outcome is Outcome.AWAIT
-    (offert,) = resultat.options
-    assert "moyen" in offert.rationale, "le risque offert n'est pas relevé"
-    assert "relevé d'un cran" in offert.rationale
+    assert resultat.outcome is Outcome.CONTINUE
+    assert _EN_CLAIR["moyen"] in resultat.rationale.lower(), "le risque n'est pas relevé"
     # Le motif de l'étage le dit **une fois**, en toutes lettres — la même phrase qu'à l'écran
     # des axes, qui l'avait annoncé. Deux formulations feraient croire à deux mécanismes.
     assert "forte charge" in resultat.rationale
@@ -246,16 +247,27 @@ def test_la_charge_releve_le_risque_sur_les_couples_offerts():
         assert diagnostic not in resultat.rationale.lower()
 
 
-def test_sans_charge_le_risque_offert_reste_celui_de_la_curation():
+def test_sans_charge_le_risque_reste_celui_de_la_curation():
     """Le pendant : un signal qui ne se lève pas ne doit rien changer.
 
     C'est la propriété de sûreté de S37 — *un port qui ne peut qu'ajouter de la vigilance ne
     peut pas nuire en se trompant* — et elle ne vaut que si l'absence de drapeau est neutre."""
     resultat = ShapeHomiletic().execute(_state(), _deps(homiletics=_Homiletique([EXPOSITIF])))
 
-    (offert,) = resultat.options
-    assert "faible" in offert.rationale
-    assert "relevé" not in offert.rationale
+    assert _EN_CLAIR["faible"] in resultat.rationale.lower()
+    assert "relevé" not in resultat.rationale
+
+
+def test_le_risque_se_dit_meme_quand_il_n_y_a_aucun_choix():
+    """🔴 **Le seul cas où l'information manquait était celui où il n'avait pas le choix.**
+
+    Ma première rédaction glissait le risque dans la branche comparative : sur une unité qui
+    ne tient qu'une mise en forme, le pasteur lisait « c'est la seule » — puis, drapeau levé,
+    « le risque est relevé d'un cran » sans avoir jamais su depuis quoi."""
+    resultat = ShapeHomiletic().execute(_state(), _deps(homiletics=_Homiletique([EXPOSITIF])))
+
+    assert "la seule mise en forme" in resultat.rationale
+    assert _EN_CLAIR["faible"] in resultat.rationale.lower()
 
 
 def test_le_risque_ne_depasse_jamais_le_dernier_cran():
@@ -267,7 +279,7 @@ def test_le_risque_ne_depasse_jamais_le_dernier_cran():
 
     resultat = ShapeHomiletic().execute(state, _deps(homiletics=homiletique))
 
-    assert RISQUES[-1] in resultat.rationale
+    assert _EN_CLAIR[RISQUES[-1]] in resultat.rationale.lower()
 
 
 def test_hors_unite_curee_on_degrade_jamais_on_ne_refuse():

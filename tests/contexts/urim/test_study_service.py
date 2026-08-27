@@ -451,21 +451,36 @@ async def test_un_couple_refuse_par_la_curation_est_refuse_avec_son_motif_a_lui(
 
 
 @pytest.mark.asyncio
-async def test_un_couple_offert_se_choisit_toujours():
-    """La sévérité ne doit pas fermer la porte qu'on vient d'ouvrir : ce que l'étage propose
-    doit rester cliquable. C'est la moitié du test qui manquait au 422 au clic."""
+async def test_le_moteur_tranche_et_le_pasteur_peut_toujours_changer():
+    """**D55.** L'étage offrait trois couples et, pour tout motif, un adjectif — *« il ne faut
+    pas donner du boulot en supplément »*. Il tranche désormais : le faisable le moins exposé,
+    avec le motif de son choix.
+
+    ⚠️ **Trancher ne ferme aucune porte.** La sévérité ne doit pas fermer celle qu'on vient
+    d'ouvrir : les autres mises en forme restent à côté, et se prennent d'un geste. C'est la
+    moitié du test qui manquait au 422 au clic, et elle vaut encore."""
     pesees = (AxisBearing("anthropologie", "Anthropologie", "dominant", "le sujet"),)
-    couples = (Feasibility("expositif", "doctrinal", True, "", "faible"),)
+    couples = (
+        Feasibility("expositif", "doctrinal", True, "", "moyen"),
+        Feasibility("textuel", "doctrinal", True, "", "faible"),
+    )
     service = _service(index=_index(bearings=pesees, couples=couples))
+
     dto = await _ouvrir(service, "Hébreux 13:1-2")
-    offert = next(o[0] for o in dto.options)
+
+    #: Le moins exposé, pas le premier de la liste.
+    assert dto.record.plan_source == "textuel"
+    assert dto.record.theme, "le thème suit sans qu'on ait rien demandé au pasteur"
+    #: Et le motif dit **pourquoi celui-là** — un plan sans motif est un oracle.
+    assert "expose le moins" in dict(dto.trace)["shape_homiletic"]
 
     apres = await service.decide(
         actor_account_id=AUTEUR, study_id=dto.record.id,
-        stage_code="shape_homiletic", option_code=offert,
+        stage_code="shape_homiletic", option_code="expositif:doctrinal",
     )
 
-    assert apres.record.theme
+    assert apres.record.plan_source == "expositif"
+    assert "vous avez retenue" in dict(apres.trace)["shape_homiletic"]
 
 
 @pytest.mark.asyncio
@@ -626,13 +641,17 @@ async def test_sur_le_chemin_inverse_changer_de_texte_ne_reprend_pas_son_angle()
     for etage, option in (
         ("weigh_conviction", "axe:anthropologie"),
         ("weigh_conviction", f"texte:{UNITE}"),
-        ("shape_homiletic", "expositif:doctrinal"),
+        # ⚠️ **Pas celui que le moteur aurait retenu.** Les deux couples sont curés « faible » ;
+        # `couple_propose` départage par nom et rendrait `expositif`. Reprendre ce couple-là
+        # rendrait la péremption **invisible** : le moteur le reproposerait à l'identique, et
+        # le test passerait sans rien prouver.
+        ("shape_homiletic", "textuel:doctrinal"),
     ):
         dto = await service.decide(
             actor_account_id=AUTEUR, study_id=dto.record.id,
             stage_code=etage, option_code=option,
         )
-    assert dto.record.theme == "anthropologie, en expositif doctrinal"
+    assert dto.record.theme == "anthropologie, en textuel doctrinal"
 
     apres = await service.decide(
         actor_account_id=AUTEUR, study_id=dto.record.id,
@@ -640,8 +659,9 @@ async def test_sur_le_chemin_inverse_changer_de_texte_ne_reprend_pas_son_angle()
     )
 
     assert apres.record.axis_code == "anthropologie", "son angle lui a été repris"
-    assert apres.record.plan_source is None
-    assert apres.record.theme != "anthropologie, en expositif doctrinal"
+    #: Son couple tombe — et le moteur en propose un, comme sur toute unité qu'il découvre.
+    assert apres.record.plan_source == "expositif"
+    assert apres.record.theme != "anthropologie, en textuel doctrinal"
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.contexts.urim.domain.libelles import forme_en_clair
 from app.contexts.urim.domain.squelette import POINT_CENTRAL
 from app.contexts.urim.engine.liaison import ORDRE_DES_FORCES
 from app.contexts.urim.engine.repondeurs import situer
@@ -195,10 +196,10 @@ _PAR_ETAGE: dict[tuple[str, str], tuple[str, str]] = {
         "Travaillez-le tel quel, ou donnez-moi un autre passage : je dirai ce qui en a "
         "été relu.",
     ),
-    ("shape_homiletic", "chips"): (
-        "Voici les plans que ce texte peut tenir, et ceux qu'il refuse.",
-        "Lequel voulez-vous suivre ?",
-    ),
+    # 🔴 **`("shape_homiletic", "chips")` a été retiré — D55.** Il portait « voici les plans
+    # que ce texte peut tenir » / « lequel voulez-vous suivre ? », et l'étage n'offre plus
+    # aucune option : il tranche. La ligne serait restée là, verte et injoignable, à décrire un
+    # écran qui n'existe plus.
     # Le refus de l'étage 6 : tous les couples relus sont écartés. Ils restent affichés avec
     # leur motif — *les cacher laisserait croire qu'on n'y a pas pensé* —, et le tour dit ce
     # qui reste possible plutôt que de s'arrêter sur le refus.
@@ -330,15 +331,48 @@ class FeasibilityItem(BaseModel):
     risk: str = ""
     rationale: str = ""
 
+    #: **Ce qu'un prédicateur en dit** — « un plan collé au texte sur une doctrine ». Les deux
+    #: codes restent au-dessus : ils sont l'identité du couple, ils ne sont pas sa lecture.
+    label: str = ""
+
+    #: Le code à reposter pour changer — le même que la décision attend.
+    code: str = ""
+
+    #: ⚠️ **Retenue par le moteur ou par le pasteur, l'écran ne les distingue pas** : c'est
+    #: celle sur laquelle la préparation travaille, et c'est tout ce que la pastille doit dire.
+    #: Le motif de l'étage, lui, dit laquelle des deux — et c'est sa place.
+    selected: bool = False
+
+    #: Un refusé ne se prend pas, et la mise en forme déjà retenue non plus : offrir un geste
+    #: qui ne fait rien est une promesse vide. Même partage que `BearingItem`.
+    selectable: bool = False
+
 
 class FeasibilityBlock(BaseModel):
     """Les couples plan x matière.
 
     **Les refusés voyagent avec les faisables** — les cacher laisserait croire qu'on n'y a
-    pas pensé, et c'est la même règle que les options écartées."""
+    pas pensé, et c'est la même règle que les options écartées.
+
+    🔴 **D55 a changé ce que ce bloc demande.** Il accompagnait une question — *« lequel
+    voulez-vous suivre ? »* — posée à un pasteur qui venait chercher de l'aide, avec pour tout
+    motif un adjectif. Le moteur tranche désormais ; le bloc n'offre plus un travail, il offre
+    une **reprise**."""
 
     kind: Literal["feasibility"] = "feasibility"
     items: list[FeasibilityItem]
+
+    #: La question, quand il reste quelque chose à changer — vide sinon. **Un écran qui pose
+    #: une question sur zéro geste possible est le mur qu'on a déjà corrigé une fois.**
+    heading: str = ""
+
+    #: 🔴 **Pourquoi celle-là — à côté d'elle, pas seulement dans la trace.**
+    #:
+    #: Le motif de l'étage vivait un cran en arrière : le tour qui montre le plan retenu porte
+    #: dans `why` le motif du **thème**, et le pasteur lisait une mise en forme choisie pour
+    #: lui sans un mot sur la raison. *Un plan retenu sans son motif est un oracle* — c'est le
+    #: filet doré, et c'est ce qui sépare un atelier d'un oracle.
+    rationale: str = ""
 
 
 class ThemeBlock(BaseModel):
@@ -596,14 +630,23 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
         ))
 
     if vue.couples:
-        blocs.append(FeasibilityBlock(items=[
+        pris = [
             FeasibilityItem(
                 plan_source=c.plan_source, subject_matter=c.subject_matter,
                 feasible=c.feasible, risk=c.proof_text_risk,
                 rationale=c.refusal_reason,
+                label=forme_en_clair(c.plan_source, c.subject_matter),
+                code=f"{c.plan_source}:{c.subject_matter}",
+                selected=_est_la_sienne(vue, c),
+                selectable=c.feasible and not _est_la_sienne(vue, c),
             )
             for c in vue.couples
-        ]))
+        ]
+        blocs.append(FeasibilityBlock(
+            items=pris,
+            heading="Vous changez quoi ?" if any(i.selectable for i in pris) else "",
+            rationale=_motif_de_la_forme(vue),
+        ))
 
     if vue.theme:
         blocs.append(ThemeBlock(body=vue.theme))
@@ -646,6 +689,27 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
 #: promu « bloc qui parle » ferait annoncer au tour ce qu'il vient de faire par sa sortie ou
 #: par son historique, au lieu de ce qu'il propose.
 _DECOR = frozenset({"actions", "trace"})
+
+#: Le motif de l'étage 6 énumère les écartées après cette marque. Le bloc les porte déjà,
+#: chacune avec la sienne : les recoller en paragraphe serait la répétition que D42 a chassée.
+_ECARTEES = '\n\nÉcartées :'
+
+
+def _motif_de_la_forme(vue) -> str:
+    """Ce que l'étage 6 a dit, **sans la liste qu'il redirait**."""
+    motif = next(
+        (e.rationale for e in vue.trace if e.stage_code == "shape_homiletic"), ""
+    )
+    return motif.split(_ECARTEES)[0].strip()
+
+
+def _est_la_sienne(vue, couple) -> bool:
+    """La mise en forme sur laquelle la préparation travaille."""
+    return (
+        couple.plan_source == vue.plan_source
+        and couple.subject_matter == vue.subject_matter
+    )
+
 
 #: Les forces sur lesquelles un sermon se construit. `absent` en est exclu — *un axe absent
 #: n'affiche rien, et aucun plan ne se construit dessus* — et `resiste` aussi : c'est un
