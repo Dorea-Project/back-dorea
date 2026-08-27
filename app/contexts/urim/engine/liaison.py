@@ -273,6 +273,96 @@ def _gabarit_large(reference: Reference) -> tuple[str, ...]:
     return tokens(f"{reference.book} {reference.chapter or ''}")
 
 
+def _rang_de_point(mots: tuple[str, ...], combien: int) -> int | None:
+    """Le rang d'un point, **et un chiffre nu ne suffit pas**.
+
+    🔴 Le piège, trouvé en éprouvant la fonction : « Romains 3 dit autre chose » rangeait la
+    phrase sous le troisième point. Un chiffre seul est une désignation quand l'écran ne porte
+    que des options numérotées ; ici le pasteur écrit des références, des versets, des
+    chapitres — le chiffre appartient au texte, pas au plan.
+
+    Le mot « point » est donc exigé devant le chiffre. Les rangs écrits en toutes lettres —
+    « le deuxième », « le dernier » — n'en ont pas besoin : ils ne désignent rien d'autre."""
+    for mot in mots:
+        if mot in _DERNIERS and combien:
+            return combien - 1
+        if mot in _RANGS:
+            return _RANGS[mot] if _RANGS[mot] < combien else None
+
+    if not any(mot in _MOTS_POINT for mot in mots):
+        return None
+    chiffres = [m for m in mots if m.isdigit()]
+    if len(chiffres) != 1:
+        return None
+    n = int(chiffres[0])
+    return n - 1 if 1 <= n <= combien else None
+
+
+#: Ce qui autorise un chiffre à désigner un point. Fermé : le pasteur dit « point 3 », il ne
+#: dit pas « article 3 ».
+_MOTS_POINT = frozenset({"point", "points", "pt"})
+
+
+def viser_un_point(
+    saisie: str, points: tuple[tuple[str, int, str], ...]
+) -> tuple[str, int] | None:
+    """Sous **quel point** le pasteur pose cette phrase — s'il l'a désigné.
+
+    🔴 **La question la plus difficile du fil, et le fondateur l'a tranchée en la posant :**
+    *« ça peut être point ou pas, il peut mettre une pause et revenir changer »*. Si lui ne
+    sait pas encore, la machine ne peut pas savoir. On ne devine donc jamais : **on lit une
+    désignation, ou on ne range rien.**
+
+    Deux façons de désigner, les mêmes que partout ailleurs dans ce fil :
+
+    - **le rang** — « le deuxième », « point 3 », « le dernier » ;
+    - **le libellé** — les mots du point, tels qu'ils sont à l'écran.
+
+    `points` porte `(code, ordinal, libellé)` **dans l'ordre affiché**. Rien de reconnu →
+    `None`, et la phrase reste une parole du fil, sans adresse. C'est un état normal, pas un
+    échec : elle se rangera plus tard, d'un geste, si le pasteur le veut.
+
+    ⚠️ **Le libellé se reconnaît par recouvrement de mots, pas par égalité.** Un pasteur écrit
+    « la justice par la foi » pour désigner « La justice par la foi en Jésus-Christ pour
+    tous » ; exiger la phrase entière rendrait la désignation inutilisable. Mais il faut
+    **trois mots de fond au moins**, sinon « la » désignerait le premier point venu.
+    """
+    if not points:
+        return None
+
+    mots = tokens(saisie)
+    if not mots:
+        return None
+
+    rang = _rang_de_point(mots, len(points))
+    if rang is not None:
+        code, ordinal, _ = points[rang]
+        return code, ordinal
+
+    # Le recouvrement le plus fort l'emporte, et **il faut qu'il soit net** : à égalité, on
+    # ne range rien plutôt que de choisir au premier venu — c'est la règle que la liaison
+    # applique déjà aux références.
+    ecrits = set(mots)
+    scores = [
+        (len(ecrits & set(tokens(libelle))), code, ordinal)
+        for code, ordinal, libelle in points
+        if libelle
+    ]
+    scores.sort(reverse=True)
+    if not scores or scores[0][0] < _MOTS_DE_LIBELLE_MINIMUM:
+        return None
+    if len(scores) > 1 and scores[1][0] == scores[0][0]:
+        return None
+    return scores[0][1], scores[0][2]
+
+
+#: Combien de mots du libellé doivent se retrouver dans la phrase pour qu'elle le désigne.
+#:
+#: Trois, et c'est un pari — le même que `MOTS_DE_FOND_MINIMUM` ailleurs. En dessous, « la
+#: justice » désignerait n'importe lequel des quatre points de Romains 3.
+_MOTS_DE_LIBELLE_MINIMUM = 3
+
+
 def lier(
     saisie: str,
     options: tuple[Reference, ...],

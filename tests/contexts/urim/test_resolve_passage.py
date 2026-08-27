@@ -19,6 +19,7 @@ from app.contexts.urim.engine import (
     CitationCandidate,
     EngineDeps,
     EntryMode,
+    Maturite,
     Outcome,
     Reference,
     ReferenceCheck,
@@ -407,8 +408,12 @@ def test_le_detecteur_et_la_resolution_s_enchainent():
     corpus.find_reference_span = lambda mots: None  # aucun livre reconnu par le détecteur
     corpus.known_words = lambda mots: len(mots)
 
+    # ⚠️ **Le consentement est déjà donné**, sinon le vestibule arrête tout avant la porte :
+    # ce test éprouve l'enchaînement des étages, pas la façon dont on y entre.
     run = UrimEngine(_deps(corpus), pipeline=PIPELINE).run(
-        _state(EntryMode.CONVICTION, "l amour fraternel a disparu")
+        _state(EntryMode.CONVICTION, "l amour fraternel a disparu").with_(
+            maturity=Maturite.CONFIRME
+        )
     )
 
     # Routé en conviction, puis **l'étage 1 ne s'applique pas** — c'est ce que ce test garde.

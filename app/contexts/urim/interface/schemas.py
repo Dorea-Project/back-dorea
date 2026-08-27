@@ -9,6 +9,7 @@ pour décider s'il est d'accord.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -158,6 +159,27 @@ class OptionView(BaseModel):
     reference: str = ""
 
 
+class ParoleView(BaseModel):
+    """Une ligne du fil — **ce qui s'est dit, et où le pasteur l'a posée**.
+
+    🔴 Le fil disparaissait quand on quittait l'écran : le serveur ne gardait que la saisie
+    d'ouverture. C'est ce champ qui le rend enfin relisible trois jours plus tard.
+
+    `element_code` porte l'adresse, quand le pasteur a désigné un point — « le deuxième »,
+    « point 3 », ou les mots du point. Nul, la phrase attend sans adresse, et c'est un état
+    normal : *ça peut être point ou pas*.
+
+    ⚠️ **`promue` dit ce que le document imprimera.** Tant qu'elle est fausse, cette phrase
+    n'atteint aucun fichier — le livrable n'imprime que le plan du pasteur."""
+
+    id: UUID
+    speaker: Literal["pasteur", "urim"]
+    body: str
+    element_code: str | None = None
+    element_ordinal: int | None = None
+    promue: bool = False
+
+
 class ElementView(BaseModel):
     element_code: str
     ordinal: int
@@ -280,6 +302,9 @@ class StudyView(BaseModel):
 
     elements: list[ElementView]
 
+    #: **Ce qui s'est dit**, dans l'ordre. Lu en base, jamais rejoué.
+    fil: list[ParoleView] = []
+
     #: **Ce sur quoi le raisonnement porte** — la `trace` est le raisonnement lui-même.
     verses: list[VerseView]
     variants: list[VariantView]
@@ -351,6 +376,17 @@ class StudyView(BaseModel):
                 ElementView(element_code=e.element_code, ordinal=e.ordinal, body=e.body)
                 for e in dto.elements
             ],
+            fil=[
+                ParoleView(
+                    id=p.id,
+                    speaker=p.speaker,
+                    body=p.body,
+                    element_code=p.element_code,
+                    element_ordinal=p.element_ordinal,
+                    promue=p.promue,
+                )
+                for p in dto.fil
+            ],
             verses=[
                 VerseView(
                     reference=v.reference, text=v.text,
@@ -409,7 +445,23 @@ class StudyView(BaseModel):
         d'autre : ce n'est pas une donnée que la vue affiche, donc les deux ne peuvent pas se
         contredire."""
         vue = cls.from_dto(dto)
-        return vue.model_copy(update={"turn": construire_tour(vue, say=dto.reponse)})
+        return vue.model_copy(
+            update={
+                "turn": construire_tour(
+                    vue, say=dto.reponse, relance=dto.relance
+                )
+            }
+        )
+
+
+class PromotionBody(BaseModel):
+    """Sous quel point cette note devient un point — **quand elle ne le dit pas elle-même**.
+
+    Les deux champs sont facultatifs : une note posée sous un point porte déjà son adresse.
+    Ils servent au cas où le pasteur n'avait rien désigné en écrivant, et range plus tard."""
+
+    element_code: str | None = Field(default=None, min_length=1, max_length=64)
+    ordinal: int | None = Field(default=None, ge=0, le=999)
 
 
 class ArticulationBody(BaseModel):
@@ -515,13 +567,18 @@ class StudySummaryView(BaseModel):
     #: résolu — « l'amour fraternel n'existe plus dans l'église ».
     raw_input: str
 
+    #: Le titre écrit à la main, quand il y en a un. **Il passe devant** `raw_input` et
+    #: `pericope_label` à l'affichage ; il ne les remplace pas dans la base.
+    title: str | None = None
+
     #: L'unité une fois bornée, quand elle l'est.
     pericope_label: str | None = None
     theme: str | None = None
     axis_code: str | None = None
     service_date: date | None = None
 
-    #: `ouverte`, `close`.
+    #: `ouverte`, `close`, `rangee`. Une rangée ne remonte pas dans le fil courant :
+    #: il faut la demander (`GET /studies?rangees=true`).
     status: str
 
     #: Le vocabulaire du moteur : `await_decision` **est** « rend la main ».
@@ -537,6 +594,7 @@ class StudySummaryView(BaseModel):
         return cls(
             id=record.id,
             raw_input=record.raw_input,
+            title=record.title,
             pericope_label=pericope_label,
             theme=record.theme,
             axis_code=record.axis_code,
@@ -773,6 +831,29 @@ class CollisionView(BaseModel):
                 for t in dto.witnesses
             ],
         )
+
+
+class RenameBody(BaseModel):
+    """Le titre écrit à la main.
+
+    **Vide efface** au lieu de poser un blanc : c'est le seul moyen de revenir à
+    l'affichage automatique — la phrase d'ouverture, puis l'unité bornée — sans deviner
+    une formule. Un champ effacé par mégarde rend donc son nom d'origine, il ne laisse
+    pas une ligne sans nom.
+    """
+
+    title: str | None = Field(default=None, examples=["Le pardon entre deux familles"])
+
+
+class ShelveBody(BaseModel):
+    """Ranger, ou ressortir.
+
+    Un booléen plutôt que deux routes : c'est un état, pas deux gestes, et un client qui
+    ne sait plus où il en est peut poser la valeur qu'il veut sans se demander laquelle
+    des deux routes appeler.
+    """
+
+    rangee: bool = Field(examples=[True])
 
 
 class SupportsBody(BaseModel):

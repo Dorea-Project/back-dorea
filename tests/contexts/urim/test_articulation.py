@@ -67,6 +67,12 @@ class _Modele:
 
     async def lever(self, text): return ()
 
+    async def vestibule(self, text, *, sujet_en_cours=None):
+        """Le double ne conduit pas de conversation : **il s'efface**, comme un modèle
+        injoignable, et la préparation descend sans consentement — le régime d'avant le
+        vestibule, qui est ce que ces tests éprouvent."""
+        return None
+
     async def aiguiller(self, text): return None
 
     async def articuler(self, *, point, reference, texte, suivant, appuis=""):
@@ -86,6 +92,20 @@ class _StudiesAvecPlan(_Studies):
         self.articulations: dict[tuple, tuple[str, PlanSuggestion]] = {}
         #: Ce que le service a **effectivement** écrit — la fermeture des codes s'y lit.
         self.elements_ecrits: list[ElementRecord] = []
+
+    #: --- Le fil (2026-08-23) ---------------------------------------------------------------
+    #: Le double garde ce qu'on lui donne, en mémoire : ces tests éprouvent le service, pas la
+    #: persistance. Ce qui compte ici est qu'**écrire dans le fil n'échoue pas** — le tour ne
+    #: doit jamais tomber parce qu'une parole n'a pas pu être gardée.
+
+    async def append_thread(self, parole, *, study_id):
+        self.fil.append(parole)
+
+    async def list_thread(self, study_id):
+        return tuple(self.fil)
+
+    async def promote_thread(self, entry_id, *, at):
+        return None
 
     async def list_elements(self, study_id):
         return self._elements

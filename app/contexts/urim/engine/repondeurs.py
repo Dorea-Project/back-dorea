@@ -141,6 +141,19 @@ def repondre_hors_champ(saisie: str, ancre: str | None = None) -> str:
     )
 
 
+
+def repondre_civilite(saisie: str, ancre: str | None = None) -> str:
+    """Il salue. **On salue, on situe, et on rend la main** — sans un appel.
+
+    🔴 Le 22/08/2026, sur téléphone : *« bonjour Urim »* partait à l'aiguilleur, qui le classait
+    `indechiffrable`. Le pasteur recevait une réponse correcte, et on avait payé un appel pour
+    apprendre qu'il n'y avait rien à apprendre — le défaut même que `Tour.appels` mesure.
+
+    ⚠️ **On ne répond pas la même chose au milieu qu'à la porte.** À la porte, Urim se présente ;
+    ici, le travail est déjà en cours, et redire ce qu'on fait serait faire semblant de ne pas
+    reconnaître celui à qui on parle depuis dix tours. On salue, et on ramène au texte."""
+    return "Bonjour." + (situer(ancre) or " De quoi partons-nous ?")
+
 def repondre_indechiffrable(saisie: str, ancre: str | None = None) -> str:
     """Le message ne s'adresse pas à la préparation — micro ouvert, ou phrase interrompue.
 

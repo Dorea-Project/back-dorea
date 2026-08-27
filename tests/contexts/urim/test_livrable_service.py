@@ -60,6 +60,20 @@ class _Studies:
             return self._record
         return None
 
+    #: --- Le fil (2026-08-23) ---------------------------------------------------------------
+    #: Le double garde ce qu'on lui donne, en mémoire : ces tests éprouvent le service, pas la
+    #: persistance. Ce qui compte ici est qu'**écrire dans le fil n'échoue pas** — le tour ne
+    #: doit jamais tomber parce qu'une parole n'a pas pu être gardée.
+
+    async def append_thread(self, parole, *, study_id):
+        self.fil.append(parole)
+
+    async def list_thread(self, study_id):
+        return tuple(self.fil)
+
+    async def promote_thread(self, entry_id, *, at):
+        return None
+
     async def list_elements(self, study_id):
         return self._elements
 
@@ -67,6 +81,11 @@ class _Studies:
 class _Livrables:
     def __init__(self) -> None:
         self.ecrits: list[tuple] = []
+        #: ⚠️ **Par instance, jamais par classe.** Écrits en attributs de classe,
+        #: ils étaient partagés par toutes les doublures : un test polluait le
+        #: suivant, et le fil d'une préparation contenait les paroles d'une autre.
+        self.fil: list = []
+        self.elements: list = []
 
     async def add(self, record, controles) -> None:
         self.ecrits.append((record, controles))

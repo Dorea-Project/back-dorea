@@ -49,6 +49,12 @@ class _Aiguilleur:
         self.echecs = 0
         self._intention, self._panne = intention, panne
 
+    async def vestibule(self, text, *, sujet_en_cours=None):
+        """Le double ne conduit pas de conversation : **il s'efface**, comme un modèle
+        injoignable, et la préparation descend sans consentement — le régime d'avant le
+        vestibule, qui est ce que ces tests éprouvent."""
+        return None
+
     async def aiguiller(self, text: str) -> str | None:
         self.appels.append(text)
         if self._panne:
@@ -299,3 +305,43 @@ async def test_un_code_hors_vocabulaire_retombe_sur_indechiffrable():
     tour = await conduire("bon alors", ECRAN, _Aiguilleur("code_invente"))
 
     assert (tour.reponse or "").strip()
+
+
+# ================================================ la civilité, à zéro appel (terrain 22/08)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saisie", ["bonjour", "bonjour Urim", "merci beaucoup", "bonsoir"])
+async def test_un_salut_en_cours_de_fil_ne_coute_aucun_appel(saisie):
+    """🔴 **Le défaut du 22/08, côté fil.**
+
+    « bonjour Urim » partait à l'aiguilleur, qui le classait `indechiffrable`. La réponse était
+    correcte, et on avait payé un appel pour apprendre qu'il n'y avait rien à apprendre — le
+    défaut même que `Tour.appels` existe pour mesurer."""
+    ia = _Aiguilleur()
+
+    tour = await conduire(saisie, ECRAN, ia)
+
+    assert tour.appels == 0 and ia.appels == []
+    assert tour.reponse and tour.decision is None and tour.refus is None
+
+
+@pytest.mark.asyncio
+async def test_le_salut_situe_le_travail_plutot_que_de_se_presenter():
+    """Au milieu du fil, redire ce qu'on fait serait feindre de ne pas reconnaître celui à qui
+    on parle depuis dix tours."""
+    tour = await conduire("bonjour", ECRAN, _Aiguilleur())
+
+    assert "Romains 12:9-16" in (tour.reponse or "")
+
+
+@pytest.mark.asyncio
+async def test_un_ecartement_reste_un_geste_et_non_une_politesse():
+    """⚠️ **La garde est après la liaison, et c'est pour ça.**
+
+    « oui », « non », « d'accord » appartiennent aussi au vocabulaire de la politesse. Les
+    intercepter plus haut ferait répondre « bonjour » à un pasteur qui vient d'écarter un
+    texte."""
+    tour = await conduire("non, pas Luc 15:11-24", ECRAN, _Aiguilleur())
+
+    assert tour.refus == "Luc 15:11-24"

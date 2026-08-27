@@ -350,14 +350,20 @@ def test_le_gabarit_du_theme_est_deterministe():
 
 
 def test_les_huit_etages_sont_branches_dans_l_ordre():
-    """E2 — les huit étages de la spec, plus le chemin inversé à sa place.
+    """E2 — les huit étages de la spec, le chemin inversé à sa place, et le vestibule devant.
 
     `WeighConviction` n'est pas un neuvième palier : c'est l'**alternative** à l'étage 1, et
     il se lit ici juste avant lui. Les deux se rejoignent au bornage, et aucun étage aval ne
-    sait par où la préparation est entrée."""
+    sait par où la préparation est entrée.
+
+    **`Vestibule` est en tête, et il ne lit pas la saisie** : il lit le consentement. Tant que
+    le pasteur n'a pas dit oui, rien ne descend — ni détection, ni résolution, ni pesée. C'est
+    le seul étage qui puisse arrêter le pipeline avant qu'il commence, et sa place ici est ce
+    qui rend l'invariant I23 mécanique plutôt que promis."""
     from app.contexts.urim.engine import PIPELINE
 
     assert [type(etage).__name__ for etage in PIPELINE] == [
+        "Vestibule",
         "RouteEntry", "WeighConviction", "ResolvePassage", "BoundPericope", "ServeCorpus",
         "LoadContext", "BearAxes", "ShapeHomiletic", "ProposeTheme",
     ]

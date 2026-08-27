@@ -52,10 +52,11 @@ from dataclasses import dataclass
 from app.contexts.urim.application.ports import NullVerseResolver
 from app.contexts.urim.application.reference_libre import lire
 from app.contexts.urim.engine.liaison import RETRAITS, Geste, Liaison, lier
-from app.contexts.urim.engine.normalizer import tokens
+from app.contexts.urim.engine.normalizer import est_une_civilite, tokens
 from app.contexts.urim.engine.repondeurs import (
     repondre,
     repondre_acquiescement,
+    repondre_civilite,
     repondre_indechiffrable,
     repondre_panne,
     repondre_reference_introuvable,
@@ -181,6 +182,15 @@ class Tour:
     reponse: str | None = None
     appels: int = 0
 
+    #: L'intention que l'aiguilleur a lue, quand il a été consulté.
+    #:
+    #: ⚠️ **Elle n'agit toujours pas.** Ce module n'exécute que ce que la liaison a reconnu —
+    #: c'est ce qui autorise un aiguilleur probabiliste devant des répondeurs déterministes.
+    #: Elle voyage parce qu'un appelant en sait plus que nous : le service, lui, connaît l'état
+    #: de la préparation, et `changer_de_sujet` n'a pas le même sens sur un travail commencé
+    #: que sur une page blanche.
+    intention: str | None = None
+
 
 def _cible(lu: Liaison, ecran: Ecran) -> str | None:
     """Le **code d'option** que cette liaison désigne, s'il y en a un.
@@ -269,6 +279,14 @@ async def conduire(
         if ecran.attend:
             return Tour(decision=cible)
 
+    # ⚠️ **Après la liaison, jamais avant.** « oui », « non », « d'accord » appartiennent aussi
+    # au vocabulaire de la politesse, et ce sont des **gestes** quand une option est à l'écran.
+    # Intercepter plus haut ferait répondre « bonjour » à un pasteur qui vient d'écarter un
+    # texte. Ici, la liaison a déjà dit qu'elle ne reconnaissait rien : il ne reste qu'un
+    # salut, et il se reconnaît sans modèle.
+    if est_une_civilite(tokens(saisie)):
+        return Tour(reponse=repondre_civilite(saisie, ecran.ancre))
+
     if isinstance(assiste, NullVerseResolver):
         # Pas de clé, ou quota d'assistance épuisé — **un état de production, pas une panne**
         # (S12, S37). Tout le reste d'Urim continue ; seule la lecture d'une phrase libre
@@ -279,4 +297,8 @@ async def conduire(
     intention = await assiste.aiguiller(saisie)
     if getattr(assiste, "echecs", 0) != echecs:
         return Tour(reponse=repondre_panne(saisie, ecran.ancre), appels=1)
-    return Tour(reponse=repondre(intention, saisie, ecran.ancre), appels=1)
+    return Tour(
+        reponse=repondre(intention, saisie, ecran.ancre),
+        appels=1,
+        intention=intention,
+    )

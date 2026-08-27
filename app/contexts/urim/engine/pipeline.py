@@ -22,6 +22,7 @@ from app.contexts.urim.engine.stages.resolve_passage import ResolvePassage
 from app.contexts.urim.engine.stages.route_entry import RouteEntry
 from app.contexts.urim.engine.stages.serve_corpus import ServeCorpus
 from app.contexts.urim.engine.stages.shape_homiletic import ShapeHomiletic
+from app.contexts.urim.engine.stages.vestibule import Vestibule
 from app.contexts.urim.engine.stages.weigh_conviction import WeighConviction
 from app.contexts.urim.engine.state import StudyState, TraceEntry
 
@@ -47,6 +48,10 @@ from app.contexts.urim.engine.state import StudyState, TraceEntry
 #: le déterminisme, le motif obligatoire et l'interdit `deps.context` portent désormais sur tout
 #: le pipeline, plus seulement sur l'étage-témoin fautif qui les accompagne.
 PIPELINE: Final[tuple[Stage, ...]] = (
+    # **Le vestibule, avant la porte** — il ne lit pas la saisie, il lit le consentement.
+    # Tant que le pasteur n'a pas dit oui, rien ne descend : ni détection, ni résolution,
+    # ni pesée. C'est le seul étage qui puisse arrêter le pipeline avant qu'il commence.
+    Vestibule(),
     RouteEntry(),
     # Le **chemin inversé** (§7) : il ne s'applique qu'à la conviction, et il s'efface dès
     # qu'un texte est retenu. Placé avant l'étage 1 parce qu'il en est l'alternative, pas la

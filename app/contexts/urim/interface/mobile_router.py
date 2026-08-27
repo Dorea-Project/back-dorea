@@ -23,13 +23,12 @@ from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
 from app.contexts.urim.deliverable.application.ports import DiapositiveSoumise
 from app.contexts.urim.interface.dependencies import (
-    CorpusIndexDep,
     ArchiveServiceDep,
+    CorpusIndexDep,
     DeliverableServiceDep,
     StudyServiceDep,
 )
 from app.contexts.urim.interface.schemas import (
-    StudySummaryView,
     ArchiveEntryView,
     ArchiveFromStudyBody,
     ArchiveManualBody,
@@ -43,6 +42,10 @@ from app.contexts.urim.interface.schemas import (
     ElementsBody,
     OpenStudyBody,
     PassageDetailView,
+    PromotionBody,
+    RenameBody,
+    ShelveBody,
+    StudySummaryView,
     StudyView,
     SupportsBody,
     TurnBody,
@@ -60,6 +63,7 @@ async def list_studies(
     actor: CurrentActor,
     service: StudyServiceDep,
     index: CorpusIndexDep,
+    rangees: bool = False,
 ) -> list[StudySummaryView]:
     """L'ecran d'accueil.
 
@@ -67,8 +71,13 @@ async def list_studies(
     du rejeu ; les rendre pour vingt lignes ferait tourner vingt pipelines a
     l'ouverture de l'application. Le fil dit ou l'on en est — le reste s'obtient
     en ouvrant la preparation.
+
+    `rangees=true` rend l'inverse : ce que le pasteur a mis de cote. Sans cette
+    porte, ranger vaudrait perdre — et le geste serait une trappe.
     """
-    records = await service.list_mine(actor_account_id=actor.account_id)
+    records = await service.list_mine(
+        actor_account_id=actor.account_id, rangees=rangees
+    )
 
     etiquettes = {p.id: p.label for p in index.pericopes}
 
@@ -113,6 +122,71 @@ async def get_study(
 ) -> StudyView:
     dto = await service.get(actor_account_id=actor.account_id, study_id=study_id)
     return StudyView.avec_tour(dto)
+
+
+@router.patch(
+    "/studies/{study_id}",
+    response_model=StudySummaryView,
+    summary="Nommer une préparation — ou lui rendre le nom qu'elle avait toute seule",
+)
+async def rename_study(
+    study_id: UUID,
+    payload: RenameBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    index: CorpusIndexDep,
+) -> StudySummaryView:
+    """Le titre écrit à la main.
+
+    L'écran affichait la phrase d'ouverture tant que rien n'était résolu, puis
+    l'étiquette de l'unité. Les deux sont justes, et aucun des deux n'est
+    **choisi** : trois préparations ouvertes sur Romains se ressemblent dans un
+    historique. Un titre vide efface et rend l'affichage automatique.
+    """
+    record = await service.rename(
+        actor_account_id=actor.account_id, study_id=study_id, title=payload.title
+    )
+
+    etiquettes = {p.id: p.label for p in index.pericopes}
+
+    return StudySummaryView.from_record(
+        record,
+        pericope_label=etiquettes.get(record.pericope_id) if record.pericope_id else None,
+    )
+
+
+@router.post(
+    "/studies/{study_id}/rangement",
+    response_model=StudySummaryView,
+    summary="Ranger une préparation, ou la ressortir — rien n'est effacé",
+)
+async def shelve_study(
+    study_id: UUID,
+    payload: ShelveBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+    index: CorpusIndexDep,
+) -> StudySummaryView:
+    """Sortir du fil sans sortir de la base.
+
+    ⚠️ **Ce n'est ni `abandonnee`, ni une suppression.** « Abandonnée » est posé
+    par « reformuler » : la saisie rouvre sans rien conserver, c'est un
+    renoncement. Ranger est le contraire — on garde, on ne veut simplement plus
+    l'avoir en tête de liste, et `GET /studies?rangees=true` la retrouve.
+
+    Il n'y a **pas de route de suppression**, et c'est une décision : une
+    préparation est du travail, et le travail détruit ne revient pas.
+    """
+    record = await service.ranger(
+        actor_account_id=actor.account_id, study_id=study_id, rangee=payload.rangee
+    )
+
+    etiquettes = {p.id: p.label for p in index.pericopes}
+
+    return StudySummaryView.from_record(
+        record,
+        pericope_label=etiquettes.get(record.pericope_id) if record.pericope_id else None,
+    )
 
 
 @router.post(
@@ -347,6 +421,41 @@ async def personal_concordance(
     """Le corpus ne porte aucun `church_id` : cette lecture n'a jamais rien eu d'ecclésial."""
     dto = await service.concordance(actor_account_id=actor.account_id, lemme=lemme)
     return ConcordanceView.from_dto(dto)
+
+
+@router.post(
+    "/studies/{study_id}/thread/{entry_id}/promotion",
+    response_model=StudyView,
+    summary="Faire d'une note un point du plan — le seul chemin du fil vers le document",
+)
+async def promouvoir(
+    study_id: UUID,
+    entry_id: UUID,
+    payload: PromotionBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """🔴 **C'est ici que le verrou se tient.**
+
+    Tout ce qui s'écrit dans le fil est gardé, rangé, relisible — et n'atteint aucun fichier.
+    Le livrable n'imprime que `preparation_element`. Une note ne devient imprimable qu'en
+    passant par ce geste, que le pasteur seul déclenche.
+
+    ⚠️ **On ajoute, on ne remplace pas.** Sa note est le plus souvent une remarque *sur* le
+    point — « le deuxième, il faut parler de la loi » — pas le texte du point. L'écraser lui
+    ferait perdre ce qu'il avait écrit.
+
+    ⚠️ **Une fois, et une seule.** Reprendre deux fois la même note écrirait deux points
+    identiques, et le pasteur ne saurait plus lequel est le sien."""
+    return StudyView.avec_tour(
+        await service.promouvoir(
+            actor_account_id=actor.account_id,
+            study_id=study_id,
+            entry_id=entry_id,
+            element_code=payload.element_code,
+            ordinal=payload.ordinal,
+        )
+    )
 
 
 @router.post(

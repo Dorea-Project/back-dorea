@@ -31,8 +31,10 @@ from app.contexts.urim.application.ports import (
     CollisionSeen,
     ConcordanceDTO,
     ElementRecord,
+    Maturite,
     NullCitationAilleurs,
     NullVerseResolver,
+    ParoleDuFil,
     PassageDetailDTO,
     PlanSuggestion,
     PreacherAuthorization,
@@ -58,6 +60,8 @@ from app.contexts.urim.domain.errors import (
     ElementInconnuError,
     OptionInconnueError,
     PreparationIntrouvableError,
+    RangementImpossibleError,
+    TitreIllisibleError,
 )
 from app.contexts.urim.domain.squelette import CODES, code_canonique
 from app.contexts.urim.engine.deps import (
@@ -65,7 +69,7 @@ from app.contexts.urim.engine.deps import (
     EngineDeps,
     NullConvictionReader,
 )
-from app.contexts.urim.engine.liaison import rang_a_l_ecran
+from app.contexts.urim.engine.liaison import rang_a_l_ecran, viser_un_point
 from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Outcome
@@ -74,6 +78,12 @@ from app.contexts.urim.engine.stages.bound_pericope import EN_UN_SEUL, TEL_QUEL
 from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.engine.stages.resolve_passage import PAS_UNE_CITATION
 from app.contexts.urim.engine.stages.route_entry import CITATION_AFFINITY, REFORMULER
+from app.contexts.urim.engine.stages.vestibule import (
+    CHANGER,
+    CONSENTIR,
+    LIRE_SEULEMENT,
+    RATTACHER,
+)
 from app.contexts.urim.engine.state import (
     AxisGloss,
     Bounds,
@@ -353,6 +363,31 @@ def _lisible(saisie: str) -> str:
     return unicodedata.normalize("NFC", unicodedata.normalize("NFKC", saisie))
 
 
+def _travail_commence(record: PreparationRecord) -> bool:
+    """Y a-t-il quelque chose à perdre ?
+
+    Le même prédicat que l'étage, écrit sur l'enregistrement : sans travail engagé, un
+    changement de sujet n'est pas une suspension — c'est simplement la suite de la
+    conversation, et l'interrompre par une question serait du zèle."""
+    return any((
+        record.resolved_ref is not None,
+        record.pericope_id is not None,
+        record.axis_code is not None,
+        record.theme is not None,
+    ))
+
+
+def _parole(lu) -> str | None:
+    """La phrase de l'agent, et sa relance — **jamais deux fois la même chose**.
+
+    Le modèle rend les deux séparément parce qu'elles n'ont pas le même rôle : l'une accueille,
+    l'autre ouvre. À l'écran il n'y a qu'un motif, et c'est ici qu'elles se rejoignent."""
+    if lu is None:
+        return None
+    morceaux = [lu.reply.strip(), (lu.question or "").strip()]
+    return " ".join(m for m in morceaux if m) or None
+
+
 def _cle_provisoire(raw_input: str) -> str:
     """La clé de réservation **avant** de savoir sur quel texte on travaille.
 
@@ -407,6 +442,17 @@ class UrimStudyService:
         await self._ensure_preacher(actor_account_id, church_id)
         maintenant = self.clock()
 
+        # ── Le vestibule, **avant** que quoi que ce soit descende ────────────────────────
+        #
+        # 🔴 *Envoyer un texte n'est pas demander à le préparer.* Jusqu'au 22/08, les deux
+        # étaient le même geste : le pasteur écrivait « bonjour Urim » et repartait avec une
+        # préparation ouverte sur rien. La ligne se crée toujours — c'est elle qui porte la
+        # conversation — mais le moteur ne descendra pas tant qu'il n'aura pas dit oui.
+        lu = await self._lire_le_vestibule(
+            church_id=church_id, author_id=actor_account_id,
+            texte=raw_input, at=maintenant,
+        )
+
         record = PreparationRecord(
             id=uuid4(),
             church_id=church_id,
@@ -419,6 +465,9 @@ class UrimStudyService:
             corpus_snapshot=self.index.snapshot,
             service_date=service_date,
             opened_at=maintenant,
+            # **Sans lecture, le vestibule s'efface** — voir `_lire_le_vestibule`.
+            maturity=lu.maturite if lu else Maturite.CONFIRME,
+            carried_subject=lu.sujet if lu else None,
         )
         await self.studies.add(record)
 
@@ -436,12 +485,39 @@ class UrimStudyService:
             pericope_key=_cle_provisoire(raw_input),
             at=maintenant,
         )
-        return await self._rejouer(record, chosen_by="moteur")
+        dto = await self._rejouer(record, chosen_by="moteur", parole=_parole(lu))
+        dto.relance = lu.question if lu else None
+
+        # 🔴 **L'ouverture est le premier tour, pas un préambule.** Elle ne s'écrivait pas dans
+        # le fil : la conversation ne commençait qu'au deuxième tour, et l'écran affichait la
+        # phrase d'ouverture par un **repli** — qui disparaissait dès qu'une ligne existait.
+        # Le pasteur voyait donc sa première phrase s'effacer en écrivant la deuxième.
+        await self._garder_le_fil(record.id, raw_input, dto)
+        return dto
+
+    async def _lire_le_vestibule(
+        self, *, church_id, author_id, texte: str, at, sujet_en_cours: str | None = None
+    ):
+        """Ce que le modèle comprend d'un tour **avant** qu'une préparation existe.
+
+        ⚠️ **Sans modèle, le vestibule s'efface — il ne bloque pas.** Un modèle injoignable,
+        un plafond atteint, aucune clé branchée : il n'y a alors personne pour conduire la
+        conversation, et refuser d'ouvrir laisserait le pasteur devant une porte close avec
+        rien pour la franchir. On rend `None`, l'appelant pose `confirme`, et le produit se
+        comporte comme avant le 22/08.
+
+        C'est la dégradation que la spec prévoit — *le pasteur perd de la finesse, jamais
+        l'accès* — et c'est la même règle que partout ailleurs ici : les adaptateurs `Null*`
+        sont des états de production, pas des modes dégradés."""
+        usage = await self.reservations.usage(church_id, author_id, at)
+        if usage.assistance_exhausted and not await self.tier.is_unlimited(author_id):
+            return None
+        return await self.resolver.vestibule(texte, sujet_en_cours=sujet_en_cours)
 
     # -- lecture ---------------------------------------------------------------
 
     async def list_mine(
-        self, *, actor_account_id: UUID, limit: int = 50
+        self, *, actor_account_id: UUID, limit: int = 50, rangees: bool = False
     ) -> list[PreparationRecord]:
         """Le fil d'accueil — **sans rejouer le moteur**.
 
@@ -454,7 +530,68 @@ class UrimStudyService:
         dernier tour. Elle vient du rejeu, et l'écran l'obtiendra en ouvrant la
         préparation. Le fil dit où l'on en est, pas ce qu'Urim a dit.
         """
-        return await self.studies.list_for_author(actor_account_id, limit=limit)
+        return await self.studies.list_for_author(
+            actor_account_id, limit=limit, rangees=rangees
+        )
+
+    #: Ce qu'un titre écrit à la main peut faire au plus long. Au-delà, ce n'est plus un
+    #: titre : c'est la première phrase, et elle a déjà sa place dans le fil.
+    TITRE_MAX = 120
+
+    async def rename(
+        self, *, actor_account_id: UUID, study_id: UUID, title: str | None
+    ) -> PreparationRecord:
+        """Nommer sa préparation — **ou reprendre le nom qu'elle avait toute seule**.
+
+        L'écran affichait `raw_input` tant que rien n'était résolu, puis l'étiquette de la
+        péricope. Les deux sont justes, et aucun des deux n'est choisi : trois préparations
+        ouvertes sur Romains se ressemblent dans un historique.
+
+        Un titre **vide efface le titre** au lieu d'en poser un blanc. C'est le seul moyen
+        de revenir à l'affichage automatique sans deviner une formule magique, et ça évite
+        qu'un champ effacé par mégarde laisse une ligne sans nom.
+        """
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        propre = (title or "").strip()
+        if len(propre) > self.TITRE_MAX:
+            raise TitreIllisibleError(limite=self.TITRE_MAX)
+
+        record.title = propre or None
+        await self.studies.save(record)
+        return record
+
+    async def ranger(
+        self, *, actor_account_id: UUID, study_id: UUID, rangee: bool
+    ) -> PreparationRecord:
+        """Sortir une préparation du fil, ou l'y ramener.
+
+        ⚠️ **Ce n'est pas `abandonnee`, et ce n'est pas une suppression.** « Abandonnée »
+        est posé par « reformuler » : la saisie rouvre sans rien conserver, c'est un
+        renoncement. Ranger est le contraire — on garde, on ne veut simplement plus le voir
+        en tête de liste. Rien n'est effacé, et le chemin du retour existe.
+
+        Une préparation close reste rangeable : « j'ai prêché celle-ci » n'oblige pas à la
+        garder sous les yeux six mois de plus.
+        """
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        if record.status == "abandonnee":
+            # Ranger ce qui a été abandonné écraserait la trace du renoncement, et le
+            # ramener le ressusciterait sans son contenu. On refuse plutôt que d'inventer.
+            raise RangementImpossibleError()
+
+        if rangee:
+            record.status = "rangee"
+        elif record.status == "rangee":
+            # Le retour rend l'état d'avant, et rien de plus : `closed_at` dit déjà si
+            # elle avait été prêchée.
+            record.status = "close" if record.closed_at else "ouverte"
+
+        await self.studies.save(record)
+        return record
 
     async def get(self, *, actor_account_id: UUID, study_id: UUID) -> StudyDTO:
         record = await self._charger(study_id)
@@ -535,6 +672,44 @@ class UrimStudyService:
         if idempotency_key is not None and idempotency_key == record.last_turn_key:
             return await self._rejouer(record, persist=False)
 
+        # ── Tant que le consentement n'est pas donné, **c'est le vestibule qui conduit** ──
+        #
+        # 🔴 **Le trou du 22/08, vu sur un téléphone.** Le vestibule était branché sur
+        # l'ouverture et sur rien d'autre : chaque phrase suivante repartait vers l'aiguilleur,
+        # qui ne connaît ni la maturité ni le sujet. La préparation restait donc en `absent`
+        # **pour toujours**, et le pasteur ne pouvait pas en sortir en parlant — « Jean 14:15 »
+        # s'entendait répondre qu'aucun texte n'était ouvert.
+        #
+        # Ici, un seul appel, un seul énoncé, et la maturité avance vraiment. L'aiguilleur et
+        # ses sept répondeurs ne servent qu'**après** le consentement, là où il y a un travail
+        # dont on peut parler.
+        if record.maturity != Maturite.CONFIRME:
+            lu = await self._lire_le_vestibule(
+                church_id=record.church_id,
+                author_id=record.author_id,
+                texte=raw_input,
+                at=self.clock(),
+                sujet_en_cours=record.carried_subject,
+            )
+            if lu is not None:
+                record.maturity = lu.maturite
+                # Le sujet ne s'efface pas sur un tour qui n'en porte pas : « bonjour » après
+                # « le pardon » ne doit pas faire perdre le pardon.
+                record.carried_subject = lu.sujet or record.carried_subject
+                await self.studies.save(record)
+
+            if idempotency_key is not None:
+                await self._marquer_parole(study_id, idempotency_key)
+            dto = await self._rejouer(record, persist=False, parole=_parole(lu))
+            dto.relance = lu.question if lu else None
+
+            # 🔴 **Le chemin du vestibule repartait sans rien garder**, et c'était le pire
+            # endroit : les tours d'avant le consentement sont précisément ceux où le pasteur
+            # cherche son sujet. Mesuré en direct le 24/08 — deux tours de parole, un fil
+            # resté vide.
+            await self._garder_le_fil(study_id, raw_input, dto)
+            return dto
+
         dto = await self._rejouer(record, persist=False)
         usage = await self.reservations.usage(
             record.church_id, record.author_id, self.clock()
@@ -567,6 +742,20 @@ class UrimStudyService:
                 stage_code=etage,
                 option_code=tour.refus,
             )
+        elif tour.intention == "changer_de_sujet" and _travail_commence(record):
+            # **§4 — un nouveau sujet suspend l'état, il ne s'y fond pas.**
+            #
+            # 🔴 Le défaut observé : une fois un sujet en mémoire, tout ce qui arrive est lu à
+            # travers lui. Le pasteur envoie Luc 15 alors qu'il travaillait sur le pardon, et
+            # l'agent lui répond sur le pardon — il répond avec ce qu'il a gardé, pas à la
+            # préoccupation du tour.
+            #
+            # On ne tranche pas à sa place : on **renvoie la préparation au vestibule**, qui
+            # posera la question. Aucun travail n'est perdu tant qu'il n'a pas choisi.
+            record.maturity = Maturite.NOMME
+            record.carried_subject = raw_input.strip()
+            await self.studies.save(record)
+            resultat = await self._rejouer(record, persist=False)
         else:
             dto.reponse = tour.reponse
             resultat = dto
@@ -575,10 +764,64 @@ class UrimStudyService:
         # plus simple et perdrait la parole : un geste qui echoue laisserait sa
         # cle brulee, et le renvoi serait ignore. Ici, seule une parole
         # reellement traitee ferme la porte derriere elle.
+        # ── Le fil se garde ────────────────────────────────────────────────────────────
+        #
+        # 🔴 Il disparaissait à chaque sortie d'écran. Le client affichait tout ce qu'il avait ;
+        # c'est le serveur qui ne gardait rien — la saisie d'ouverture, et c'est tout. Un
+        # pasteur qui s'arrêtait le mardi et reprenait le vendredi retrouvait une conversation
+        # vide devant un moteur qui, lui, se souvenait de tout.
+        #
+        # ⚠️ **On garde ce qui s'est dit, pas ce que le moteur a calculé.** Les pesées, les
+        # couples, les options se rejouent ; les paroles, non — elles viennent d'un modèle à
+        # un instant, et ne reviendront pas les mêmes.
+        await self._garder_le_fil(study_id, raw_input, resultat)
+
         if idempotency_key is not None:
             await self._marquer_parole(study_id, idempotency_key)
 
         return resultat
+
+    async def _garder_le_fil(
+        self, study_id: UUID, dit: str, resultat: StudyDTO
+    ) -> None:
+        """La parole du pasteur, puis ce que l'atelier lui a répondu.
+
+        ⚠️ **L'adresse se lit, elle ne se devine pas.** Si le pasteur désigne un point — « le
+        deuxième », « point 3 », ou les mots du point — sa phrase se range dessous. Sinon elle
+        reste une parole du fil, sans adresse, et c'est un état normal : *ça peut être point ou
+        pas, il peut mettre une pause et revenir changer*.
+
+        Ranger sous le point qu'il regarde serait le troisième chemin, et c'est le seul où la
+        machine décide — elle se tromperait, et il ne saurait pas pourquoi."""
+        maintenant = self.clock()
+
+        elements = await self.studies.list_elements(study_id)
+        points = tuple(
+            (e.element_code, e.ordinal, e.body or "")
+            for e in elements
+            if (e.body or "").strip()
+        )
+        vise = viser_un_point(dit, points)
+
+        await self.studies.append_thread(
+            ParoleDuFil(
+                id=uuid4(),
+                speaker="pasteur",
+                body=dit.strip(),
+                element_code=vise[0] if vise else None,
+                element_ordinal=vise[1] if vise else None,
+                written_at=maintenant,
+            ),
+            study_id=study_id,
+        )
+        repondu = (resultat.reponse or resultat.rationale or "").strip()
+        if repondu:
+            await self.studies.append_thread(
+                ParoleDuFil(
+                    id=uuid4(), speaker="urim", body=repondu, written_at=maintenant
+                ),
+                study_id=study_id,
+            )
 
     async def _marquer_parole(self, study_id: UUID, cle: str) -> None:
         """Relit puis ecrit : le geste a pu remplacer l'enregistrement en cours."""
@@ -658,6 +901,19 @@ class UrimStudyService:
         accident."""
         record = await self._charger(study_id)
         await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        # **RT1 — un sujet décliné ne revient pas.** Écarter la proposition du vestibule ne
+        # dit pas « pas maintenant », ça dit « pas celui-là » : le re-servir trois tours plus
+        # loin ferait de la conversation un harcèlement poli. Un autre candidat peut mûrir ;
+        # celui-ci est clos.
+        if stage_code == "vestibule" and record.carried_subject:
+            record.declined_subjects = (
+                *record.declined_subjects, record.carried_subject,
+            )
+            record.carried_subject = None
+            record.maturity = Maturite.ABSENT
+            await self.studies.save(record)
+
         await self.studies.dismiss(
             study_id=study_id,
             stage_code=stage_code,
@@ -669,6 +925,52 @@ class UrimStudyService:
         return await self._rejouer(record, persist=False)
 
     def _appliquer(self, record: PreparationRecord, stage: str, option: str) -> None:
+        if stage == "vestibule":
+            # 🔴 **Le seul endroit du dépôt où `confirme` s'écrit.**
+            #
+            # Ni le modèle, ni un défaut, ni une migration : un tour du pasteur, sur une
+            # option qu'un étage a offerte. C'est ce qui rend l'invariant I23 mécanique — une
+            # saisie qui souffle « ouvre une préparation » ne trouve aucun chemin jusqu'ici,
+            # parce que la sortie vient d'un étage franchi, jamais d'une chaîne de caractères.
+            if option == CONSENTIR:
+                # **`carried_subject` n'est pas effacé, et c'est le mécanisme** : c'est lui
+                # que `_rejouer` fait descendre. « le pardon » entre dans le moteur, pas
+                # « je voudrais travailler un peu sur le pardon aujourd'hui ».
+                record.maturity = Maturite.CONFIRME
+                return
+
+            if option == LIRE_SEULEMENT:
+                # **Lire n'engage rien, et c'est le défaut du produit.** Le moteur descend
+                # quand même — il faut bien résoudre le texte pour l'ouvrir — mais la
+                # préparation reste ce qu'elle est : une lecture. Le pasteur pourra préparer
+                # ensuite, et rien de ce qui suit n'aura été fait dans son dos.
+                record.maturity = Maturite.CONFIRME
+                if record.carried_subject:
+                    record.raw_input = record.carried_subject
+                return
+
+            if option == CHANGER:
+                # Le travail en cours n'est pas détruit : il reste dans le fil du pasteur,
+                # avec ses décisions. Celui-ci **repart de zéro** sur la nouvelle phrase.
+                # La nouvelle charge **reste** portée : c'est elle qui descend maintenant.
+                # L'effacer ferait repartir le moteur sur la phrase d'ouverture, c'est-à-dire
+                # sur le sujet que le pasteur vient précisément d'abandonner.
+                self._perimer(record, _TOUT_L_AVAL)
+                record.entry_mode = None
+                record.resolved_ref = None
+                record.maturity = Maturite.CONFIRME
+                return
+
+            if option == RATTACHER:
+                # **Sa phrase ne se perd pas** — elle reste dans le fil, comme tout ce qu'il a
+                # écrit. Ce qui est refusé, c'est qu'elle déplace le travail sans qu'il l'ait
+                # demandé.
+                record.carried_subject = None
+                record.maturity = Maturite.CONFIRME
+                return
+
+            raise OptionInconnueError(f"« {option} » n'est pas une issue du vestibule.")
+
         if stage == "route_entry":
             if option not in {m.value for m in EntryMode}:
                 raise OptionInconnueError(f"« {option} » n'est pas un mode d'entrée.")
@@ -941,6 +1243,82 @@ class UrimStudyService:
         await self.studies.set_elements(study_id, retenus)
         return await self._rejouer(record, persist=False)
 
+    async def promouvoir(
+        self,
+        *,
+        actor_account_id: UUID,
+        study_id: UUID,
+        entry_id: UUID,
+        element_code: str | None = None,
+        ordinal: int | None = None,
+    ) -> StudyDTO:
+        """Faire d'une note **un point du plan** — le seul chemin du fil vers le document.
+
+        🔴 **C'est ici que le verrou se tient.** Tout ce qui s'écrit dans le fil est gardé,
+        rangé, relisible — et n'atteint aucun fichier. Le livrable n'imprime que
+        `preparation_element`. Une note ne devient imprimable qu'en passant par ce geste, que
+        le pasteur seul déclenche.
+
+        ⚠️ **On ajoute, on ne remplace pas.** Sa note est le plus souvent une remarque *sur* le
+        point — *« le deuxième, il faut parler de la loi »* — pas le texte du point. L'écraser
+        lui ferait perdre ce qu'il avait écrit ; l'ajouter lui laisse la main, et il retaille.
+        C'est la règle de l'articulation, et pour la même raison.
+
+        ⚠️ **Une fois, et une seule.** `promote_thread` refuse la seconde reprise : deux points
+        identiques dans un plan, et le pasteur ne saurait plus lequel est le sien."""
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        parole = next(
+            (
+                p
+                for p in await self.studies.list_thread(study_id)
+                if p.id == entry_id and p.est_du_pasteur and not p.promue
+            ),
+            None,
+        )
+        if parole is None:
+            raise OptionInconnueError(
+                "Cette note n'existe pas, ou vous l'avez déjà reprise."
+            )
+
+        code = element_code or parole.element_code
+        rang = ordinal if ordinal is not None else parole.element_ordinal
+        if code is None:
+            # Une note sans adresse ne sait pas où aller, et la deviner serait décider à sa
+            # place quel point elle complète. On le dit, il désigne, il recommence.
+            raise OptionInconnueError(
+                "Cette note n'est posée sous aucun point. Dites lequel elle complète — "
+                "« le deuxième », « point 3 », ou les mots du point."
+            )
+
+        elements = list(await self.studies.list_elements(study_id))
+        vise = next(
+            (
+                e
+                for e in elements
+                if e.element_code == code and (rang is None or e.ordinal == rang)
+            ),
+            None,
+        )
+        if vise is None:
+            # Le point a disparu depuis qu'il a écrit — il l'a effacé, ou renommé. La note
+            # ouvre alors sa propre ligne plutôt que de se perdre.
+            elements.append(ElementRecord(code, rang or len(elements), parole.body))
+        else:
+            ancien = (vise.body or "").rstrip()
+            # Deux sauts de ligne : sa note est une phrase de plus sous son point, pas la
+            # suite de celle qu'il avait écrite.
+            vise.body = (
+                f"{ancien}\n\n{parole.body}" if ancien else parole.body
+            )
+
+        await self.set_elements(
+            actor_account_id=actor_account_id, study_id=study_id, elements=elements
+        )
+        await self.studies.promote_thread(entry_id, at=self.clock())
+        return await self._rejouer(record, persist=False)
+
     async def articuler(
         self, *, actor_account_id: UUID, study_id: UUID, element_code: str, ordinal: int
     ) -> PlanSuggestion | None:
@@ -1001,7 +1379,16 @@ class UrimStudyService:
                 author_id=record.author_id,
                 corpus_snapshot=record.corpus_snapshot or self.index.snapshot,
                 entry_mode=EntryMode(record.entry_mode) if record.entry_mode else None,
-                raw_input=record.raw_input,
+                # 🔴 **La charge nettoyée descend ; la phrase du pasteur reste la sienne.**
+            #
+            # J'avais d'abord réécrit `raw_input` au consentement — et ça ne persistait pas :
+            # la colonne n'est écrite qu'à la création, jamais au `save`. Le moteur travaillait
+            # donc sur « Je vais prêcher sur la vie d'Élie » quand j'annonçais « la vie d'Élie ».
+            #
+            # Ici c'est mieux que corrigé, c'est mieux placé : ce que le pasteur a écrit reste
+            # en base — c'est lui qui **titre** sa préparation dans le fil — et seul l'état du
+            # moteur porte la charge extraite.
+            raw_input=record.carried_subject or record.raw_input,
                 resolved=resolu,
                 bounds=self._bornes(record),
             )
@@ -1443,7 +1830,12 @@ class UrimStudyService:
     # -- rejeu ------------------------------------------------------------------
 
     async def _rejouer(
-        self, record: PreparationRecord, *, persist: bool = True, chosen_by: str | None = None
+        self,
+        record: PreparationRecord,
+        *,
+        persist: bool = True,
+        chosen_by: str | None = None,
+        parole: str | None = None,
     ) -> StudyDTO:
         maintenant = self.clock()
         usage = await self.reservations.usage(
@@ -1489,6 +1881,10 @@ class UrimStudyService:
             plan_source=record.plan_source,
             subject_matter=record.subject_matter,
             theme=record.theme,
+            maturity=record.maturity,
+            carried_subject=record.carried_subject,
+            declined_subjects=record.declined_subjects,
+            vestibule_reply=parole,
         )
 
         moteur = UrimEngine(deps)
@@ -1512,6 +1908,20 @@ class UrimStudyService:
         # manquait `chosen_ref`, ce qui a mis toutes les ouvertures en 500. Un seul évier, en
         # bas, qui écrit `ia` au lieu de `moteur` : ni le moteur ni le pasteur n'a tranché, et
         # confondre les trois effacerait la seule chose que cette colonne existe pour porter.
+        # 🔴 **Rien ne descend avant le consentement — le repli de résolution non plus.**
+        #
+        # Mesuré le 25/08 : le pasteur ouvre sur « Jean 3:16 », le vestibule arrête le moteur
+        # (c'est son travail, rien n'est résolu), le service voit « rien résolu » et déclenche
+        # son repli — une requête corpus, puis **un appel de modèle**. L'IA trouve Jean 3:16,
+        # le moteur est rejoué avec ce passage, et le vestibule voit alors un texte résolu :
+        # il croit qu'un travail est en cours et propose de *changer de sujet ou de rattacher*.
+        # Il parlait d'un travail qu'il venait lui-même de fabriquer, une ligne plus haut.
+        #
+        # Deux dégâts silencieux avec : un appel de modèle à chaque ouverture non consentie, et
+        # une résolution enregistrée pour un passage que le pasteur n'avait pas accepté de
+        # préparer.
+        descendu = record.maturity == Maturite.CONFIRME
+
         provenance = chosen_by
         #: L'identifiant de la version où la citation a été reconnue — `None` tant qu'aucune
         #: ne l'a été, ce qui reste le cas courant.
@@ -1521,7 +1931,12 @@ class UrimStudyService:
         # une intention. Cas mesuré : « l'amour ne perir jamais » est Darby mot pour mot, quand
         # Segond dit « la charité ». Aller la chercher coûte une requête ; la deviner coûterait
         # un appel de modèle, et rendrait moins sûr ce que le corpus sait déjà.
-        if persist and record.resolved_ref is None and run.state.resolved is None:
+        if (
+            persist
+            and descendu
+            and record.resolved_ref is None
+            and run.state.resolved is None
+        ):
             ailleurs = await self.ailleurs.retrouver(decouper(record.raw_input))
             if ailleurs is not None and ailleurs.score >= CITATION_AFFINITY:
                 provenance = "moteur"
@@ -1536,7 +1951,12 @@ class UrimStudyService:
                     )
                 )
 
-        if persist and record.resolved_ref is None and run.state.resolved is None:
+        if (
+            persist
+            and descendu
+            and record.resolved_ref is None
+            and run.state.resolved is None
+        ):
             sollicite = True
             trouve = await assiste.resolve(_lisible(record.raw_input))
             if trouve is not None and IndexedCorpusReader(self.index).check_reference(
@@ -1728,6 +2148,9 @@ class UrimStudyService:
                 await self.studies.list_dismissals(record.id),
             ),
             elements=tuple(await self.studies.list_elements(record.id)),
+            # **Le fil est lu, pas rejoué.** Tout ce qui l'entoure se recalcule ; ces
+            # paroles-là ne peuvent pas — elles ont été dites une fois.
+            fil=await self.studies.list_thread(record.id),
             supports=self._appuis(await self.studies.list_supports(record.id)),
             # Le mode **retenu par le moteur**, pas la colonne : elle reste vide tant que le
             # pasteur n'a rien corrigé, et le pasteur veut voir comment il a été lu.

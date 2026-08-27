@@ -26,7 +26,14 @@ import asyncio
 import json
 import re
 
-from app.contexts.urim.application.ports import NullVerseResolver, PlanSuggestion
+from app.contexts.urim.application.ports import (
+    LectureVestibule,
+    Maturite,
+    NullVerseResolver,
+    PlanSuggestion,
+    PointPropose,
+    SquelettePropose,
+)
 from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
 from app.core.config import Settings
 from app.core.logging import get_logger
@@ -204,6 +211,82 @@ _SYSTEME_AIGUILLAGE = (
     'Réponds par un objet JSON : {"intention": "..."} avec exactement un de ces sept codes.'
 )
 
+_SYSTEME_VESTIBULE = """\
+Un pasteur parle à un atelier de préparation de prédication. AUCUNE préparation n'est
+ouverte : tu es à la porte, et ton rôle est de comprendre où il en est — pas de le faire
+avancer de force.
+
+Tu rends un objet JSON avec EXACTEMENT ces six clés :
+
+- reply : ce que l'atelier lui répond. DEUX PHRASES AU PLUS, français simple. Tu ne cites JAMAIS
+  un verset, tu n'affirmes aucun fait biblique, historique ou culturel, et tu ne donnes aucun
+  conseil sur des personnes.
+- question : UNE relance ouverte, ou null s'il n'y a rien à demander.
+- maturite : où en est son sujet, parmi TROIS valeurs seulement.
+    absent    : il n'a pas de sujet — il salue, il parle d'autre chose, il hésite.
+    pressenti : quelque chose affleure (« la semaine a été dure ») mais ce n'est pas encore un
+    sujet de prédication. TU RELANCES, tu ne proposes rien.
+    nomme     : un sujet formulable est là (« deux familles qui ne se parlent plus », « le pardon
+    », « Luc 15 »). C'est le seul état où l'on propose.
+UNE RÉFÉRENCE SEULE — « Romains 8:32 », « Luc 15:11-32 », « Jean 14:15 » — est TOUJOURS
+`nomme`, et `propose_preparation` vaut vrai. Il vient de te donner son sujet : lui demander ce
+qu'il ressent avant de lui proposer d'ouvrir le texte serait le faire attendre pour rien.
+
+- sujet : la charge nettoyée de son emballage, en quelques mots, et **uniquement avec des
+  mots qu'il a écrits**. « Je voudrais travailler un peu sur le pardon aujourd'hui » donne
+  « le pardon » : on retire l'emballage, on ne remplace pas le contenu. Non nul dès
+  pressenti.
+  🔴 INTERDIT ABSOLU, mesuré le 25/08 : tu n'ajoutes AUCUNE référence qu'il n'a pas écrite.
+  « La réclamation du corps de Moïse » ne donne pas « Deutéronome 34:5-6 » — ça donne « la
+  réclamation du corps de Moïse ». Identifier le texte derrière un sujet n'est pas ton
+  travail : l'atelier a 31 170 versets pour ça, et il le fait après. Si tu substitues une
+  référence, tu l'envoies préparer un passage qu'il n'a pas demandé — et il ne le saura pas.
+  S'il nomme lui-même un passage, tu le reprends **tel qu'il l'a écrit**, sans le corriger
+  ni le compléter.
+- changement_de_sujet : vrai si ce message s'écarte du sujet en cours qu'on te donne.
+- propose_preparation : vrai seulement si maturite vaut nomme ET qu'il est temps de lui demander
+  s'il veut en faire une préparation.
+
+FORME — mesurée sur de vraies saisies le 22/08, et chaque ligne répare un écart observé :
+(a) tu VOUVOIES toujours. Le modèle a tutoyé une fois sur trois, et le pasteur changeait
+    d'interlocuteur d'une phrase à l'autre ;
+(b) `reply` et `question` ne disent JAMAIS la même chose. Poser la question dans les deux la
+    fait lire deux fois ;
+(c) tu n'annonces aucun début : « on va commencer », « c'est parti », « je prépare » sont
+    interdits — il n'y a rien de commencé tant qu'il n'a pas dit oui.
+
+QUAND IL POSE UNE QUESTION DE FAIT — le nombre de lettres de Paul, une date, qui a écrit
+quoi, le sens d'un mot :
+(e) tu ne retournes JAMAIS la question sur ce qu'il ressent. « Qu'est-ce qui vous fait penser
+    à ses écrits en ce moment ? », « qu'est-ce qui vous attire dans la vie de Paul ? » sont
+    interdits : il a posé une question, pas confié un état d'âme ;
+(f) tu ne donnes JAMAIS la réponse toi-même — surtout si tu crois la connaître. « Paul a
+    écrit treize lettres » est interdit : ce que l'atelier sait vient du corpus relu, et ce
+    que tu crois savoir n'en vient pas. Tu dis que la réponse se trouve dans le texte, et tu
+    proposes le geste utile : ouvrir un passage.
+
+FORME DE LA RÉPONSE :
+(g) `reply` ne pose AUCUNE question. Elle accueille, elle constate, elle situe. La question
+    va dans `question`, et il n'y en a qu'une. Deux questions dans le même tour donnent à un
+    pasteur l'impression d'être interrogé.
+
+RETENUE — ce sont des interdits, pas des préférences :
+(1) tu ne proposes RIEN depuis absent ou pressenti ; trop tôt, tu forces la main ;
+(2) tu ne présupposes jamais ce qu'il veut — « vous voulez parler de la brebis perdue, n'est-ce
+pas ? » est interdit ;
+(3) tu ne réponds pas à sa question à la place de l'atelier : tu accueilles, et tu relances ;
+(4) tu ne dis jamais qu'une préparation est ouverte, commencée ou enregistrée — ce n'est pas toi
+qui ouvres.
+
+La valeur "confirme" n'existe pas pour toi. Si le pasteur vient de dire oui, ce n'est pas ton
+affaire : rends nomme.
+"""
+
+
+#: 🔴 **`confirme` n'y est pas, et c'est tout le mécanisme.** Un sujet ne devient confirmé que
+#: par un tour du pasteur ; le modèle qui l'écrirait verrait sa valeur ramenée à `absent`.
+MATURITES_DU_MODELE = Maturite.DU_MODELE
+
 #: ⚠️ **Fermé.** Un code hors liste est jeté à la source — même règle que `_LOCI_CONNUS`.
 INTENTIONS_CONNUES = frozenset({
     "preciser", "interroger_texte", "interroger_travail",
@@ -250,6 +333,38 @@ def _reference_depuis(contenu: str) -> Reference | None:
 #: 3. **du français simple** — une note de préparation n'est pas un article de revue, et le
 #:    pasteur ne doit pas traduire son propre travail pour s'en servir ;
 #: 4. **court** — quelques phrases. Un paragraphe long se recopie ; trois phrases se retravaillent.
+_SYSTEME_SQUELETTE = """\
+Tu proposes un SQUELETTE de prédication à un pasteur : un titre, trois ou quatre points, et
+sous chaque point les versets du passage qui le portent.
+
+⚠️ Ce n'est PAS son plan. C'est une proposition posée à côté du sien, qu'il reprendra point par
+point s'il le veut, et qu'il retaillera. Écris donc ce qu'un confrère proposerait pour lancer
+la discussion — pas un sermon fini.
+
+On te donne : la référence du passage, son texte entier, l'axe doctrinal que le pasteur a
+retenu, et la forme de plan qu'il a choisie. Tu rends un objet JSON :
+
+{"titre": "…", "points": [{"titre": "…", "versets": ["Rm 3:23", "Rm 3:24"]}, …]}
+
+INTERDICTIONS ABSOLUES :
+(1) les références de `versets` sont prises DANS le texte fourni, et nulle part ailleurs. Tu
+    ne cites aucun autre passage de la Bible, même si tu le connais et qu'il conviendrait :
+    ce que tu n'as pas sous les yeux n'existe pas pour cette tâche ;
+(2) tu n'affirmes aucun fait historique, culturel ou linguistique — ni date, ni coutume, ni
+    étymologie ;
+(3) tu n'écris pas le développement : un point est un TITRE de point, une phrase courte. Le
+    pasteur le développera lui-même, ou te le demandera point par point ;
+(4) tu n'inventes ni illustration, ni anecdote, ni témoignage.
+
+FORME — mesurée sur des prédications réelles :
+(a) TROIS OU QUATRE points, jamais plus, jamais moins de deux ;
+(b) chaque point suit le mouvement du texte dans l'ordre où il se lit ;
+(c) le titre naît du texte, pas d'une idée générale : il reprend un mot ou une tournure du
+    passage plutôt qu'un thème abstrait ;
+(d) français simple et direct, comme on parle en chaire.
+"""
+
+
 _SYSTEME_ARTICULATION = (
     "Tu aides un pasteur à développer UN point de son plan de prédication. On te donne : son "
     "point tel qu'il l'a écrit, la référence du passage qu'il prêche, le texte de ce "
@@ -358,6 +473,68 @@ class MistralAssistant:
             self.echecs += 1
             _logger.warning("mistral_echec", error=str(erreur))
             return None
+
+    async def squelette(
+        self, *, reference: str, texte: str, axe: str, forme: str
+    ) -> SquelettePropose | None:
+        """Un titre, trois ou quatre points, et les versets qui les portent.
+
+        ⚠️ **Les références ne sont pas vérifiées ici, et c'est délibéré.** L'adaptateur n'a
+        pas le corpus : il ne sait pas si « Rm 3:31 » est dans la péricope servie. La
+        vérification se fait chez l'appelant, qui l'a — et elle **retire** ce qu'elle ne
+        retrouve pas plutôt que de le signaler. Un verset inventé ne doit pas atteindre
+        l'écran, même accompagné d'un avertissement.
+
+        Ce qui est tenu ici est plus étroit : la forme du JSON, le nombre de points, et le
+        refus de rendre quoi que ce soit d'inexploitable."""
+        demande = "\n".join((
+            f"Passage : {reference}",
+            f"Axe doctrinal retenu par le pasteur : {axe}",
+            f"Forme de plan choisie : {forme}",
+            f"Texte du passage :\n{texte}",
+        ))
+        contenu = await self.demander(_SYSTEME_SQUELETTE, demande, etiquette="squelette")
+        if not contenu:
+            return None
+
+        try:
+            lu = json.loads(contenu)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(lu, dict):
+            return None
+
+        points = []
+        for brut in lu.get("points") or ():
+            if not isinstance(brut, dict):
+                continue
+            titre = (brut.get("titre") or "").strip()
+            if not titre:
+                continue
+            # **Dédoublonné, dans l'ordre.** Mesuré le 22/08 sur Romains 3 : le modèle rend
+            # « Romains 3:21, Romains 3:21, Romains 3:21 ». Trois fois la même référence sous
+            # un point ne dit pas trois choses — elle occupe la place de celles qu'il aurait
+            # pu citer.
+            versets: tuple[str, ...] = ()
+            for v in brut.get("versets") or ():
+                ref = str(v).strip()
+                if ref and ref not in versets:
+                    versets = (*versets, ref)
+            points.append(PointPropose(titre=titre, versets=versets))
+
+        if not points:
+            # Un squelette sans point n'est pas une proposition maigre, c'est une réponse
+            # qu'on n'a pas comprise. On rend `None` : le pasteur écrit son plan.
+            return None
+
+        # **La borne haute est tenue par le code** (G6, constaté sur trois prédications
+        # réelles). Une consigne dans l'invite n'est pas une garantie, et cinq points
+        # feraient perdre au pasteur ce qui rend un plan tenable en chaire.
+        return SquelettePropose(
+            titre=(lu.get("titre") or "").strip(),
+            points=tuple(points[:4]),
+            model=self._model,
+        )
 
     async def articuler(
         self, *, point: str, reference: str, texte: str, suivant: str, appuis: str = ""
@@ -474,6 +651,70 @@ class MistralAssistant:
         # **Un seul passage rendu n'en est pas un** : il aurait l'autorité d'une résolution
         # sans en avoir passé les vérifications. On préfère ne rien proposer.
         return tuple(proposes) if len(proposes) > 1 else ()
+
+    async def vestibule(
+        self, text: str, *, sujet_en_cours: str | None = None
+    ) -> LectureVestibule | None:
+        """Le tour d'un pasteur sans préparation ouverte → **une lecture**, ou rien.
+
+        C'est le seul appel où le modèle **conduit**. Ailleurs il annote, il propose, il
+        classe ; ici il lit le tour et écrit la phrase que le pasteur verra. Ce n'est
+        défendable que parce qu'il n'y a rien à désigner : aucune option à l'écran, aucun
+        texte servi, aucune décision à prendre. Le seul dégât possible est une phrase mal
+        tournée — jamais un verset faux, jamais une préparation ouverte.
+
+        ## La validation, et ce qu'elle ferme
+
+        Trois choses sont vérifiées **ici**, à la source, et pas plus loin :
+
+        - `maturite` hors des trois valeurs → on retombe sur `absent`. Le modèle ne peut donc
+          pas fabriquer un état inconnu, et surtout **il ne peut pas rendre `confirme`** :
+          c'est l'invariant I26, et c'est ce qui empêche une saisie de souffler l'ouverture.
+        - `propose_preparation` vrai depuis autre chose que `nomme` → ramené à faux. La
+          retenue RT4 devient une contrainte, pas une consigne.
+        - `sujet` vide → nul. Un sujet blanc ferait mûrir sur du vide.
+
+        ⚠️ **`reply` n'est pas vérifiée, et c'est assumé.** Aucune règle mécanique ne dit si
+        deux phrases sont justes. Ce qui la rend inoffensive est ailleurs : elle ne sort
+        jamais du vestibule, elle ne cite aucun texte servi, et le corps du produit ne la lit
+        pas."""
+        # Le sujet en cours voyage en tête, séparé : sans lui, le modèle ne peut pas dire
+        # qu'un tour s'écarte de ce qui était en train de mûrir (§4, la suspension).
+        demande = (
+            text
+            if not sujet_en_cours
+            else f"Sujet en cours : {sujet_en_cours}\n---\n{text}"
+        )
+        contenu = await self.demander(_SYSTEME_VESTIBULE, demande, etiquette="vestibule")
+        if not contenu:
+            return None
+
+        try:
+            lu = json.loads(contenu)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(lu, dict):
+            return None
+
+        maturite = lu.get("maturite")
+        if maturite not in MATURITES_DU_MODELE:
+            maturite = Maturite.ABSENT
+
+        sujet = (lu.get("sujet") or "").strip() or None
+        question = (lu.get("question") or "").strip() or None
+
+        return LectureVestibule(
+            reply=(lu.get("reply") or "").strip(),
+            question=question,
+            maturite=maturite,
+            sujet=sujet,
+            changement_de_sujet=lu.get("changement_de_sujet") is True,
+            # RT4 tenue par le code : proposer depuis un thème effleuré force la main, et
+            # une consigne dans l'invite n'est pas une garantie.
+            propose_preparation=(
+                lu.get("propose_preparation") is True and maturite == Maturite.NOMME
+            ),
+        )
 
     async def aiguiller(self, text: str) -> str | None:
         """Le tour du pasteur → **une intention**, ou rien.

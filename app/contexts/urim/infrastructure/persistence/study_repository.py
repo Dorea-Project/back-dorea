@@ -8,7 +8,7 @@ c'est l'index unique qui tranche.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, update
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.urim.application.ports import (
     ElementRecord,
+    ParoleDuFil,
     PlanSuggestion,
     PreparationRecord,
     SuggestionSnapshot,
@@ -33,6 +34,7 @@ from app.contexts.urim.infrastructure.persistence.models import (
     UrimPreparationSupportModel,
     UrimResolutionAttemptModel,
     UrimStudyReservationModel,
+    UrimThreadEntryModel,
     UrimUsageWindowModel,
 )
 
@@ -59,6 +61,26 @@ _PLAFOND_DEFAUT = 500
 _QUOTA_PERSONNEL = 500
 
 
+def _parole(row: UrimThreadEntryModel) -> ParoleDuFil:
+    return ParoleDuFil(
+        id=row.id,
+        speaker=row.speaker,
+        body=row.body,
+        element_code=row.element_code,
+        element_ordinal=row.element_ordinal,
+        promue=row.promoted_at is not None,
+        written_at=row.written_at,
+    )
+
+
+#: Ce qui ne remonte pas dans le fil.
+#:
+#: `abandonnee` est pose par « reformuler » — la saisie rouvre sans rien conserver.
+#: `rangee` est le geste du pasteur qui ne veut plus voir un travail sans le perdre.
+#: Les deux quittent la liste, aucun des deux ne quitte la base, et **rien n'efface**.
+_HORS_DU_FIL = ("abandonnee", "rangee")
+
+
 class SqlStudyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
@@ -73,6 +95,9 @@ class SqlStudyRepository:
             entry_origin=record.entry_origin,
             citation_version=record.citation_version,
             corpus_snapshot=record.corpus_snapshot,
+            maturity=record.maturity,
+            carried_subject=record.carried_subject,
+            declined_subjects=list(record.declined_subjects),
             pericope_id=record.pericope_id,
             version_id=record.version_id,
             axis_code=record.axis_code,
@@ -99,10 +124,14 @@ class SqlStudyRepository:
             church_id=row.church_id,
             author_id=row.author_id,
             raw_input=row.raw_input,
+                title=row.title,
             entry_mode=row.entry_mode,
             entry_origin=row.entry_origin,
             citation_version=row.citation_version,
             corpus_snapshot=row.corpus_snapshot,
+            maturity=row.maturity,
+            carried_subject=row.carried_subject,
+            declined_subjects=tuple(row.declined_subjects or ()),
             resolved_ref=await self._dernier_choix(study_id),
             pericope_id=row.pericope_id,
             # Le bornage forcé se **déduit** : des bornes explicites sans unité curée, il
@@ -129,6 +158,7 @@ class SqlStudyRepository:
         row = await self._s.get(UrimPreparationModel, record.id)
         if row is None:
             return
+        row.title = record.title
         row.entry_mode = record.entry_mode
         row.entry_origin = record.entry_origin
         row.citation_version = record.citation_version
@@ -144,6 +174,9 @@ class SqlStudyRepository:
         row.last_outcome = record.last_outcome
         row.last_turn_at = record.last_turn_at
         row.last_turn_key = record.last_turn_key
+        row.maturity = record.maturity
+        row.carried_subject = record.carried_subject
+        row.declined_subjects = list(record.declined_subjects)
         row.closed_at = record.closed_at
         if record.bounds_overridden:
             ref = record.resolved_ref.split("|") if record.resolved_ref else []
@@ -167,6 +200,45 @@ class SqlStudyRepository:
             .order_by(UrimResolutionAttemptModel.attempted_at.desc())
             .limit(1)
         )
+
+    # -- le fil ----------------------------------------------------------------
+
+    async def append_thread(self, parole: ParoleDuFil, *, study_id: UUID) -> None:
+        """Garder ce qui vient d'être dit — **on ajoute, on n'écrase jamais**.
+
+        Le fil est un journal : une parole reformulée est une parole de plus, pas une
+        correction de la précédente. C'est ce qui permet au pasteur de relire comment il en
+        est arrivé là, et pas seulement où il en est."""
+        self._s.add(UrimThreadEntryModel(
+            id=parole.id,
+            preparation_id=study_id,
+            speaker=parole.speaker,
+            body=parole.body,
+            element_code=parole.element_code,
+            element_ordinal=parole.element_ordinal,
+            written_at=parole.written_at or datetime.now(UTC),
+        ))
+        await self._s.flush()
+
+    async def list_thread(self, study_id: UUID) -> tuple[ParoleDuFil, ...]:
+        rows = (await self._s.scalars(
+            select(UrimThreadEntryModel)
+            .where(UrimThreadEntryModel.preparation_id == study_id)
+            .order_by(UrimThreadEntryModel.written_at)
+        )).all()
+        return tuple(_parole(row) for row in rows)
+
+    async def promote_thread(
+        self, entry_id: UUID, *, at: datetime
+    ) -> ParoleDuFil | None:
+        """⚠️ **Une fois, et une seule.** Reprendre deux fois la même note écrirait deux points
+        identiques dans le plan — et le pasteur ne saurait pas lequel est le sien."""
+        row = await self._s.get(UrimThreadEntryModel, entry_id)
+        if row is None or row.promoted_at is not None:
+            return None
+        row.promoted_at = at
+        await self._s.flush()
+        return _parole(row)
 
     async def record_attempt(
         self,
@@ -385,7 +457,7 @@ class SqlStudyRepository:
         )
 
     async def list_for_author(
-        self, author_id: UUID, *, limit: int = 50
+        self, author_id: UUID, *, limit: int = 50, rangees: bool = False
     ) -> list[PreparationRecord]:
         """Le fil : **ses** préparations, la plus fraîchement touchée en tête.
 
@@ -395,11 +467,19 @@ class SqlStudyRepository:
 
         Les abandonnées ne remontent pas. Les closes, si : « j'ai prêché
         celle-ci » est justement ce qu'on vient revoir.
+
+        ⚠️ **`rangees=True` rend l'inverse — et il le faut.** Ranger une
+        préparation la sort du fil ; si rien ne savait la retrouver, ranger
+        vaudrait perdre, et le geste serait une trappe.
         """
         rows = await self._s.execute(
             select(UrimPreparationModel)
             .where(UrimPreparationModel.author_id == author_id)
-            .where(UrimPreparationModel.status != "abandonnee")
+            .where(
+                UrimPreparationModel.status == "rangee"
+                if rangees
+                else UrimPreparationModel.status.notin_(_HORS_DU_FIL)
+            )
             .order_by(
                 # La dernière activité d'abord, et l'ouverture comme repli :
                 # une préparation ouverte dont le moteur n'a pas encore rendu
@@ -419,6 +499,7 @@ class SqlStudyRepository:
                 church_id=row.church_id,
                 author_id=row.author_id,
                 raw_input=row.raw_input,
+                title=row.title,
                 entry_mode=row.entry_mode,
                 entry_origin=row.entry_origin,
                 pericope_id=row.pericope_id,

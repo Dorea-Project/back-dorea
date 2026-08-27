@@ -134,6 +134,34 @@ class TraceEntry:
     rationale: str
 
 
+class Maturite:
+    """Les quatre âges d'un sujet, et **le quatrième n'appartient pas au modèle**.
+
+    Un état binaire ne suffisait pas : proposer sur un thème effleuré force la main, ne rien
+    proposer laisse le pasteur repartir les mains vides. Entre les deux il y a un moment, et
+    c'est le moment du produit.
+
+        absent      rien           on converse
+        pressenti   un thème       on relance — on ne propose pas
+        nomme       un sujet       on propose une préparation
+        confirme    un oui         le moteur ouvre
+
+    🔴 **`CONFIRME` ne peut naître que d'un tour du pasteur.** Le modèle ne le rend jamais, et
+    la validation le refuse à la source. C'est l'invariant I26, et c'est lui qui empêche une
+    saisie malveillante — ou serviable — d'ouvrir une préparation en se contentant de le dire.
+    """
+
+    ABSENT = "absent"
+    PRESSENTI = "pressenti"
+    NOMME = "nomme"
+    CONFIRME = "confirme"
+
+    #: Ce que le modèle a le droit de rendre. `CONFIRME` en est **exclu**.
+    DU_MODELE = frozenset({ABSENT, PRESSENTI, NOMME})
+
+    TOUTES = frozenset({ABSENT, PRESSENTI, NOMME, CONFIRME})
+
+
 @dataclass(frozen=True, slots=True)
 class StudyState:
     session_id: UUID
@@ -242,6 +270,35 @@ class StudyState:
     pericope_id: UUID | None = None
     bounds_overridden: bool = False
     version_id: UUID | None = None
+    #: --- Le vestibule (§ vestibule v2) -----------------------------------------------------
+    #:
+    #: Où en est le **sujet**, avant qu'aucun travail n'ait commencé. Un seul étage la lit,
+    #: et c'est le seul qui puisse arrêter le pipeline avant la porte d'entrée.
+    #:
+    #: 🔴 **`confirme` ne vient jamais du modèle.** Il naît d'un tour du pasteur, et de rien
+    #: d'autre : c'est ce qui rend l'ouverture inatteignable par une saisie qui la souffle.
+    maturity: str = "absent"
+
+    #: La charge **nettoyée de son emballage** — « je voudrais travailler un peu sur le pardon
+    #: aujourd'hui » donne « le pardon ».
+    #:
+    #: ⚠️ C'est **elle** qui descend dans `route_entry` au consentement, pas `raw_input`. Le
+    #: déterministe ne sait pas faire cette extraction ; c'est la seule raison pour laquelle un
+    #: modèle intervient à cet endroit.
+    carried_subject: str | None = None
+
+    #: La phrase que la bordure a écrite pour ce tour — **la seule prose du modèle que le
+    #: pasteur lise avant d'avoir consenti**.
+    #:
+    #: Elle voyage dans l'état plutôt que d'être fabriquée par l'étage, parce qu'aucun étage
+    #: n'appelle un modèle : la règle de séparation vaut ici comme ailleurs. Nulle, l'étage
+    #: retombe sur une phrase fixe — le vestibule ne bloque jamais.
+    vestibule_reply: str | None = None
+
+    #: Les sujets que le pasteur a déclinés. **Un sujet décliné ne revient pas** (RT1) — sans
+    #: quoi la conversation devient un harcèlement poli.
+    declined_subjects: tuple[str, ...] = ()
+
     axis: str | None = None
     plan_source: str | None = None
     subject_matter: str | None = None

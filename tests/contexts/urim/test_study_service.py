@@ -39,6 +39,8 @@ import pytest
 
 from app.contexts.urim.application.conversation import lire_la_notation
 from app.contexts.urim.application.ports import (
+    ElementRecord,
+    ParoleDuFil,
     PreparationRecord,
     StudyDTO,
     UsageSnapshot,
@@ -66,6 +68,9 @@ LOCI = (
 UNITE = UUID("11111111-2222-3333-4444-555555555555")
 EGLISE, AUTEUR = uuid4(), uuid4()
 MAINTENANT = datetime(2026, 8, 10, tzinfo=UTC)
+
+#: L'identifiant d'une note du fil, dans les tests de promotion.
+NOTE = UUID('11111111-2222-3333-4444-555555555555')
 
 #: Hébreux 13:1-6 — l'unité sur laquelle le Pasteur X a buté. Deux versets suffisent à
 #: éprouver le service : ce qu'on mesure ici, c'est la bordure, pas l'exégèse.
@@ -127,6 +132,11 @@ class _Studies:
         #: Le mémo des suggestions — une doublure sans lui ferait redemander le modèle à
         #: chaque rejeu, donc mesurerait un service que la production n'a plus.
         self.memos: dict[UUID, object] = {}
+        #: ⚠️ **Par instance, jamais par classe.** Écrits en attributs de classe,
+        #: ils étaient partagés par toutes les doublures : un test polluait le
+        #: suivant, et le fil d'une préparation contenait les paroles d'une autre.
+        self.fil: list = []
+        self.elements: list = []
 
     async def add(self, record): self.records[record.id] = record
 
@@ -146,9 +156,31 @@ class _Studies:
             "version_detected": version_detected,
         })
 
-    async def set_elements(self, study_id, elements): ...
+    async def set_elements(self, study_id, elements):
+        self.elements = list(elements)
 
-    async def list_elements(self, study_id): return []
+    #: --- Le fil (2026-08-23) ---------------------------------------------------------------
+    #:
+    #: ⚠️ **Le double garde vraiment**, et il le faut : la promotion lit le fil, écrit un
+    #: élément, puis marque la note. Une doublure qui oublierait l'un des trois laisserait
+    #: passer un verrou cassé — c'est exactement ce que l'en-tête de cette classe reproche
+    #: aux doublures permissives.
+
+    async def append_thread(self, parole, *, study_id):
+        self.fil.append(parole)
+
+    async def list_thread(self, study_id):
+        return tuple(self.fil)
+
+    async def promote_thread(self, entry_id, *, at):
+        for i, parole in enumerate(self.fil):
+            if parole.id == entry_id and not parole.promue:
+                from dataclasses import replace
+                self.fil[i] = replace(parole, promue=True)
+                return self.fil[i]
+        return None
+
+    async def list_elements(self, study_id): return list(self.elements)
 
     async def set_supports(self, study_id, supports):
         self.supports[study_id] = list(supports)
@@ -230,6 +262,12 @@ class _Modele:
     async def passages(self, text):
         self.recu.append(text)
         return self._passages
+
+    async def vestibule(self, text, *, sujet_en_cours=None):
+        """Le double ne conduit pas de conversation : **il s'efface**, comme un modèle
+        injoignable, et la préparation descend sans consentement — le régime d'avant le
+        vestibule, qui est ce que ces tests éprouvent."""
+        return None
 
     async def aiguiller(self, text):
         self.aiguillages.append(text)
@@ -1240,3 +1278,115 @@ async def test_une_notation_qui_vise_deux_options_rend_la_main():
 
     assert apres.resolved_label is None, "rien n'a été décidé"
     assert modele.aiguillages == ["Hb 13v1"], "l'aiguilleur a pris le tour"
+
+
+# ============================================== la promotion — le seul chemin vers le document
+
+
+@pytest.mark.asyncio
+async def test_une_note_devient_un_point_sans_ecraser_ce_qui_etait_ecrit():
+    """🔴 **Le verrou du produit, et il tient ici.**
+
+    Tout ce qui s'écrit dans le fil est gardé, rangé, relisible — et n'atteint aucun fichier.
+    Le livrable n'imprime que `preparation_element`. Ce geste est le seul pont, et c'est le
+    pasteur qui le franchit.
+
+    ⚠️ **On ajoute, on ne remplace pas.** Sa note est le plus souvent une remarque *sur* le
+    point — « le deuxième, il faut parler de la loi » — pas le texte du point."""
+    service = _service()
+    etude = await _ouvrir(service, "Romains 3:21-30")
+    study_id = etude.record.id
+
+    await service.set_elements(
+        actor_account_id=AUTEUR, study_id=study_id,
+        elements=[ElementRecord("divisions", 0, "I. La justice manifestée")],
+    )
+    await service.studies.append_thread(
+        ParoleDuFil(
+            id=NOTE, speaker="pasteur", body="il faut parler de la loi",
+            element_code="divisions", element_ordinal=0, written_at=MAINTENANT,
+        ),
+        study_id=study_id,
+    )
+
+    apres = await service.promouvoir(
+        actor_account_id=AUTEUR, study_id=study_id, entry_id=NOTE
+    )
+
+    point = next(e for e in apres.elements if e.element_code == "divisions")
+    # Deux sauts de ligne : sa note est une phrase de plus sous son point.
+    assert point.body == "I. La justice manifestée\n\nil faut parler de la loi"
+
+
+@pytest.mark.asyncio
+async def test_une_note_ne_se_reprend_pas_deux_fois():
+    """Deux points identiques dans un plan, et le pasteur ne saurait plus lequel est le sien."""
+    service = _service()
+    etude = await _ouvrir(service, "Romains 3:21-30")
+    study_id = etude.record.id
+
+    await service.set_elements(
+        actor_account_id=AUTEUR, study_id=study_id,
+        elements=[ElementRecord("divisions", 0, "I. La justice")],
+    )
+    await service.studies.append_thread(
+        ParoleDuFil(
+            id=NOTE, speaker="pasteur", body="et la loi",
+            element_code="divisions", element_ordinal=0, written_at=MAINTENANT,
+        ),
+        study_id=study_id,
+    )
+    await service.promouvoir(
+        actor_account_id=AUTEUR, study_id=study_id, entry_id=NOTE
+    )
+
+    with pytest.raises(OptionInconnueError):
+        await service.promouvoir(
+            actor_account_id=AUTEUR, study_id=study_id, entry_id=NOTE
+        )
+
+
+@pytest.mark.asyncio
+async def test_une_note_sans_adresse_demande_ou_elle_va():
+    """Deviner quel point elle complète serait décider à sa place — ce que tout le mécanisme
+    du fil existe pour ne pas faire."""
+    service = _service()
+    etude = await _ouvrir(service, "Romains 3:21-30")
+    study_id = etude.record.id
+
+    await service.studies.append_thread(
+        ParoleDuFil(
+            id=NOTE, speaker="pasteur", body="il faut parler de la loi ici",
+            written_at=MAINTENANT,
+        ),
+        study_id=study_id,
+    )
+
+    with pytest.raises(OptionInconnueError) as leve:
+        await service.promouvoir(
+            actor_account_id=AUTEUR, study_id=study_id, entry_id=NOTE
+        )
+    assert "sous aucun point" in str(leve.value)
+
+
+@pytest.mark.asyncio
+async def test_le_fil_garde_ce_qui_s_est_dit():
+    """*« Le fil de discussion disparaît lorsqu'on revient. »* Il ne disparaît plus : la parole
+    du pasteur **et** la réponse d'Urim sont écrites, dans l'ordre."""
+    service = _service()
+    etude = await _ouvrir(service, "Romains 3:21-30")
+
+    await service.dire(
+        actor_account_id=AUTEUR, study_id=etude.record.id, raw_input="et la loi alors ?"
+    )
+
+    fil = await service.studies.list_thread(etude.record.id)
+
+    # **L'ouverture est le premier tour, pas un préambule** : elle s'écrit dans le fil comme
+    # les suivants. Sans elle, l'écran affichait la première phrase par un repli — qui
+    # disparaissait dès qu'une ligne existait, et le pasteur voyait sa phrase s'effacer en
+    # écrivant la deuxième.
+    assert [p.speaker for p in fil] == ["pasteur", "urim", "pasteur", "urim"]
+    assert fil[0].body == "Romains 3:21-30", "la saisie d'ouverture ouvre le fil"
+    assert fil[2].body == "et la loi alors ?"
+    assert fil[3].body, "ce qu'Urim a répondu est gardé aussi — il ne se rejouera pas"

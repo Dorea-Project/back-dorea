@@ -73,7 +73,7 @@ class UrimPreparationModel(Base):
             "entry_mode IN ('reference','citation','conviction')", name="prep_entry_mode"
         ),
         CheckConstraint(
-            "status IN ('ouverte','close','abandonnee')", name="prep_status"
+            "status IN ('ouverte','close','abandonnee','rangee')", name="prep_status"
         ),
         Index("ix_urim_prep_auteur", "author_id", "opened_at"),
     )
@@ -86,6 +86,10 @@ class UrimPreparationModel(Base):
     author_id: Mapped[UUID] = mapped_column(Uuid)  # propriétaire réel
     entry_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     raw_input: Mapped[str] = mapped_column(Text)
+    #: Le titre ecrit a la main. **Nullable, et il le reste** : il ne remplace pas la
+    #: regle d'affichage — `raw_input` tant que rien n'est resolu, puis l'etiquette de
+    #: la pericope — il passe devant quand le pasteur en a pose un.
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Ce que le détecteur d'entrée a cru voir, conservé à côté de ce qu'il a fait. Une entrée
     #: dictée par un micro ouvert ne se corrige pas comme une faute de frappe (S36).
     entry_origin: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -102,6 +106,22 @@ class UrimPreparationModel(Base):
     #: dérive serait silencieuse — on croirait relire, on recalculerait. Nullable, parce
     #: que les préparations antérieures n'en ont pas et que le prétendre serait faux.
     corpus_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: --- Le vestibule (2026-08-22) ---------------------------------------------------------
+    #:
+    #: 🔴 **La colonne qui empêche une préparation de s'ouvrir toute seule.** Sous l'ancien
+    #: régime, écrire une phrase et ouvrir une préparation étaient le même geste : 150 lignes
+    #: vides en base, ouvertes sur un « bonjour ».
+    #:
+    #: La contrainte `ck_urim_preparation_maturity` ferme la liste en base — une valeur inventée
+    #: par un correctif pressé ne s'écrit pas.
+    maturity: Mapped[str] = mapped_column(String(16), default="absent", server_default="absent")
+
+    #: La charge nettoyée de son emballage, telle que le vestibule l'a extraite.
+    carried_subject: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: Les sujets déclinés — un sujet écarté ne se re-propose pas (RT1).
+    declined_subjects: Mapped[list] = mapped_column(JSON, default=list, server_default="'[]'")
 
     #: Colonnes nues — jamais de FK vers le corpus (§3.9).
     pericope_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
@@ -146,6 +166,39 @@ class UrimPreparationModel(Base):
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class UrimThreadEntryModel(Base):
+    """Le fil — **ce qui se dit, gardé dans l'ordre**.
+
+    🔴 Sans cette table, la conversation vivait en mémoire d'écran : on quittait, on revenait,
+    et tout ce qu'on avait dit avait disparu. Seule la saisie d'ouverture survivait, parce
+    qu'elle est une colonne de la préparation.
+
+    ⚠️ **Une note attachée à un point est une ligne de cette table**, et rien de plus :
+    `element_code` porte l'adresse où le pasteur l'a posée. Elle n'est pas un point de son plan
+    tant que `promoted_at` est nul — *ça peut être point ou pas, il peut mettre une pause et
+    revenir changer*. Ce que le document imprime reste `urim_preparation_element`, et lui seul.
+    """
+
+    __tablename__ = "urim_thread_entry"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    preparation_id: Mapped[UUID] = mapped_column(Uuid, index=True)
+
+    #: `pasteur` ou `urim`. Fermé en base : un troisième locuteur se décide, il ne s'écrit pas.
+    speaker: Mapped[str] = mapped_column(String(16))
+    body: Mapped[str] = mapped_column(Text)
+
+    #: Où il l'a posée. Nul = une parole du fil, sans adresse.
+    element_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    element_ordinal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: Quand elle est devenue un point de son plan. Nul = elle attend, et c'est un état normal.
+    promoted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    written_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class UrimPreparationElementModel(Base):

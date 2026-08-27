@@ -99,3 +99,58 @@ def tokens(text: str) -> tuple[str, ...]:
     chiffre appartient au nom du livre et non au chapitre."""
     normalise = normalize(text)
     return tuple(normalise.split()) if normalise else ()
+
+
+# --- La civilité (terrain, 2026-08-22) -------------------------------------------------------
+
+#: **Le vocabulaire fermé de la politesse** — consulté avant le corpus, aux deux portes.
+#:
+#: 🔴 Né d'un essai sur téléphone : *« bonjour Urim »* ouvrait une préparation, et le moteur
+#: rendait 1 Corinthiens. La cause n'est pas un oubli, c'est un recouvrement de vocabulaires :
+#:
+#:     salut   → le salut, celui qu'on prêche
+#:     merci   → la miséricorde
+#:     urim    → Exode 28:30
+#:
+#: **En français, les mots de la politesse sont aussi les mots de la doctrine**, et le nom du
+#: produit est dans l'Écriture. `MOTS_RECONNUS_MINIMUM = 1` ne pouvait donc pas les séparer :
+#: saluer Urim par son nom, c'est le citer. Aucun seuil de comptage ne réparera ça — il faut
+#: une liste, et elle doit être **fermée**.
+#:
+#: ⚠️ **Ce qui borne cette liste est plus important que ce qu'elle contient.** Une règle de
+#: civilité trop gourmande crée une panne pire que celle qu'elle répare : le pasteur salue
+#: poliment, et son travail est jeté. D'où les deux bornes de `est_une_civilite`.
+CIVILITES: frozenset[str] = frozenset({
+    # saluer
+    "bonjour", "bonsoir", "bonne", "soir", "matin", "salut", "coucou", "hello", "hi",
+    "re", "rebonjour",
+    # remercier, prendre congé
+    "merci", "mercis", "beaucoup", "bien", "tres", "au", "revoir", "bye", "ciao",
+    "journee", "soiree", "nuit",
+    # prendre des nouvelles — le seul endroit où on accepte une question
+    "ca", "va", "comment", "allez", "vas", "tu", "vous", "et", "toi",
+    # l'assentiment nu, quand il n'y a rien à quoi assentir
+    "ok", "oui", "non", "d", "accord", "parfait", "super",
+    # ⚠️ **Le nom de l'agent, et c'est lui qui a déclenché tout ceci.** On le cite pour
+    # s'adresser à lui, pas pour citer Exode 28.
+    "urim", "dorea",
+})
+
+#: Au plus quatre mots — la borne de la spec entrante, et elle est la moitié de la règle.
+#:
+#: *« Bonjour, je veux prêcher sur le pardon dimanche »* fait huit mots dont six hors liste :
+#: elle passe, et le sujet descend. C'est le scénario A2, et il compte autant que A1.
+CIVILITE_MOTS_MAXIMUM: int = 4
+
+
+def est_une_civilite(mots: tuple[str, ...] | list[str]) -> bool:
+    """Cette saisie est-elle **seulement** une politesse ?
+
+    Deux bornes, et il faut les deux : au plus `CIVILITE_MOTS_MAXIMUM` mots, **et** tous dans
+    le vocabulaire fermé. Un seul mot hors liste rend la main au détecteur — c'est-à-dire au
+    corpus, qui reste seul juge de ce qui est une intention.
+
+    Déterministe, sans corpus, sans modèle : elle peut donc passer **avant** eux."""
+    return bool(mots) and len(mots) <= CIVILITE_MOTS_MAXIMUM and all(
+        mot in CIVILITES for mot in mots
+    )

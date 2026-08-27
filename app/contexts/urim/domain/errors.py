@@ -122,3 +122,32 @@ class CorpusNonSemeError(UrimError):
 
     code = "URI_CORPUS_EMPTY"
     http_status = 503
+
+class TitreIllisibleError(UrimError):
+    """Un titre écrit à la main plus long qu'un titre.
+
+    ⚠️ **Le motif porte la limite.** « Titre invalide » laisse le pasteur raccourcir au
+    hasard jusqu'à ce que ça passe ; le nombre lui dit combien couper. Au-delà de cette
+    longueur, ce n'est plus un titre mais la première phrase — et elle a déjà sa place."""
+
+    code = "URI_TITLE_TOO_LONG"
+    http_status = 422
+
+    def __init__(self, *, limite: int) -> None:
+        super().__init__(f"Un titre tient en {limite} caractères.")
+        self.limite = limite
+
+
+class RangementImpossibleError(UrimError):
+    """Ranger, ou ressortir, une préparation abandonnée.
+
+    « Abandonnée » est posé par « reformuler » : la saisie a rouvert sans rien conserver.
+    La ranger écraserait la trace du renoncement ; la ressortir la ressusciterait sans son
+    contenu. On refuse plutôt que d'inventer un état qui n'a jamais existé."""
+
+    code = "URI_SHELVING_REFUSED"
+    http_status = 409
+
+    def __init__(self) -> None:
+        super().__init__("Une préparation abandonnée ne se range pas.")
+

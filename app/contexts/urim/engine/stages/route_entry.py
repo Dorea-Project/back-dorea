@@ -58,6 +58,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.contexts.urim.engine.deps import EngineDeps, ReferenceSpan
+from app.contexts.urim.engine.normalizer import est_une_civilite
 from app.contexts.urim.engine.normalizer import tokens as decouper
 from app.contexts.urim.engine.outcomes import Option, Outcome, StageResult
 from app.contexts.urim.engine.state import EntryMode, EntryOrigin, StudyState
@@ -69,6 +70,15 @@ CITATION_AFFINITY = 0.45
 #: Combien de mots la langue doit reconnaître pour qu'une saisie soit une **phrase**. Un seul
 #: suffit, et c'est délibéré (S34) : on ne refuse que ce qui n'a *rien* de reconnaissable.
 MOTS_RECONNUS_MINIMUM = 1
+
+#: **L'accueil** — ce qu'Urim répond quand on le salue, et rien d'autre.
+#:
+#: Il dit ce qu'il fait **et ce qu'il ne fait pas**, puis pose une question ouverte. Les trois
+#: tiennent en une phrase parce qu'un pasteur qui dit bonjour n'a pas demandé un mode d'emploi.
+_ACCUEIL = (
+    "Bonjour. Je vous aide à préparer votre message : je cherche les textes, je borne le "
+    "passage, j'éclaire le contexte — je ne prêche pas à votre place. Sur quoi travaillez-vous ?"
+)
 
 _LIBELLES: dict[EntryMode, str] = {
     EntryMode.REFERENCE: "une référence",
@@ -108,6 +118,23 @@ class RouteEntry:
         mots = decouper(state.raw_input)
         if not mots:
             return self._refuser(state, mots)
+
+        # ⚠️ **Avant le corpus, et c'est le seul ordre qui tienne.**
+        #
+        # 🔴 Trouvé sur téléphone le 22/08/2026 : « bonjour Urim » ouvrait une préparation en
+        # conviction, et le moteur rendait 1 Corinthiens. Le corpus reconnaît `salut`, `merci`
+        # et `urim` — **les mots de la politesse sont les mots de la doctrine**, et le nom du
+        # produit est dans Exode 28:30. Consulter le corpus d'abord, c'est donc garantir qu'un
+        # salut devienne une intention.
+        #
+        # Le vocabulaire est fermé et borné à quatre mots (voir `est_une_civilite`) : une
+        # phrase qui porte un sujet passe intacte, et c'est la moitié qui compte.
+        if est_une_civilite(mots):
+            return StageResult(
+                outcome=Outcome.REFUSE,
+                rationale=_ACCUEIL,
+                state=state,
+            )
 
         bloc = _bloc_de_reference(deps.corpus.find_reference_span(mots), mots)
         cite = deps.corpus.scripture_affinity(mots) >= CITATION_AFFINITY

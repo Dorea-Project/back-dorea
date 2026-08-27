@@ -50,7 +50,6 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.contexts.urim.domain.squelette import POINT_CENTRAL
-
 from app.contexts.urim.engine.liaison import ORDRE_DES_FORCES
 from app.contexts.urim.engine.repondeurs import situer
 
@@ -136,6 +135,15 @@ _PAR_ECRAN: dict[str, tuple[str, str]] = {
 #: lectures d'entrée, six passages à égalité et deux axes dominants ont la même forme. Là
 #: seulement, l'étage tranche. Partout ailleurs l'écran suffit, et une entrée de plus serait
 #: une phrase de plus à relire pour rien.
+#: La passerelle du vestibule quand le modèle n'a pas posé de question lui-même.
+#:
+#: ⚠️ **Elle n'est pas décorative.** Le banc de l'arbre appelle un `expects: text` sans `ask`
+#: *« barre ouverte, mais aucune passerelle nommée »* — un mur, et le seul qui survive à une
+#: relecture de code parce que la structure a l'air correcte.
+_RELANCE_DU_VESTIBULE = (
+    "Écrivez-le comme il vous vient : un sujet, un passage, ou ce qui vous occupe."
+)
+
 _PAR_ETAGE: dict[tuple[str, str], tuple[str, str]] = {
     ("route_entry", "chips"): (
         "Je lis votre saisie avant tout le reste.",
@@ -519,11 +527,23 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
         blocs.append(ChipsBlock(items=_pastilles(vivantes)))
 
     if vue.bearings:
+        # ⚠️ **La glosse ne se répète pas de tour en tour.**
+        #
+        # 🔴 Vu sur téléphone le 22/08 : dix pesées, chacune portant trois lignes de motif,
+        # recollées à **chaque** tour suivant le choix. Le pasteur retrouvait le même paragraphe
+        # sur la mise en forme, sur le thème, sur ses points — un texte qu'il avait déjà lu et
+        # déjà tranché, réaffiché comme s'il était neuf.
+        #
+        # Au tour du choix, la glosse est la question : c'est elle qui permet de décider, et
+        # elle reste entière. Après, la décision est prise — le décor ambiant garde les
+        # libellés, qui suffisent à retrouver et à reprendre un autre axe, et lâche les
+        # paragraphes.
+        pese = etage == "bear_axes"
         blocs.append(BearingsBlock(
             items=[
                 BearingItem(
                     axis_code=b.axis_code, label=b.label,
-                    strength=b.strength, rationale=b.rationale,
+                    strength=b.strength, rationale=b.rationale if pese else "",
                     selected=b.axis_code == vue.axis_code,
                     # On ne propose pas de reprendre l'axe déjà retenu : ce serait offrir un
                     # geste qui ne fait rien.
@@ -601,7 +621,9 @@ def _forme(vue, blocs: list[Block], vivantes: list) -> str:
     return parlants[0].kind if vivantes else parlants[-1].kind
 
 
-def construire_tour(vue, say: str | None = None) -> TurnView:
+def construire_tour(
+    vue, say: str | None = None, relance: str | None = None
+) -> TurnView:
     """La présentation conversationnelle de ce que la vue porte déjà.
 
     ⚠️ **`expects` vient de l'issue ET de ce qui reste à choisir.** Un même étage attend une
@@ -632,10 +654,35 @@ def construire_tour(vue, say: str | None = None) -> TurnView:
     # restent ce que la vue porte. Les deux ne peuvent donc pas se contredire.
     #
     # Le répondeur situe déjà la préparation lui-même — il ne faut pas la situer deux fois.
+    #
+    # 🔴 **La garde était écrite, et la ligne suivante l'écrasait.** `sans_rien` était remis à
+    # sa valeur de forme juste après avoir été mis à faux, si bien que la phrase du répondeur
+    # — qui situe déjà — se voyait ajouter une seconde fois « Nous en sommes à Romains 8:32 ».
+    # Vu sur un téléphone le 22/08, dans la même phrase, deux fois de suite. Le commentaire
+    # disait la règle ; le code disait l'inverse, deux lignes plus bas.
     if say:
         dit, sans_rien = say, False
-    sans_rien = forme in (FORME_RIEN, FORME_EPUISE)
+    else:
+        sans_rien = forme in (FORME_RIEN, FORME_EPUISE)
     attend = vue.outcome == "await_decision" and bool(vivantes)
+
+    # ⚠️ **Le vestibule parle d'une seule voix, et c'est la sienne.**
+    #
+    # 🔴 Vu sur un téléphone le 22/08 : chaque tour empilait trois énoncés qui disaient la même
+    # chose — la phrase générique du tour vide (« je n'ai rien de plus à vous montrer »), sa
+    # passerelle (« donnez-moi un passage… »), et le motif du moteur en dessous. Trois sources,
+    # une seule idée, à chaque tour. Le pasteur n'y lisait aucune cohérence, et il avait raison.
+    #
+    # Ici le motif **est** la parole de l'agent : elle accueille, elle relance, elle dit déjà ce
+    # qu'on attend. La commenter par une phrase d'écran serait la doubler d'une voix qui en sait
+    # moins qu'elle.
+    motif = vue.rationale
+    if etage == "vestibule":
+        dit, motif, sans_rien = vue.rationale, "", False
+        # La relance vient du même souffle que la parole. À défaut — le modèle n'a pas posé de
+        # question, ou il n'y en avait pas — on nomme quand même la passerelle : c'est ce que
+        # le banc exige, et il a raison de l'exiger.
+        ask = relance or _RELANCE_DU_VESTIBULE
 
     return TurnView(
         # Où en est la préparation, aux deux seuls tours qui n'offrent rien — c'est le seul
@@ -643,7 +690,7 @@ def construire_tour(vue, say: str | None = None) -> TurnView:
         say=dit + (situer(vue.resolved) if sans_rien else ""),
         speaks=forme,
         # Le motif du moteur, tel quel. C'est le filet doré, et il ne se réécrit pas.
-        why=vue.rationale,
+        why=motif,
         ask=ask if attend or not vivantes else "",
         expects="choice" if attend else "text",
         stage_code=etage,

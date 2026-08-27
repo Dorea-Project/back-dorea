@@ -423,3 +423,56 @@ def test_le_detecteur_est_deterministe():
     }
 
     assert len(sorties) == 1
+
+
+# --- L'accueil (terrain, 2026-08-22) ---------------------------------------------------------
+#
+# 🔴 Sur un téléphone, en conditions réelles : « bonjour Urim » a ouvert une préparation, et le
+# moteur a rendu 1 Corinthiens. Le corpus **reconnaît** `salut`, `merci` et `urim` (Exode 28:30) :
+# `MOTS_RECONNUS_MINIMUM = 1` ne pouvait pas les séparer d'une intention.
+#
+# Les corpus de ces tests reconnaissent donc **tout** (`connus=None`), comme le vrai : c'est le
+# seul réglage où le défaut se reproduit.
+
+
+def test_bonjour_urim_n_ouvre_aucune_preparation():
+    """Le défaut du 22/08, dans sa forme exacte : le nom du produit est dans l'Écriture."""
+    resultat = _executer(_state("bonjour Urim"), _Corpus())
+
+    assert resultat.outcome is Outcome.REFUSE
+    assert resultat.state.entry_mode is None, "aucune lecture ne se pose sur un salut"
+
+
+def test_l_accueil_dit_ce_qu_il_fait_et_ce_qu_il_ne_fait_pas():
+    """Un refus qui ne dit rien serait un mur à la porte — et le pasteur a seulement salué."""
+    motif = _executer(_state("bonjour"), _Corpus()).rationale
+
+    assert "prêche pas à votre place" in motif
+    assert motif.rstrip().endswith("?"), "l'accueil rend la main par une question ouverte"
+
+
+@pytest.mark.parametrize("saisie", ["salut", "merci Urim", "bonsoir", "ok merci beaucoup"])
+def test_les_mots_de_la_politesse_sont_aussi_ceux_de_la_doctrine(saisie):
+    """`salut` et `merci` sont dans le corpus. C'est un recouvrement, pas une coïncidence."""
+    assert _executer(_state(saisie), _Corpus()).outcome is Outcome.REFUSE
+
+
+def test_une_politesse_qui_porte_un_sujet_passe_intacte():
+    """**La borne haute, et elle compte autant que la règle** (scénario A2).
+
+    Une règle de civilité trop gourmande crée une panne pire que celle qu'elle répare : le
+    pasteur salue poliment, et son travail est jeté."""
+    resultat = _executer(
+        _state("Bonjour, je veux prêcher sur le pardon dimanche"), _Corpus()
+    )
+
+    assert resultat.outcome is not Outcome.REFUSE
+    assert resultat.state.entry_mode is EntryMode.CONVICTION
+
+
+def test_un_seul_mot_hors_liste_rend_la_main_au_corpus():
+    """Le vocabulaire est fermé : ce qu'il ne connaît pas, il ne le juge pas."""
+    resultat = _executer(_state("bonjour Romains 8"), _Corpus(livre="romains", code="Rom"))
+
+    assert resultat.outcome is not Outcome.REFUSE
+    assert resultat.state.entry_mode is EntryMode.REFERENCE

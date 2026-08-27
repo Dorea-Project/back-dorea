@@ -12,6 +12,11 @@ venv/
 
 # Secrets / config locale
 .env
+# Toute copie de l'environnement porte les memes secrets que l'original.
+# `.env.sauvegarde-otp` a ete cree le 22/08 pour neutraliser Infobip le temps de
+# lire un OTP en console : il contient la cle, et rien ne l'empechait d'etre
+# commite.
+.env.*
 !.env.example
 
 # Outils

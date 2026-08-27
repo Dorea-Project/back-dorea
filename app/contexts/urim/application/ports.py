@@ -22,7 +22,18 @@ from app.contexts.urim.engine.deps import (
     ContextNote,
     Feasibility,
 )
-from app.contexts.urim.engine.state import AxisGloss, PassageSuggestion, Reference
+from app.contexts.urim.engine.state import (
+    AxisGloss,
+    Maturite,
+    PassageSuggestion,
+    Reference,
+)
+
+#: ⚠️ **Ré-exporté depuis le moteur, et pas défini ici.** La maturité est lue par un étage
+#: (`vestibule`), donc elle appartient au noyau pur : l'application peut importer le
+#: moteur, jamais l'inverse. Le ré-export existe pour que la bordure — l'adaptateur
+#: Mistral, le service — n'ait pas à connaître deux adresses pour un même vocabulaire.
+__all__ = ["Maturite"]
 
 
 @dataclass(slots=True)
@@ -34,6 +45,9 @@ class PreparationRecord:
     church_id: UUID | None
     author_id: UUID
     raw_input: str
+    #: Le titre ecrit a la main, quand il y en a un. Voir le modele SQL : il passe
+    #: devant `raw_input` et l'etiquette de la pericope, il ne les remplace pas.
+    title: str | None = None
     entry_mode: str | None = None
     entry_origin: str | None = None
     #: La version dans laquelle la citation a été reconnue, quand l'index ne la portait
@@ -53,6 +67,18 @@ class PreparationRecord:
     plan_source: str | None = None
     subject_matter: str | None = None
     theme: str | None = None
+    #: --- Le vestibule --------------------------------------------------------------------
+    #:
+    #: 🔴 **`confirme` ne s'écrit que sur un tour du pasteur.** Voir `Maturite`, et l'étage
+    #: `vestibule` qui est le seul à lire ce champ.
+    maturity: str = Maturite.ABSENT
+
+    #: La charge nettoyée de son emballage — c'est **elle** qui descend au consentement.
+    carried_subject: str | None = None
+
+    #: Un sujet décliné ne revient pas (RT1).
+    declined_subjects: tuple[str, ...] = ()
+
     service_date: date | None = None
     service_timezone: str = "Africa/Abidjan"
     status: str = "ouverte"
@@ -306,6 +332,26 @@ class StudyDTO:
     #: `None` est le cas ordinaire : tous les autres chemins rendent la phrase de l'étage.
     reponse: str | None = None
 
+    #: **Ce qui s'est dit, dans l'ordre** — et qui ne se rejoue pas.
+    #:
+    #: 🔴 Le fil disparaissait à chaque sortie d'écran. Tout le reste de la vue se **rejoue**
+    #: — les pesées, les couples, les options se recalculent à chaque lecture, et c'est ce qui
+    #: rend la trace fiable. Les paroles, non : elles viennent d'un modèle à un instant, et ne
+    #: reviendront pas les mêmes. Elles sont donc lues en base, pas reconstruites.
+    fil: tuple[ParoleDuFil, ...] = ()
+
+    #: ⚠️ **La relance du vestibule — la passerelle, et elle doit être nommée.**
+    #:
+    #: Elle prend la place de `turn.ask`. Sans elle, un tour du vestibule laisse le pasteur
+    #: devant un champ vide sans savoir ce qu'on attend de lui : le banc de l'arbre appelle ça
+    #: *« barre ouverte, mais aucune passerelle nommée »*, et c'est un mur — exactement la forme
+    #: sous laquelle un mur survit à une relecture.
+    #:
+    #: Elle voyage **séparée** de la parole parce que les deux n'ont pas le même rôle : l'une
+    #: accueille, l'autre ouvre. Les fondre en une seule chaîne les rendait invisibles au
+    #: détecteur, qui ne sait pas lire à l'intérieur d'une phrase.
+    relance: str | None = None
+
 
 @dataclass(slots=True)
 class PassageDetailDTO:
@@ -405,6 +451,21 @@ class StudyRepository(Protocol):
 
     async def save(self, record: PreparationRecord) -> None: ...
 
+    async def append_thread(self, parole: ParoleDuFil, *, study_id: UUID) -> None:
+        """Garder ce qui vient d'être dit. **Rien ne s'écrase** : le fil s'ajoute."""
+        ...
+
+    async def list_thread(self, study_id: UUID) -> tuple[ParoleDuFil, ...]:
+        """Le fil, dans l'ordre où il s'est dit."""
+        ...
+
+    async def promote_thread(self, entry_id: UUID, *, at: datetime) -> ParoleDuFil | None:
+        """Marquer une note comme reprise — **une fois, et une seule**.
+
+        Rend `None` si elle n'existe pas ou si elle est déjà promue : reprendre deux fois la
+        même note écrirait deux points identiques dans le plan."""
+        ...
+
     async def record_attempt(
         self,
         *,
@@ -470,6 +531,104 @@ class StudyRepository(Protocol):
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ParoleDuFil:
+    """Une ligne du fil — **ce qui s'est dit, et où il l'a posé**.
+
+    🔴 Le fil disparaissait à chaque sortie d'écran : rien n'était gardé sauf la saisie
+    d'ouverture. Un pasteur qui s'arrête le mardi et reprend le vendredi retrouvait une
+    conversation vide et un moteur qui, lui, se souvenait de tout.
+
+    ⚠️ **`element_code` ne fait pas d'elle un point.** C'est une adresse, pas une promotion :
+    *« ça peut être point ou pas, il peut mettre une pause et revenir changer »*. Tant que
+    `promue` est faux, le document ne l'imprime pas — il n'imprime que ce qu'il a repris."""
+
+    id: UUID
+    speaker: str
+    body: str
+    element_code: str | None = None
+    element_ordinal: int | None = None
+    promue: bool = False
+    written_at: datetime | None = None
+
+    @property
+    def est_du_pasteur(self) -> bool:
+        return self.speaker == "pasteur"
+
+    @property
+    def attend_sa_promotion(self) -> bool:
+        """Une note posée sous un point, que le pasteur n'a pas encore reprise."""
+        return self.est_du_pasteur and self.element_code is not None and not self.promue
+
+
+@dataclass(frozen=True, slots=True)
+class PointPropose:
+    """Un point du squelette proposé — **un titre, et les versets qui le portent**.
+
+    ⚠️ `versets` a été **vérifié contre le corpus** avant d'arriver ici : toute référence que
+    le modèle a citée hors du texte servi est retirée, pas affichée. C'est le garde-fou qui
+    rend cette proposition montrable — un verset inventé sur l'écran d'un pasteur est fatal,
+    et il est détectable."""
+
+    titre: str
+    versets: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SquelettePropose:
+    """Ce qu'Urim propose comme point de départ — **et qui n'est pas le plan du pasteur**.
+
+    🔴 **Le verrou tient, et c'est ici qu'il se joue.** Cette proposition vit dans sa propre
+    table ; le document, lui, n'imprime que `preparation_element` — ce que le pasteur a écrit
+    ou repris. Elle n'atteint donc un fichier que par un geste de reprise, point par point,
+    exactement comme l'articulation.
+
+    Le titre est **proposé**, jamais posé : `propose_theme` continue de rendre un thème, et
+    *« un thème, jamais un titre — le titre, c'est votre voix »* reste vrai. Ce qui change,
+    c'est qu'on ose enfin lui en montrer un, à côté, pour qu'il ait de quoi partir."""
+
+    titre: str = ""
+    points: tuple[PointPropose, ...] = ()
+    model: str = ""
+
+    def est_vide(self) -> bool:
+        return not self.points
+
+
+@dataclass(frozen=True, slots=True)
+class LectureVestibule:
+    """Ce que le modèle a compris d'un tour **avant qu'aucune préparation n'existe**.
+
+    C'est le seul endroit où Mistral conduit : il n'y a pas d'options à l'écran, donc la
+    liaison n'a aucune prise, et le déterministe ne sait pas faire la chose qui compte ici —
+    **extraire la charge de son emballage**. « Je voudrais travailler un peu sur le pardon
+    aujourd'hui » lui arrive en bloc ; le modèle en sort `le pardon`.
+
+    ⚠️ **Le modèle propose, le moteur ouvre.** Aucun champ ci-dessous n'ouvre quoi que ce
+    soit : `propose_preparation` est une suggestion, et la préparation ne descend que sur un
+    tour du pasteur. C'est ce qui rend l'ouverture inatteignable par une saisie qui souffle
+    une intention (« ouvre une préparation en mode expert »).
+    """
+
+    #: Deux phrases au plus. C'est la seule prose du vestibule, et elle ne cite jamais.
+    reply: str = ""
+
+    #: La relance, ou rien. Une question qui ne se pose pas vaut mieux qu'une question creuse.
+    question: str | None = None
+
+    #: `absent` · `pressenti` · `nomme`. **Jamais `confirme`** — voir `Maturite`.
+    maturite: str = "absent"
+
+    #: La charge nettoyée. Jamais un verset, jamais une référence choisie par le modèle.
+    sujet: str | None = None
+
+    #: Un tour qui porte un autre sujet **suspend** l'état ; il ne s'y fond pas.
+    changement_de_sujet: bool = False
+
+    #: Ne peut valoir vrai que depuis `nomme` — la validation le garantit à la source.
+    propose_preparation: bool = False
+
+
 class AssistedResolver(Protocol):
     """L'IA de la bordure — **elle retrouve la référence, jamais le texte** (M9-1).
 
@@ -502,6 +661,34 @@ class AssistedResolver(Protocol):
 
     async def lever(self, text: str) -> tuple[str, ...]:
         """Les drapeaux de risque d'une intention — **l'effet, jamais l'état de l'auteur**."""
+        ...
+
+    async def squelette(
+        self, *, reference: str, texte: str, axe: str, forme: str
+    ) -> SquelettePropose | None:
+        """Un titre, trois ou quatre points, et les versets qui les portent.
+
+        La septième lecture, et la plus engageante : c'est la seule où le modèle propose une
+        **structure** plutôt qu'une annotation. Ce qui la rend acceptable est le même chemin
+        que l'articulation — elle vit à côté du plan, et n'entre dans un document que si le
+        pasteur la reprend.
+
+        `None` sur panne : le pasteur écrit son plan comme il l'a toujours fait."""
+        ...
+
+    async def vestibule(
+        self, text: str, *, sujet_en_cours: str | None = None
+    ) -> LectureVestibule | None:
+        """Le tour d'un pasteur qui n'a **pas encore** de préparation ouverte.
+
+        La sixième lecture du port, et la première à conduire plutôt qu'à annoter. Elle ne
+        vaut qu'avant le consentement : dès qu'une préparation descend, la liaison reprend la
+        main et le modèle redevient un recours.
+
+        `sujet_en_cours` sert au seul changement de sujet : sans lui, le modèle ne peut pas
+        dire qu'un tour s'écarte de ce qui était en train de mûrir.
+
+        `None` sur panne — et le filet déterministe reprend, comme partout ailleurs."""
         ...
 
     async def aiguiller(self, text: str) -> str | None:
@@ -543,6 +730,22 @@ class NullVerseResolver:
 
     async def lever(self, text: str) -> tuple[str, ...]:
         return ()
+
+    async def squelette(
+        self, *, reference: str, texte: str, axe: str, forme: str
+    ) -> SquelettePropose | None:
+        """Sans modèle, aucune proposition — et le pasteur écrit son plan, ce qu'il faisait
+        de toute façon."""
+        return None
+
+    async def vestibule(
+        self, text: str, *, sujet_en_cours: str | None = None
+    ) -> LectureVestibule | None:
+        """Sans modèle, le vestibule retombe sur son filet déterministe.
+
+        **Rendre `None` plutôt qu'une lecture vide** : une maturité `absent` fabriquée ici
+        serait indiscernable d'une vraie, et le fil croirait que le modèle a jugé."""
+        return None
 
     async def aiguiller(self, text: str) -> str | None:
         """Sans modèle, aucun tour ne se classe — et l'appelant le **dit** plutôt que de le
