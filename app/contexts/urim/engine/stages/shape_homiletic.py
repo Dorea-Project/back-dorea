@@ -185,14 +185,46 @@ def _trouver(
 
 
 def _avec_refus(tete: str, refuses: Sequence[Feasibility]) -> str:
-    """Les impossibles s'affichent **avec** les possibles — signalés, jamais fabriqués."""
+    """Les impossibles s'affichent **avec** les possibles — signalés, jamais fabriqués.
+
+    🔴 **Illisible sur un téléphone, le 22/08/2026.** Quinze couples collés bout à bout, chacun
+    traînant son motif entier, dans un seul paragraphe gris qui remplissait deux écrans. Et
+    répétitif, ce qui est pire : *« ce passage ne porte aucun personnage nommé… »* revenait
+    **trois fois**, une par forme de plan.
+
+    La cause n'était pas la longueur, c'était la structure. **Le refus porte sur la matière,
+    pas sur la forme du plan** : « biographique » est écarté pour la même raison qu'on
+    l'aborde en textuel, en expositif ou en thématique. On groupe donc par motif, et on le dit
+    une fois.
+
+    ⚠️ **On ne touche pas au motif lui-même.** Il vient du relu — c'est la phrase d'un homme
+    qui a lu ce passage. L'abréger serait réécrire son travail ; le regrouper ne fait que
+    cesser de le répéter.
+
+    Les retours à la ligne sont voulus : une liste se lit, un paragraphe de quinze parenthèses
+    se saute."""
     if not refuses:
         return tete
-    dits = " · ".join(
-        f"{couple.plan_source} x {couple.subject_matter} ({couple.refusal_reason})"
-        for couple in refuses
-    )
-    return f"{tete} Écartées : {dits}."
+
+    par_motif: dict[str, list[Feasibility]] = {}
+    for couple in refuses:
+        par_motif.setdefault(couple.refusal_reason, []).append(couple)
+
+    lignes = []
+    for motif in sorted(par_motif):
+        groupe = par_motif[motif]
+        matieres = sorted({c.subject_matter for c in groupe})
+        plans = sorted({c.plan_source for c in groupe})
+
+        # Une matière refusée sur **toutes** les formes ne se nomme qu'une fois : c'est la
+        # matière qui ne tient pas, et le pasteur a besoin de le savoir comme ça.
+        if len(matieres) == 1 and len(plans) > 1:
+            cle = f"{matieres[0]} — quelle que soit la forme du plan"
+        else:
+            cle = " · ".join(f"{c.plan_source} x {c.subject_matter}" for c in groupe)
+        lignes.append(f"• {cle} : {motif}")
+
+    return tete + "\n\nÉcartées :\n" + "\n".join(lignes)
 
 
 def _clause_de_charge(drapeaux: Sequence[str]) -> str:
