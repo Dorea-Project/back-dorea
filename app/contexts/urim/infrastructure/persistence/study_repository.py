@@ -18,7 +18,9 @@ from app.contexts.urim.application.ports import (
     ElementRecord,
     ParoleDuFil,
     PlanSuggestion,
+    PointPropose,
     PreparationRecord,
+    SquelettePropose,
     SuggestionSnapshot,
     SupportRecord,
     UsageSnapshot,
@@ -32,6 +34,7 @@ from app.contexts.urim.infrastructure.persistence.models import (
     UrimPreparationElementModel,
     UrimPreparationModel,
     UrimPreparationSupportModel,
+    UrimProposedSkeletonModel,
     UrimResolutionAttemptModel,
     UrimStudyReservationModel,
     UrimThreadEntryModel,
@@ -454,6 +457,55 @@ class SqlStudyRepository:
             return None
         return PlanSuggestion(
             body=row.body, transition=row.transition or "", model=row.model
+        )
+
+    async def save_skeleton(
+        self,
+        study_id: UUID,
+        input_hash: str,
+        squelette: SquelettePropose,
+        at: datetime,
+    ) -> None:
+        """Garder le plan proposé — **une ligne, remplacée**, jamais deux plans concurrents."""
+        row = await self._s.get(UrimProposedSkeletonModel, study_id)
+        valeurs = dict(
+            input_hash=input_hash,
+            model=squelette.model,
+            title=squelette.titre or None,
+            points=[
+                {"titre": pt.titre, "versets": list(pt.versets)} for pt in squelette.points
+            ],
+            suggested_at=at,
+        )
+        if row is None:
+            self._s.add(UrimProposedSkeletonModel(preparation_id=study_id, **valeurs))
+        else:
+            for cle, valeur in valeurs.items():
+                setattr(row, cle, valeur)
+        await self._s.flush()
+
+    async def get_skeleton(
+        self, study_id: UUID, input_hash: str | None = None
+    ) -> SquelettePropose | None:
+        """Le plan proposé, **s'il répond encore à la préparation d'aujourd'hui**.
+
+        Sans empreinte, on rend ce qui est gardé : c'est l'écran qui lit, et il montre ce que
+        le pasteur a déjà vu. Avec, on rend `None` quand elle a changé — c'est le générateur
+        qui demande, et il ne doit pas se contenter d'un plan fait pour un autre texte."""
+        row = await self._s.get(UrimProposedSkeletonModel, study_id)
+        if row is None or (input_hash is not None and row.input_hash != input_hash):
+            return None
+        return SquelettePropose(
+            titre=row.title or "",
+            points=tuple(
+                PointPropose(
+                    titre=str(pt.get("titre") or ""),
+                    versets=tuple(str(v) for v in pt.get("versets") or ()),
+                )
+                for pt in row.points or ()
+                if isinstance(pt, dict) and (pt.get("titre") or "").strip()
+            ),
+            model=row.model,
         )
 
     async def list_for_author(

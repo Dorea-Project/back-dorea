@@ -67,6 +67,11 @@ class _Vue:
         #: Le squelette écrit par le pasteur — vide tant qu'il n'a rien posé.
         self.elements = []
         self.theme = None
+        #: La mise en forme retenue — le bloc de faisabilité marque la sienne.
+        self.plan_source = None
+        self.subject_matter = None
+        #: Le plan **proposé** par Urim, à côté du sien. `None` est l'état ordinaire.
+        self.squelette = None
         self.curation_reviewed_by = None
         for cle, valeur in remplace.items():
             setattr(self, cle, valeur)

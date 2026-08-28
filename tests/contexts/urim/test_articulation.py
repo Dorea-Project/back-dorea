@@ -59,6 +59,12 @@ class _Modele:
         self.propose = propose
         self.demandes: list[dict] = []
 
+    #: ⚠️ **Le port le declare, la doublure le declare** — une doublure plus permissive
+    #: que le vrai resolveur ne prouve rien. `None` est la reponse du resolveur nul :
+    #: sans cle, le pasteur ecrit son plan comme il l'a toujours fait.
+    async def squelette(self, *, reference, texte, axe, forme):
+        return None
+
     async def resolve(self, text): return None
 
     async def axes(self, text): return ()

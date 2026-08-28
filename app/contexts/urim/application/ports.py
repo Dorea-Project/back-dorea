@@ -312,6 +312,14 @@ class StudyDTO:
     elements: tuple[ElementRecord, ...] = ()
     resolved_label: str | None = None
 
+    #: 🔴 **Le plan qu'Urim propose — à côté du sien, et il faut lire les deux mots.**
+    #:
+    #: `elements` est le plan **du pasteur** : c'est lui, et lui seul, que le document imprime.
+    #: Ceci vit dans sa propre table et n'atteint un fichier que point par point, par un geste
+    #: de reprise — exactement comme l'articulation. Les deux champs ne se mélangent jamais, et
+    #: c'est pour ça qu'ils sont deux.
+    squelette: SquelettePropose | None = None
+
     #: ⚠️ **Ce sur quoi le raisonnement porte** — distinct de la trace, qui est le raisonnement.
     #:
     #: Tout cela existait déjà dans l'index et ne sortait qu'écrasé dans des phrases : un front
@@ -563,6 +571,19 @@ class StudyRepository(Protocol):
         self, study_id: UUID, input_hash: str
     ) -> SuggestionSnapshot | None: ...
 
+    async def save_skeleton(
+        self, study_id: UUID, input_hash: str, squelette: SquelettePropose, at: datetime
+    ) -> None:
+        """Garder le plan proposé — **une ligne par préparation, remplacée**."""
+        ...
+
+    async def get_skeleton(
+        self, study_id: UUID, input_hash: str | None = None
+    ) -> SquelettePropose | None:
+        """Sans empreinte : ce qui est gardé, pour l'écran. Avec : `None` si la préparation a
+        bougé sous lui, pour le générateur."""
+        ...
+
     async def recently_preached_axes(self, author_id: UUID, since: date) -> list[str]: ...
 
 
@@ -607,6 +628,21 @@ class PointPropose:
 
     titre: str
     versets: tuple[str, ...] = ()
+
+    def corps(self) -> str:
+        """Ce que la reprise écrira dans le plan du pasteur — **une seule définition**.
+
+        Le service l'écrit ; la vue s'en sert pour savoir si c'est déjà écrit, et donc pour
+        n'offrir la reprise qu'une fois. Deux formulations feraient réapparaître le bouton sur
+        un point qu'il a déjà dans son plan — c'est pourquoi elle vit ici, sur l'objet, et non
+        chez l'un des deux lecteurs.
+
+        Les versets sont **dans le corps**, pas à côté : c'est cette ligne que
+        `_servir_les_appuis` relira quand il demandera d'articuler le point, et c'est elle que
+        le document imprimera."""
+        if not self.versets:
+            return self.titre
+        return f"{self.titre} — {', '.join(self.versets)}"
 
 
 @dataclass(frozen=True, slots=True)

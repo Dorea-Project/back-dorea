@@ -436,9 +436,40 @@ class TraceBlock(BaseModel):
     stages: list[TraceStageView]
 
 
+class ProposedPointView(BaseModel):
+    title: str
+    verses: list[str] = []
+    propose_code: str
+    #: Déjà dans son plan : la reprise ne s'offre pas deux fois.
+    taken: bool = False
+
+
+class SkeletonBlock(BaseModel):
+    """🔴 **Le plan qu'Urim propose — le neuvième bloc, et le plus dangereux.**
+
+    Tous les autres montrent ce que le **corpus** porte : des pesées relues, des couples curés,
+    des versets servis. Celui-ci montre ce qu'un **modèle** a écrit, et c'est la seule prose
+    qu'Urim propose de son propre chef.
+
+    Ce qui le rend acceptable n'est pas une promesse, c'est le chemin des données : il vit dans
+    sa propre table, le document n'imprime que `preparation_element`, et `reprises` est la
+    seule porte — point par point.
+
+    ⚠️ **Le bloc voyage replié**, comme la trace. Le pasteur vient chercher son plan, pas une
+    proposition dépliée à chaque tour : c'est le décor permanent que D42 a corrigé, onze écrans
+    devenus trois."""
+
+    kind: Literal["skeleton"] = "skeleton"
+    heading: str = ""
+    title: str = ""
+    title_taken: bool = False
+    points: list[ProposedPointView] = []
+
+
 Block = (
     ChipsBlock | UnitsBlock | BoundsBlock | BearingsBlock
     | FeasibilityBlock | ThemeBlock | ActionsBlock | TraceBlock
+    | SkeletonBlock
 )
 
 
@@ -646,6 +677,25 @@ def _blocs(vue, etage: str, vivantes: list) -> list[Block]:
             items=pris,
             heading="Vous changez quoi ?" if any(i.selectable for i in pris) else "",
             rationale=_motif_de_la_forme(vue),
+        ))
+
+    # **Avant le thème, après la faisabilité** — l'ordre du raisonnement : voici la forme
+    # retenue, voici ce qu'elle donnerait, et voici le thème qui la nomme.
+    if vue.squelette is not None and vue.squelette.points:
+        propose = vue.squelette
+        blocs.append(SkeletonBlock(
+            heading=(
+                "Voici de quoi partir — reprenez ce qui vous parle, le plan reste le vôtre."
+            ),
+            title=propose.title,
+            title_taken=propose.title_taken,
+            points=[
+                ProposedPointView(
+                    title=pt.title, verses=list(pt.verses),
+                    propose_code=pt.propose_code, taken=pt.taken,
+                )
+                for pt in propose.points
+            ],
         ))
 
     if vue.theme:

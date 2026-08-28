@@ -44,6 +44,7 @@ from app.contexts.urim.interface.schemas import (
     PassageDetailView,
     PromotionBody,
     RenameBody,
+    RepriseBody,
     ShelveBody,
     StudySummaryView,
     StudyView,
@@ -454,6 +455,39 @@ async def promouvoir(
             entry_id=entry_id,
             element_code=payload.element_code,
             ordinal=payload.ordinal,
+        )
+    )
+
+
+@router.post(
+    "/studies/{study_id}/squelette/reprises",
+    response_model=StudyView,
+    summary="Reprendre un point proposé — le seul chemin de la proposition vers le document",
+)
+async def reprendre(
+    study_id: UUID,
+    payload: RepriseBody,
+    actor: CurrentActor,
+    service: StudyServiceDep,
+) -> StudyView:
+    """🔴 **Le même verrou qu'au fil, sur l'autre porte.**
+
+    Urim propose un titre et trois ou quatre points, avec les versets qui les portent — mais
+    cette proposition vit dans sa propre table, et le livrable n'imprime que
+    `preparation_element`. Elle n'atteint donc un document que par ce geste, que le pasteur
+    seul déclenche. *L'IA propose, l'homme dispose.*
+
+    ⚠️ **Point par point, jamais en bloc.** C'est le coût du geste qui garantit qu'il a lu ce
+    qu'il signe.
+
+    ⚠️ **On ajoute à la fin, on n'écrase rien** — ses divisions restent les siennes. Et
+    **une fois, et une seule** : deux points identiques, et il ne saurait plus lequel est le
+    sien."""
+    return StudyView.avec_tour(
+        await service.reprendre(
+            actor_account_id=actor.account_id,
+            study_id=study_id,
+            propose_code=payload.propose_code,
         )
     )
 

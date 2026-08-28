@@ -138,6 +138,19 @@ class _Studies:
         self.fil: list = []
         self.elements: list = []
 
+        self.squelettes: dict = {}
+    #: **Le plan propose, garde par empreinte.** Une doublure qui rendrait toujours
+    #: `None` ferait rappeler le modele a chaque rejeu — donc mesurerait un service
+    #: que la production n'a pas.
+    async def save_skeleton(self, study_id, input_hash, squelette, at):
+        self.squelettes[study_id] = (input_hash, squelette)
+
+    async def get_skeleton(self, study_id, input_hash=None):
+        garde = self.squelettes.get(study_id)
+        if garde is None or (input_hash is not None and garde[0] != input_hash):
+            return None
+        return garde[1]
+
     async def add(self, record): self.records[record.id] = record
 
     async def get(self, study_id): return self.records.get(study_id)
@@ -246,6 +259,12 @@ class _Modele:
         #: Compté à part : le tour de parole doit pouvoir prouver qu'il **n'a pas** aiguillé,
         #: et le rejeu qui l'entoure consulte le modèle par d'autres portes.
         self.aiguillages: list[str] = []
+
+    #: ⚠️ **Le port le declare, la doublure le declare** — une doublure plus permissive
+    #: que le vrai resolveur ne prouve rien. `None` est la reponse du resolveur nul :
+    #: sans cle, le pasteur ecrit son plan comme il l'a toujours fait.
+    async def squelette(self, *, reference, texte, axe, forme):
+        return None
 
     async def resolve(self, text):
         self.recu.append(text)

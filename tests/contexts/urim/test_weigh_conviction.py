@@ -65,6 +65,12 @@ class _Doctrine:
 class _Modele:
     """Un modèle branché — il *croit* savoir, et il ne doit pouvoir qu'annoter."""
 
+    #: ⚠️ **Le port le declare, la doublure le declare** — une doublure plus permissive
+    #: que le vrai resolveur ne prouve rien. `None` est la reponse du resolveur nul :
+    #: sans cle, le pasteur ecrit son plan comme il l'a toujours fait.
+    async def squelette(self, *, reference, texte, axe, forme):
+        return None
+
     def __init__(self, axes=(), flags=()) -> None:
         self._axes, self._flags = axes, flags
 

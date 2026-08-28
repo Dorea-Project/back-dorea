@@ -17,7 +17,7 @@ import asyncio
 import hashlib
 import unicodedata
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Final
 from uuid import UUID, uuid4
@@ -41,6 +41,7 @@ from app.contexts.urim.application.ports import (
     PreparationRecord,
     ReferenceElsewhere,
     ReservationPort,
+    SquelettePropose,
     StageWeighing,
     StudyDTO,
     StudyRepository,
@@ -65,6 +66,7 @@ from app.contexts.urim.domain.errors import (
     RangementImpossibleError,
     TitreIllisibleError,
 )
+from app.contexts.urim.domain.libelles import forme_en_clair
 from app.contexts.urim.domain.squelette import CODES, code_canonique
 from app.contexts.urim.engine.deps import (
     ConvictionReader,
@@ -386,6 +388,32 @@ _PREFIXES_DE_GENRE: tuple[tuple[str, ...], ...] = (
     ("actes", "des"),
     ("psaume",), ("apocalypse", "de"),
 )
+
+
+def _ce_qui_est_repris(propose: SquelettePropose, code: str) -> tuple[str, str]:
+    """`titre` ou `point:N` — **et le code du squelette où ça atterrit**.
+
+    La convention est celle des options du moteur (`axe:anthropologie`,
+    `textuel:doctrinal`) : un préfixe, deux-points, une valeur. Un rang hors liste est un
+    refus, pas un dernier point : le client aurait envoyé un index périmé, et l'écrire
+    quelque part serait inventer ce que le pasteur a désigné."""
+    if code == "titre":
+        if not propose.titre:
+            raise OptionInconnueError("Aucun titre n'a été proposé.")
+        return "titre", propose.titre
+
+    if not code.startswith("point:"):
+        raise OptionInconnueError(f"« {code} » ne désigne rien de ce qui a été proposé.")
+    try:
+        rang = int(code.removeprefix("point:"))
+    except ValueError:
+        raise OptionInconnueError(
+            f"« {code} » ne désigne rien de ce qui a été proposé."
+        ) from None
+    if not 0 <= rang < len(propose.points):
+        raise OptionInconnueError("Ce point n'est plus dans la proposition.")
+
+    return "divisions", propose.points[rang].corps()
 
 
 def _lisible(saisie: str) -> str:
@@ -1360,6 +1388,51 @@ class UrimStudyService:
         await self.studies.promote_thread(entry_id, at=self.clock())
         return await self._rejouer(record, persist=False)
 
+    async def reprendre(
+        self, *, actor_account_id: UUID, study_id: UUID, propose_code: str
+    ) -> StudyDTO:
+        """Faire d'un point **proposé** un point **de son plan** — le seul chemin vers le
+        document.
+
+        🔴 **C'est ici que le verrou se tient, et c'est le même qu'au fil.** Le plan qu'Urim
+        propose vit dans sa propre table ; le livrable n'imprime que `preparation_element`.
+        Une proposition n'atteint donc un fichier que par ce geste-ci, point par point, que le
+        pasteur seul déclenche. *L'IA propose, l'homme dispose.*
+
+        ⚠️ **Point par point, jamais en bloc.** Un bouton « tout reprendre » aurait l'air d'un
+        service et serait le contraire : il ferait imprimer sous le nom du pasteur un plan
+        qu'il n'a pas lu ligne à ligne. Le coût du geste **est** la garantie.
+
+        ⚠️ **On ajoute à la fin, on n'écrase rien.** Ses divisions sont les siennes ; une
+        reprise qui viendrait remplacer la troisième lui ferait perdre ce qu'il avait écrit.
+
+        ⚠️ **Une fois, et une seule** — comme `promouvoir`. Deux points identiques dans un
+        plan, et il ne saurait plus lequel est le sien. La garde se lit sur le **corps
+        normalisé** : il retaille ses points, et un drapeau en base resterait vrai sur un
+        point qu'il a effacé."""
+        record = await self._charger(study_id)
+        await self._ensure_owner_or_preacher(actor_account_id, record)
+
+        propose = await self.studies.get_skeleton(study_id)
+        if propose is None or propose.est_vide():
+            raise OptionInconnueError(
+                "Aucun plan n'a été proposé sur cette préparation."
+            )
+
+        code, corps = _ce_qui_est_repris(propose, propose_code)
+        elements = list(await self.studies.list_elements(study_id))
+        if any(normalize(e.body or "") == normalize(corps) for e in elements):
+            raise OptionInconnueError("Vous avez déjà repris ce point.")
+
+        rang = 1 + max(
+            (e.ordinal for e in elements if e.element_code == code), default=0
+        )
+        elements.append(ElementRecord(code, rang, corps))
+        await self.set_elements(
+            actor_account_id=actor_account_id, study_id=study_id, elements=elements
+        )
+        return await self._rejouer(record, persist=False)
+
     async def articuler(
         self, *, actor_account_id: UUID, study_id: UUID, element_code: str, ordinal: int
     ) -> PlanSuggestion | None:
@@ -2081,6 +2154,10 @@ class UrimStudyService:
         # Lues **une fois**, servies deux : les options offertes et le parcours qui y mène
         # appliquent la même règle, et deux lectures pourraient les faire diverger.
         ecartees = await self.studies.list_dismissals(record.id)
+        # Remonté au-dessus du bloc persistant : le plan proposé s'appuie dessus, et il doit
+        # se fabriquer **avant** que l'assistance se marque. `_texte_servi` est pur.
+        servis, variantes = self._texte_servi(final)
+        squelette = None
 
         if persist:
             avant_ref = record.resolved_ref
@@ -2133,6 +2210,20 @@ class UrimStudyService:
             # justement d'écrire `pericope_id`, donc comparer à l'état d'avant ne dirait
             # jamais rien. C'est `rekey_for` qui est idempotent — il cherche la clé
             # provisoire, et ne la trouve plus une fois le re-clage fait.
+            # 🔴 **Le plan proposé se fabrique ici, et une seule fois par question posée.**
+            #
+            # D55 : le moteur vient de retenir une mise en forme ; lui demander en plus
+            # d'écrire son plan serait *« donner du boulot en supplément »*. Il propose donc
+            # des points — à côté, jamais dedans.
+            #
+            # ⚠️ **Au-dessus de `mark_assisted`, et ce n'est pas un détail.** C'est un appel de
+            # modèle comme les autres ; le placer plus bas l'aurait rendu **gratuit dans le
+            # compteur** — un service consommé que la mesure ne verrait pas.
+            squelette, appele = await self._proposer_le_squelette(
+                record, final, servis, assiste, maintenant
+            )
+            sollicite = sollicite or appele
+
             if final.pericope_id is not None:
                 await self.reservations.rekey_for(
                     church_id=record.church_id,
@@ -2160,7 +2251,11 @@ class UrimStudyService:
                     at=maintenant,
                 )
 
-        servis, variantes = self._texte_servi(final)
+        else:
+            # Un rejeu qui n'écrit pas ne fabrique rien — mais l'écran montre ce que le
+            # pasteur a déjà vu, sinon son plan disparaîtrait le temps d'une reprise.
+            squelette = await self.studies.get_skeleton(record.id)
+
         # L'unité retenue, cherchée par son identité — c'est elle qui porte la signature, et
         # c'est la seule chose de la curation que le pasteur ne pouvait pas voir jusqu'ici.
         unite = next(
@@ -2201,11 +2296,152 @@ class UrimStudyService:
             # pasteur n'a rien corrigé, et le pasteur veut voir comment il a été lu.
             entry_mode=final.entry_mode.value if final.entry_mode else None,
             resolved_label=_afficher(final.resolved),
+            squelette=squelette,
             corpus_drifted=(
                 record.corpus_snapshot is not None
                 and record.corpus_snapshot != self.index.snapshot
             ),
         )
+
+    async def _proposer_le_squelette(
+        self,
+        record: PreparationRecord,
+        final: StudyState,
+        servis,
+        assiste,
+        maintenant: datetime,
+    ) -> tuple[SquelettePropose | None, bool]:
+        """Un titre, trois ou quatre points, et les versets qui les portent — **à côté du plan
+        du pasteur**.
+
+        ⚠️ **Le verrou ne bouge pas d'un pouce.** Le livrable n'imprime que
+        `preparation_element` ; ceci vit dans sa propre table, et n'atteint un document que
+        point par point, par le geste de reprise. *L'IA propose, l'homme dispose.*
+
+        ⚠️ **Pré-généré, mais pas re-généré.** L'empreinte porte les quatre choses dont la
+        proposition dépend — la référence servie, l'axe, le couple, l'état du corpus. Un rejeu
+        retrouve donc le plan gardé sans rappeler le modèle : sans cette garde, chaque tour de
+        conversation referait payer un plan déjà rendu, et **le pasteur verrait ses points
+        changer sous lui** à chaque phrase — ce qui est pire que la dépense.
+
+        🔴 **Rien n'est proposé tant que la mise en forme n'est pas retenue.** Un plan
+        « expositif » et un plan « thématique » ne se ressemblent pas ; le fabriquer avant que
+        l'étage 6 ait tranché reviendrait à choisir la forme à sa place, en silence, et à
+        contredire le motif qu'on vient de lui montrer.
+
+        Rend **la proposition et le fait d'avoir appelé** : c'est l'appel qui coûte, et le
+        rejeu qui retrouve un plan gardé n'en est pas un."""
+        if final.plan_source is None or final.subject_matter is None:
+            return None, False
+        if final.axis is None or not servis:
+            return None, False
+
+        empreinte = hashlib.sha256(
+            "|".join((
+                # ⚠️ **L'état du moteur, pas la colonne.** `record.resolved_ref` est écrit
+                # quelques lignes plus haut ; s'appuyer dessus ferait dépendre l'empreinte de
+                # l'ordre des écritures, et l'ordre change sans que personne y pense.
+                _serialiser(final.resolved) or "",
+                final.axis,
+                final.plan_source,
+                final.subject_matter,
+                # 🔴 **L'état du moteur, pas la colonne — pour la seconde fois dans cette
+                # empreinte.** `record.corpus_snapshot` est **nul à l'ouverture** et rempli au
+                # tour suivant : l'empreinte changeait donc entre deux tours qui n'avaient rien
+                # changé, et le plan se refabriquait une fois pour rien. Mesuré par le test du
+                # rejeu — deux appels là où un seul était dû.
+                final.corpus_snapshot or "",
+            )).encode()
+        ).hexdigest()[:32]
+
+        garde = await self.studies.get_skeleton(record.id, empreinte)
+        if garde is not None:
+            return garde, False
+
+        # ⚠️ **Le plafond ne se recontrôle pas ici.** `_assistance` l'a déjà appliqué : épuisé
+        # — ou sans clé — `assiste` **est** le résolveur nul. Redemander `usage` et `tier`
+        # ajouterait deux lectures par tour pour reposer une question déjà tranchée, et
+        # surtout **deux endroits où la règle du quota pourrait diverger**.
+        #
+        # Le plafond ne perd rien pour autant : on rend ce qui était gardé. Un plan fait pour
+        # un autre texte serait trompeur, mais le pasteur qui l'a déjà lu doit continuer de le
+        # voir.
+        if isinstance(assiste, NullVerseResolver):
+            return await self.studies.get_skeleton(record.id), False
+
+        propose = await assiste.squelette(
+            reference=_afficher(final.resolved) or _lisible(record.raw_input),
+            texte=" ".join(v.text for v in servis),
+            axe=final.axis,
+            forme=forme_en_clair(final.plan_source, final.subject_matter),
+        )
+        if propose is None or propose.est_vide():
+            # Appelé quand même : c'est la dépense qui compte, pas la réussite.
+            return await self.studies.get_skeleton(record.id), True
+
+        propose = self._verifier_les_versets(propose, servis)
+        await self.studies.save_skeleton(record.id, empreinte, propose, maintenant)
+        return propose, True
+
+    def _verifier_les_versets(
+        self, propose: SquelettePropose, servis
+    ) -> SquelettePropose:
+        """🔴 **Ce que le modèle a cité hors du texte servi est retiré, pas signalé.**
+
+        Un verset inventé sur l'écran d'un pasteur est fatal, et il est détectable : on a le
+        texte qu'on vient de servir. Le retirer plutôt que l'accompagner d'un avertissement
+        est le même choix qu'ailleurs — *un avertissement laisse la référence lisible, et
+        c'est la référence qu'on recopie*.
+
+        Le point, lui, **reste** : son titre ne dépend pas de ses appuis, et le pasteur juge
+        mieux un point nu qu'un point qui a disparu sans explication."""
+        connus: set[tuple[str, int, int]] = set()
+        for verset in servis:
+            for lu in references_dans(verset.reference, self.index):
+                if lu.chapter is not None and lu.verse_start is not None:
+                    connus.add((lu.book, lu.chapter, lu.verse_start))
+
+        return replace(
+            propose,
+            points=tuple(
+                replace(point, versets=self._appuis_retrouves(point.versets, connus))
+                for point in propose.points
+            ),
+        )
+
+    def _appuis_retrouves(
+        self, cites: tuple[str, ...], connus: set[tuple[str, int, int]]
+    ) -> tuple[str, ...]:
+        """Les références qu'on **retrouve dans le texte qu'on vient de servir**.
+
+        ⚠️ **Rendues sous la forme du corpus, pas sous celle du modèle.** « Rm 3v21 » et
+        « Romains 3:21 » désignent le même verset ; les afficher tels quels ferait croire à
+        deux conventions dans le même écran. On rend donc ce qu'on a **su relire** — ce qui
+        est aussi la preuve qu'on l'a relu."""
+        gardees: tuple[str, ...] = ()
+        for brut in cites:
+            lus = references_dans(brut, self.index)
+            if not lus or lus[0].chapter is None:
+                continue
+            reference = lus[0]
+            debut = reference.verse_start
+            if debut is None:
+                # Un chapitre entier n'est pas un verset inventé, c'est une imprécision : on
+                # le garde s'il fait partie du texte servi.
+                trouve = any(
+                    livre == reference.book and ch == reference.chapter
+                    for livre, ch, _ in connus
+                )
+            else:
+                fin = reference.verse_end or debut
+                trouve = all(
+                    (reference.book, reference.chapter, v) in connus
+                    for v in range(debut, fin + 1)
+                )
+            lisible = lisible_reference(reference)
+            if trouve and lisible not in gardees:
+                gardees = (*gardees, lisible)
+        return gardees
 
     def _texte_servi(
         self, etat: StudyState

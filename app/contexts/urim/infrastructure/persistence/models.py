@@ -398,6 +398,38 @@ class UrimPlanSuggestionModel(Base):
     suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UrimProposedSkeletonModel(Base):
+    """Le plan qu'Urim propose — **à côté du sien, jamais dedans**.
+
+    Même règle que `urim_plan_suggestion`, et pour la même raison : le livrable n'imprime que
+    `preparation_element`. Une proposition que le pasteur n'a pas reprise n'atteint aucun
+    fichier, et il n'existe **pas de chemin** pour qu'elle y arrive — c'est une table séparée,
+    pas des colonnes de plus sur l'élément.
+
+    ⚠️ **Une ligne par préparation.** Le squelette est une proposition d'ensemble : deux lignes
+    voudraient dire deux plans concurrents, et l'écran devrait choisir lequel montrer. Le
+    changement de passage ou de mise en forme **remplace**, il n'empile pas.
+
+    `input_hash` porte ce dont la proposition dépend — la référence servie, l'axe, le couple
+    retenu, l'état du corpus. Un rejeu ne redemande donc pas (donc ne refacture pas), et
+    changer l'un des quatre obtient un plan neuf plutôt qu'une réponse à une question qui
+    n'est plus posée. `model` est à cette table ce que `corpus_snapshot` est à la préparation.
+    """
+
+    __tablename__ = "urim_proposed_skeleton"
+
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+    input_hash: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: [{titre, versets: [...]}] — les versets ont été **vérifiés contre le corpus** avant
+    #: d'arriver ici. Ce que le modèle a cité hors du texte servi est retiré, pas signalé.
+    points: Mapped[list] = mapped_column(JSON)
+    suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimPreachedModel(Base):
     """L'archive — **propriété de l'auteur**.
 

@@ -55,6 +55,19 @@ class _Studies:
         self._record = record
         self._elements = list(elements)
 
+        self.squelettes: dict = {}
+    #: **Le plan propose, garde par empreinte.** Une doublure qui rendrait toujours
+    #: `None` ferait rappeler le modele a chaque rejeu — donc mesurerait un service
+    #: que la production n'a pas.
+    async def save_skeleton(self, study_id, input_hash, squelette, at):
+        self.squelettes[study_id] = (input_hash, squelette)
+
+    async def get_skeleton(self, study_id, input_hash=None):
+        garde = self.squelettes.get(study_id)
+        if garde is None or (input_hash is not None and garde[0] != input_hash):
+            return None
+        return garde[1]
+
     async def get(self, study_id):
         if self._record is not None and study_id == self._record.id:
             return self._record

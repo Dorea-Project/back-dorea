@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
 from app.contexts.urim.domain.libelles import LOCI, en_clair, forme_en_clair
+from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.stages.propose_theme import theme_propose
 from app.contexts.urim.engine.state import EntryOrigin
 from app.contexts.urim.infrastructure.corpus import morphology, morphology_hebrew
@@ -330,6 +331,72 @@ class CoupleView(BaseModel):
     proof_text_risk: str
 
 
+def _le_plan_propose(dto) -> SqueletteView | None:
+    """Ce qu'Urim propose, **et ce que le pasteur en a déjà pris**.
+
+    🔴 La reprise se lit en comparant les corps, pas en gardant un drapeau. C'est le même
+    choix que l'empreinte du thème : une colonne « repris » dirait la même chose et pourrait
+    la contredire — le pasteur retaille ses points, efface, recommence, et le drapeau
+    resterait vrai sur un point qui n'est plus là.
+
+    ⚠️ **La comparaison est faite sur le corps normalisé**, parce qu'il retaille : reprendre
+    un point puis en changer la ponctuation le rendrait « non repris », et le bouton
+    reviendrait sur un point qu'il a déjà dans son plan."""
+    propose = dto.squelette
+    if propose is None or propose.est_vide():
+        return None
+
+    ecrits = {normalize(e.body or "") for e in dto.elements if (e.body or "").strip()}
+
+    return SqueletteView(
+        title=propose.titre,
+        title_taken=bool(propose.titre) and normalize(propose.titre) in ecrits,
+        points=[
+            PointProposeView(
+                title=point.titre,
+                verses=list(point.versets),
+                propose_code=f"point:{rang}",
+                taken=normalize(point.corps()) in ecrits,
+            )
+            for rang, point in enumerate(propose.points)
+        ],
+    )
+
+
+class PointProposeView(BaseModel):
+    """Un point proposé — un titre, et **les versets qui le portent**.
+
+    ⚠️ `verses` a été vérifié contre le texte servi : ce que le modèle a cité ailleurs est
+    retiré, pas signalé. Un verset inventé sur l'écran d'un pasteur est fatal, et il est
+    détectable."""
+
+    title: str
+    verses: list[str] = []
+
+    #: Ce qu'il faut renvoyer pour le reprendre — la convention des options du moteur.
+    propose_code: str
+
+    #: Vrai quand ce point est **déjà dans son plan**. La reprise n'est pas offerte deux fois :
+    #: deux points identiques, et il ne saurait plus lequel est le sien.
+    taken: bool = False
+
+
+class SqueletteView(BaseModel):
+    """🔴 **Le plan qu'Urim propose — à côté du sien, jamais dedans.**
+
+    Le document n'imprime que `elements`. Ceci vit dans sa propre table et n'atteint un
+    fichier que point par point, par un geste de reprise — exactement comme l'articulation.
+    Les deux champs ne se mélangent jamais, et c'est pour ça qu'ils sont deux.
+
+    Le titre est **proposé**, jamais posé : *« un thème, jamais un titre — le titre, c'est
+    votre voix »* reste vrai. Ce qui change, c'est qu'on ose enfin lui en montrer un, à côté,
+    pour qu'il ait de quoi partir."""
+
+    title: str = ""
+    title_taken: bool = False
+    points: list[PointProposeView] = []
+
+
 class StudyView(BaseModel):
     id: UUID
     status: str
@@ -357,6 +424,11 @@ class StudyView(BaseModel):
     plan_source: str | None
     subject_matter: str | None
     theme: str | None
+
+    #: Le plan proposé par Urim — `None` tant que la mise en forme n'est pas retenue, ou
+    #: quand le modèle est muet (sans clé, au plafond). Le pasteur écrit alors son plan comme
+    #: il l'a toujours fait : rien de ce qui suit ne dépend de cette proposition.
+    squelette: SqueletteView | None = None
 
     #: Le meme theme en francais, ou NULL quand `theme` est deja une phrase du pasteur.
     #: Voir `theme_en_clair` : l'empreinte reste intacte, on ajoute a cote.
@@ -448,6 +520,7 @@ class StudyView(BaseModel):
             subject_matter=r.subject_matter,
             theme=r.theme,
             theme_label=theme_en_clair(r),
+            squelette=_le_plan_propose(dto),
             elements=[
                 ElementView(element_code=e.element_code, ordinal=e.ordinal, body=e.body)
                 for e in dto.elements
@@ -538,6 +611,19 @@ class PromotionBody(BaseModel):
 
     element_code: str | None = Field(default=None, min_length=1, max_length=64)
     ordinal: int | None = Field(default=None, ge=0, le=999)
+
+
+class RepriseBody(BaseModel):
+    """Ce qu'il reprend du plan proposé — **un point à la fois**.
+
+    `titre`, ou `point:N` : la convention des options du moteur (`axe:anthropologie`,
+    `textuel:doctrinal`), un préfixe et une valeur.
+
+    ⚠️ **Il n'y a pas de « tout reprendre », et c'est délibéré.** Un tel bouton aurait l'air
+    d'un service et serait le contraire : il ferait imprimer sous le nom du pasteur un plan
+    qu'il n'a pas lu ligne à ligne. Le coût du geste **est** la garantie."""
+
+    propose_code: str = Field(min_length=1, max_length=64, examples=["point:0", "titre"])
 
 
 class ArticulationBody(BaseModel):

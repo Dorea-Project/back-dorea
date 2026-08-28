@@ -43,6 +43,12 @@ class _ModeleQuiCompte(_Modele):
         self.appels = 0
         self._model = "mistral-small-latest"
 
+    #: ⚠️ **Le port le declare, la doublure le declare** — une doublure plus permissive
+    #: que le vrai resolveur ne prouve rien. `None` est la reponse du resolveur nul :
+    #: sans cle, le pasteur ecrit son plan comme il l'a toujours fait.
+    async def squelette(self, *, reference, texte, axe, forme):
+        return None
+
     async def resolve(self, text):
         self.appels += 1
         return await super().resolve(text)
