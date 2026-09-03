@@ -48,6 +48,7 @@ import time
 import unicodedata
 import wave
 from dataclasses import dataclass, field
+from functools import partial
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -171,6 +172,44 @@ CANDIDATS = {
         AUTOREGRESSIF,
         "aucune — l'audio ne sort pas",
         "phrase fluide et fausse",
+    ),
+    # Les deux suivants ne viennent pas de S6 §9 : ils viennent de D52, la décision du dépôt
+    # mobile. C'est le modèle qui tournera dans le téléphone du pasteur — donc celui dont le
+    # mode de panne coûte le plus cher, bien avant Chirp ou Gemini.
+    "whisper-tiny": Candidat(
+        "whisper-tiny",
+        "Whisper tiny (embarqué, nu)",
+        "poids ouverts, sur l'appareil",
+        AUTOREGRESSIF,
+        "aucune — l'audio ne sort pas",
+        "phrase fluide et fausse — c'est le mode de panne que D52 assume",
+    ),
+    # Le même modèle, avec la parade sur laquelle D52 fait reposer sa sûreté : « il faut une
+    # détection d'activité vocale en amont ». Mesurer les deux côte à côte est la seule façon
+    # de savoir si la parade porte réellement la charge qu'on lui confie.
+    "whisper-tiny-vad": Candidat(
+        "whisper-tiny-vad",
+        "Whisper tiny + détection de voix",
+        "poids ouverts, sur l'appareil",
+        AUTOREGRESSIF,
+        "aucune — l'audio ne sort pas",
+        "rien — si la parade de D52 tient",
+    ),
+    "whisper-base": Candidat(
+        "whisper-base",
+        "Whisper base (embarqué, nu)",
+        "poids ouverts, sur l'appareil",
+        AUTOREGRESSIF,
+        "aucune — l'audio ne sort pas",
+        "phrase fluide et fausse",
+    ),
+    "whisper-base-vad": Candidat(
+        "whisper-base-vad",
+        "Whisper base + détection de voix",
+        "poids ouverts, sur l'appareil",
+        AUTOREGRESSIF,
+        "aucune — l'audio ne sort pas",
+        "rien — si la parade de D52 tient",
     ),
 }
 
@@ -401,6 +440,42 @@ def _mesurer_gemini(ech: Echantillon) -> tuple[str, str]:
     return (reponse.text or "").strip(), ""
 
 
+_MODELES_WHISPER: dict[str, object] = {}
+
+
+def _mesurer_whisper(ech: Echantillon, gabarit: str, vad: bool) -> tuple[str, str]:
+    """Le modèle embarqué de D52, sur cette machine, hors ligne.
+
+    Deux différences avec les candidats distants, et elles sont dans le bon sens : rien ne
+    sort de la machine, donc Q1 ne se pose pas (I36) ; et le résultat porte sur le modèle qui
+    ira **réellement** dans le téléphone du pasteur, pas sur un candidat de banc.
+
+    Le drapeau `vad` est la parade de D52 — *« Whisper invente du texte sur les silences, un
+    culte en est plein, il faut une détection d'activité vocale en amont »*. La mesurer allumée
+    et éteinte sur le même vide est la seule façon de savoir si elle porte la charge.
+
+    ⚠️ Le gabarit n'est pas le processeur du téléphone. Ce banc dit ce que le modèle **rend**,
+    pas ce qu'il coûte en temps ni en chauffe sur un Galaxy A07 — cette mesure-là reste à
+    faire, et le cahier de transcription la réclame déjà.
+    """
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return "", "faster-whisper absent (pip install faster-whisper)"
+
+    if gabarit not in _MODELES_WHISPER:
+        # int8 sur processeur : la quantisation que D52 laisse explicitement au banc.
+        _MODELES_WHISPER[gabarit] = WhisperModel(gabarit, device="cpu", compute_type="int8")
+    modele = _MODELES_WHISPER[gabarit]
+
+    segments, _ = modele.transcribe(
+        io.BytesIO(_wav(ech.pcm)),
+        language="fr",  # D9 — la langue est déclarée, jamais devinée
+        vad_filter=vad,
+    )
+    return " ".join(s.text.strip() for s in segments).strip(), ""
+
+
 def _mesurer_voxtral(ech: Echantillon) -> tuple[str, str]:
     """Non câblé. Laissé en place pour que le banc porte les quatre candidats de S6 §9."""
     return "", "adaptateur non écrit"
@@ -417,6 +492,10 @@ MESURES = {
     "voxtral": _mesurer_voxtral,
     "omniasr-ctc": _mesurer_omniasr,
     "omniasr-llm": _mesurer_omniasr,
+    "whisper-tiny": partial(_mesurer_whisper, gabarit="tiny", vad=False),
+    "whisper-tiny-vad": partial(_mesurer_whisper, gabarit="tiny", vad=True),
+    "whisper-base": partial(_mesurer_whisper, gabarit="base", vad=False),
+    "whisper-base-vad": partial(_mesurer_whisper, gabarit="base", vad=True),
 }
 
 
