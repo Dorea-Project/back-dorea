@@ -63,3 +63,8 @@ data/*_raw.xml
 # Les verdicts du contre-interrogatoire : une trace de reprise, pas une source. La base
 # fera foi quand les worktrees auront fusionne et que ce sera une table.
 data/urim_contre_interrogatoire.json
+# Les fragments televerses par les telephones : de la voix de pasteur, pas de la source.
+# D53 leur donne sept jours et `urim_purger_audio.py` les efface — mais l'historique de git,
+# lui, n'oublie pas. Un seul `git add .` rendrait definitif ce que la purge existe
+# precisement pour rendre temporaire, et une fois pousse ca ne se retire plus vraiment.
+capture_audio/
