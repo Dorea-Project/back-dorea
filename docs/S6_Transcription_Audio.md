@@ -443,6 +443,42 @@ boucle de langage : privé de signal, il rend des caractères décousus. Les deu
 > donc celui qui rend un seul GPU suffisant à l'échelle (§2.2). **La sûreté et le prix vont dans le
 > même sens.**
 
+### 5.1bis — D17 a été mesuré (02-03/09/2026), et la table ci-dessus est trop grossière
+
+`scripts/urim_mesure_transcription.py` donne à chaque candidat trente secondes dont on connaît
+la vérité de terrain : **rien**. Silence numérique, souffle de micro, rumeur d'assemblée. C'est
+ce qui rend la mesure concluante sans transcription de référence — sur un culte on ignore si une
+sortie est fausse ; sur du silence, tout mot rendu est un mot jamais prononcé.
+
+| Candidat | Architecture | A inventé sur du silence | Ce qu'il rend |
+| :-- | :-- | :-- | :-- |
+| `gemini-3.6-flash` | autorégressif | **7 passes sur 7** | de la prose impeccable, jamais deux fois la même |
+| Whisper `tiny`, garde-fous désarmés | autorégressif | oui | *« de la fin de la fin de la fin… »* — une boucle |
+| Whisper `tiny`, `no_speech_threshold` = 0,6 | autorégressif | 0 sur 9 | rien |
+| Chirp | non vérifiée | **non mesuré** | facturation Google refusée |
+
+**Ce que la mesure confirme.** Un décodeur autorégressif privé de signal parle. Gemini a produit
+sept textes sans rapport entre eux à température 0 — une stratégie numérique béninoise, la
+consigne de l'épreuve orale du DELF A2, une charte de marque — **alors que l'invite lui donnait
+mot pour mot la sortie honnête à rendre**. Il la connaissait. Il a inventé quand même.
+
+🔴 **Ce que la mesure corrige, et qui manque à la table du §5.1.** « Détectable à l'œil » n'est pas
+une propriété de l'architecture seule : **elle varie avec la qualité du modèle à l'intérieur même
+de la famille autorégressive.** Whisper `tiny` bégaie et se trahit ; Gemini écrit du français que
+rien ne distingue d'une vraie transcription. La conséquence est désagréable : **la sûreté ne
+s'extrapole pas d'un petit modèle vers un grand**, et améliorer le taux d'erreur d'un décodeur
+autorégressif rend sa panne plus difficile à voir, pas moins.
+
+⚠️ **Et le garde-fou de Whisper ne se transporte pas.** Ce qui sauve `tiny` est `no_speech_threshold`,
+un seuil qui lit la probabilité de « pas de parole » émise par le modèle et **jette le texte** :
+le modèle sait qu'il n'entend rien, et parle quand même. Ce seuil marche parce que la sortie est
+dégénérée ; il ne sauverait pas un modèle dont l'invention est bien formée.
+
+⛔ **Ce que la mesure ne dit pas.** Elle porte sur trois échantillons fabriqués, pas sur un culte.
+Elle n'a **pas** mesuré le versant CTC — Chirp devait le fournir et la facturation l'a bloqué. On a
+donc des candidats mesurés, **pas deux architectures comparées** : la ligne CTC de la table du
+§5.1 reste une hypothèse de littérature. Rien de tout ceci n'ouvre le §8.
+
 ### 5.2 Trois décisions qui en découlent
 
 > ✅ **D9 — la langue est DÉCLARÉE, jamais devinée.** Les modèles retenus acceptent un code de
@@ -716,6 +752,7 @@ Cette note appelle du code. Elle le nomme, et elle s'arrête.
 | :-- | :-- | :-- | :-- |
 | **1** | **Le client pose `entry_origin=dictated`** — dictée sur l'appareil, zéro octet serveur (**D1**) | mobile / PWA | **rien.** Le contrat serveur existe et est testé |
 | **2** | Un **banc de mesure du taux d'erreur, PAR LANGUE**, sur trois cultes réels — à la discipline de `scripts/urim_mesure_cout.py` (paramètres en dur et datés, entrées réelles). Compare **trois** candidats sur le **même** audio : `omniASR-CTC-7B`, `omniASR-LLM-7B` (§2.2ter — les CER connus sont les siens, pas ceux du CTC) et une API | `scripts/` | de l'audio réel · **Q3, Q6** |
+| **2ter** | ✅ **Écrit le 02-03/09** — `scripts/urim_mesure_transcription.py`. Il ne fait **pas** la ligne 2 : sans trois cultes ni transcription de référence, il mesure l'autre moitié, celle qui se mesure sans terrain — **le mode de panne sur du vide dont on connaît la vérité** (§5.1bis). Six candidats, l'architecture et la juridiction portées par chaque relevé | `scripts/` | fait ·  la ligne 2 reste entière |
 | **2bis** | Un **essai d'auto-hébergement** : un GPU, `omniASR-CTC-7B`, mesurer le RTF réel sur la machine retenue plutôt que sur l'A100 de la fiche | hors dépôt | **Q1** |
 | 3 | Port `Transcriber` + `TranscriptResult` (segments, confiance, `provider`, `model_ref`) — c'est le `TranscriptionPort` de la spec de capture §4 | `urim/capture/` | le dégel du chantier 10 |
 | 4 | `NullTranscriber` + adaptateur réel + `build_transcriber(settings)` | `urim/capture/` | 3 · **Q1** (quel fournisseur) |
@@ -750,7 +787,7 @@ importe plus que la liste — **une fausse décision consomme la même attention
 | :-- | --: | :-- | :-- |
 | **Déjà tranché ailleurs** — la note ne fait que le reporter | 10 | **D5** (`TranscriptionPort`, spec capture §4) · **D8** (précédent `media/video.py`) · **D9** (`language_hints`, §4) · **D10-D11** (couverture 30 %, *« partiel jamais un silence »*, §10.5) · **D12** (S36) · **D13** (pilier 2) · **D14** (M9-1) · **D15** (Plan_Urim_Producteur, 05/08) · **D2** (*« côté église, donc côté payant »*, commit `da4d2ef`) | ⛔ **personne** — c'est écrit |
 | **Conséquence ou constatation** — l'arithmétique ou le code tranche seul | 7 | **D1** (chaîne `entry_origin` vérifiée entière) · **D3** · **D7** (`sermon_max_bytes` existe) · **D8bis** (exigence, pas choix) · **D16** · **D18** · **D19** (découle de D18) | ⛔ **personne** |
-| **Décision d'ingénierie** — la mienne, contestable, tracée | 7 | **D4** (unité = la capture) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) · **D20** (pas de détour par une API) · **D21** (le point de départ, §5bis) · **D22** (on ne démolit pas avant d'avoir remplacé) · **D23** (informer est le plancher) | ✅ **prises** — **D17, D20, D21** seront confirmés ou réfutés par la mesure |
+| **Décision d'ingénierie** — la mienne, contestable, tracée | 7 | **D4** (unité = la capture) · **D6** (« jamais de refus » porte sur l'irréversible) · **D17** (décodeur CTC) · **D20** (pas de détour par une API) · **D21** (le point de départ, §5bis) · **D22** (on ne démolit pas avant d'avoir remplacé) · **D23** (informer est le plancher) | ✅ **prises** — **D20, D21** seront confirmés ou réfutés par la mesure. **D17 l'a été le 03/09** (§5.1bis) : le versant autorégressif est confirmé et affiné — la visibilité de la panne varie *à l'intérieur* de la famille ; le versant CTC reste non mesuré, Chirp ayant été bloqué par la facturation |
 | **Ne se décide pas — se mesure** | 2 | **Q3** (quel modèle) · **Q9** (les seuils) | 📏 **l'audio**, ligne 2 du §9 |
 | **Vraie décision humaine, différable** | 5 | **Q1** (souveraineté → exploitation) · **Q2** (qui paie) · **Q5** (rétention négociable) · **Q6** (quelles langues promettre) · **Q8** (qui a la capture) | ⏳ **après l'audio** |
 | **Instruction externe à LANCER** — le plancher est répondu (**D23**) | 1 | **Q4** → éclatée en **Q4a** (consentement) · **Q4b** (registre) · **Q4c** (effacement) | ⚠️ **délai non compressible** — seules ces trois-là changent le produit |
