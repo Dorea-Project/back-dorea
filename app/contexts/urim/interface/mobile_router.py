@@ -15,15 +15,18 @@ juger avant qu'un fichier existe. La route de rendu viendra avec les écrivains 
 et ne servira que ce qui porte déjà `conforme` — un fichier produit est un fichier qui circule.
 """
 
+from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 
 from app.contexts.auth.interface.dependencies import CurrentActor
 from app.contexts.urim.application.ports import ElementRecord
 from app.contexts.urim.deliverable.application.ports import DiapositiveSoumise
 from app.contexts.urim.interface.dependencies import (
     ArchiveServiceDep,
+    CaptureServiceDep,
     CorpusIndexDep,
     DeliverableServiceDep,
     StudyServiceDep,
@@ -40,6 +43,7 @@ from app.contexts.urim.interface.schemas import (
     DeliverableBody,
     DeliverableView,
     ElementsBody,
+    FragmentRecuView,
     OpenStudyBody,
     PassageDetailView,
     PromotionBody,
@@ -762,4 +766,109 @@ async def explorer_passage_personnel(
     """Lecture pure du corpus, comme au-dessus — et pour la même raison."""
     dto = await service.explorer(actor_account_id=actor.account_id, reference=ref)
     return PassageDetailView.from_dto(dto)
+
+
+# =================================================================================================
+# La capture — B1.6. **Des octets, un par un, et rien qui ouvre une session.**
+# =================================================================================================
+
+
+@router.post(
+    "/captures/{capture_id}/fragments/{index}",
+    response_model=FragmentRecuView,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Déposer un fragment de culte — il crée la capture s'il est le premier",
+)
+async def deposer_fragment(
+    capture_id: UUID,
+    index: int,
+    request: Request,
+    actor: CurrentActor,
+    service: CaptureServiceDep,
+    church_id: Annotated[UUID, Query()],
+    preached_on: Annotated[datetime, Query()],
+    service_timezone: Annotated[str, Query(max_length=64)] = "Africa/Abidjan",
+) -> FragmentRecuView:
+    """🔴 **Il n'existe volontairement aucune route « ouvrir une capture ».**
+
+    Elle échouerait un dimanche matin sans réseau, et *ce qui n'est pas capté dimanche est
+    perdu pour toujours*. Chaque fragment porte donc de quoi créer la capture s'il est le
+    premier — d'où ces paramètres qui accompagnent des octets bruts.
+
+    ⚠️ **Le fuseau a une valeur par défaut** : un client qui ne l'envoie pas ne doit pas voir
+    sa capture refusée. *Un dimanche est local, pas UTC* — mais un fuseau manquant est un
+    détail de client, pas une raison de perdre un culte.
+
+    ⚠️ **202, pas 201.** L'accusé dit *rangé et connu*, pas *traité* : l'appareil fait avancer
+    sa marque haute dessus et ne renverra plus jamais ce fragment. Le service écrit donc la
+    capture **avant** les octets, et laisse remonter une panne de stockage plutôt que de
+    rendre un accusé qui ferait perdre le fragment des deux côtés.
+
+    ⛔ **Reconstruite le 06/09 après avoir été détruite par erreur.** Sa forme vient
+    entièrement de `tests/contexts/urim/test_capture_fragments.py`, qui a survécu : c'est lui
+    qui décrit le corps brut, les trois paramètres, le fuseau par défaut et le 202. Les
+    commentaires d'origine, eux, sont perdus."""
+    capture = await service.deposer_fragment(
+        actor_account_id=actor.account_id,
+        capture_id=capture_id,
+        index=index,
+        octets=await request.body(),
+        church_id=church_id,
+        preached_on=preached_on,
+        service_timezone=service_timezone,
+    )
+
+    return FragmentRecuView(
+        capture_id=capture.id,
+        index=index,
+        state=capture.state.value,
+        audio_purge_at=capture.audio_purge_at,
+    )
+
+
+# =================================================================================================
+# La synthèse — ⛔ ÉTEINTE LE 06/09/2026 (D27 côté S6, D72 côté application)
+# =================================================================================================
+#
+# Deux routes vivaient ici : `GET /studies/{id}/synthese` et sa validation. Elles fabriquaient
+# une synthèse **depuis la préparation** — péricope, axe, plan écrit. C'est D59 qui les avait
+# voulues, précisément parce que le chemin du transcript était verrouillé : *elle sort
+# aujourd'hui* au lieu d'*après des mois de campagne*. C'était un pont, et il a servi.
+#
+# 🔴 **Ce qu'elle résumait n'était pas un sermon.** Une synthèse bâtie sur le plan résume une
+# **intention**. Publiée, lue à voix haute devant une assemblée ou interprétée en malinké, elle
+# présente un projet comme si c'était la parole prononcée — la même famille d'erreur que
+# l'invention d'un modèle : quelque chose de plausible qui tient la place de quelque chose de
+# réel. Le dépôt tranche dans le même sens qu'ailleurs : ***rien plutôt qu'une vraisemblance***.
+#
+# Le tronc ayant changé (D24/D70), la synthèse rentre chez elle : elle naîtra du **transcript
+# d'une pièce**, et le pasteur verra les deux côte à côte (D26/D71). Cela attend la mesure des
+# quinze avis dans trois églises, et **le prix est assumé** : la signature, la lecture à voix
+# haute et la piste de voix s'éteignent avec elle, pour des mois.
+#
+# ⚠️ **Ceci met D22 de côté délibérément** — *on ne démolit pas avant d'avoir remplacé*. Ici le
+# remplacement est verrouillé ; garder l'ancien laisserait un résumé d'intention passer pour un
+# résumé de sermon aussi longtemps que dure la mesure.
+#
+# `SyntheseService`, `SqlSyntheseRepository` et la table restent à leur place : c'est la
+# **fabrique depuis une étude** qui meurt, pas la synthèse comme objet. Sa clé changera — elle
+# pendra d'une pièce, plus d'une étude.
+
+
+# =================================================================================================
+# Le transcript — ⛔ PERDU LE 06/09/2026, et à refaire autrement
+# =================================================================================================
+#
+# `POST` et `GET /captures/{id}/transcript` vivaient ici. Ils ont été détruits par une erreur
+# d'outil, et **rien ne permet de les restituer à l'identique** : contrairement à la route des
+# fragments, aucun test ne les décrivait, et aucun client ne les appelait — le transcripteur
+# embarqué n'existe pas encore.
+#
+# ⚠️ **Les refaire à l'identique serait refaire du périmé.** D71 change leur sujet : on ne
+# transcrit jamais la matière brute, **seule une pièce se transcrit**. Le port prendra donc une
+# pièce et non une capture, et ces deux routes seront écrites contre le nouvel objet quand
+# l'étape 8 s'ouvrira.
+#
+# Ce qui a survécu et qui les porte : `TranscriptService` (dépôt et lecture), les schémas de
+# `transcript_schemas.py`, `SqlTranscriptRepository`, et `TranscriptServiceDep`.
 
