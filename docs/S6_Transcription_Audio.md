@@ -129,10 +129,34 @@ transforme une matière captée en pièce assumée.
 > bâtie sur du faux. C'est l'endroit exact où un humain peut attraper une invention avant
 > qu'elle ne devienne un souvenir.
 
-✅ **Tranché le 04/09, en même temps que D24 :** il y a bien **deux synthèses, distinguées par
-leur origine**. Celle de D59 naît *de la préparation*, avant le culte — ce qu'il a prévu de
-dire. Celle de D26 naît *du transcript de la pièce* — ce qu'il a réellement dit, et c'est
-celle-là qui sort en epub.
+> ⛔ **D27 — il n'y en a finalement qu'une. La préparation ne porte ni transcription ni
+> synthèse ; « prêcher » tient les deux, et la synthèse fabriquée depuis le plan s'éteint.**
+>
+> 🔴 **Ceci renverse D59, qui avait moins d'un mois.** D59 faisait naître la synthèse *de la
+> préparation* — péricope, axe, plan écrit — précisément parce que le chemin du transcript
+> était verrouillé : *« elle sort aujourd'hui »* au lieu d'*« après des mois de campagne »*.
+> C'était un pont, et il a servi. Le tronc ayant changé (D24), la synthèse rentre chez elle.
+>
+> **Ce qu'elle résumait n'était pas un sermon.** Une synthèse bâtie sur le plan résume **une
+> intention**. Publiée, lue à voix haute devant une assemblée ou interprétée en malinké, elle
+> présente un projet comme si c'était la parole prononcée — la même famille d'erreur que
+> l'invention du modèle : quelque chose de plausible qui tient la place de quelque chose de
+> réel. Le dépôt tranche donc dans le même sens qu'ailleurs : ***rien plutôt qu'une
+> vraisemblance***.
+>
+> ⚠️ **Ce qui s'éteint, nommément, et c'est du code livré** : `GET /studies/{id}/synthese`,
+> `POST /studies/{id}/synthese/validation`, `synthese_service.py` et son dépôt. Avec eux tombe
+> la raison d'être de D66 (*la synthèse née d'une préparation vit dans sa propre table*) : la
+> table reste, sa clé change — elle pend d'une **pièce**, plus d'une étude.
+>
+> 🔴 **Le prix est assumé.** La synthèse naît du transcript ; le transcript attend les quinze
+> avis dans trois églises. Donc la synthèse, sa signature, sa lecture à voix haute et la piste
+> de voix du pasteur **attendent aussi**. Et ceci met **D22 de côté délibérément** — *on ne
+> démolit pas avant d'avoir remplacé* : ici le remplacement est verrouillé pour des mois, et
+> garder l'ancien pendant ce temps laisserait un résumé d'intention passer pour un résumé de
+> sermon aussi longtemps que dure la mesure.
+
+Pendant application : **D72**, même jour.
 
 ---
 
