@@ -102,11 +102,37 @@ synthèse. 🔴 **Le découpage est le consentement** : le pasteur a écouté av
 qu'il garde est ce qu'il a décidé de garder. C'est cet acte, et non une durée de rétention, qui
 transforme une matière captée en pièce assumée.
 
-⛔ **Reste ouvert, et se tranche par un humain :** D59 fait déjà naître une synthèse *de la
-préparation*, avant le culte. D24 en fait naître une seconde, *du transcript de la pièce* —
-ce qui a réellement été dit, et c'est celle-là qui sort en epub. **Cette note suppose qu'il y en
-a deux, distinguées par leur origine.** Si le fondateur n'en veut qu'une, il faut dire laquelle
-nourrit l'autre.
+> ⛔ **D25 — on ne transcrit jamais la matière brute. Seule une pièce se transcrit.**
+>
+> La règle est la même que celle du découpage, poussée jusqu'au bout : la matière brute est ce
+> que le micro a pris **sans intention**, et aucun modèle n'a à la lire. Un témoignage donné au
+> micro du prédicateur pendant trente minutes de prière n'entre pas dans un transcript parce
+> qu'il se trouvait dans la salle.
+>
+> **Le port change donc de sujet.** `Transcriber.transcribe(chunks, language_hints)` prend
+> aujourd'hui les fragments d'une capture ; il prendra **une pièce**. Ce n'est pas un détail de
+> signature — c'est ce qui fait tenir la règle par le code plutôt que par la discipline.
+>
+> **Deux conséquences en cascade.** La mesure des trois églises porte dès lors sur des pièces,
+> ce qui est meilleur : l'audio y est propre — chants et bruit écartés — et le relecteur juge
+> un transcript de ce que le pasteur a *assumé*. Et si rien ne transcrit les 180 fragments
+> bruts, **la dernière raison de les faire monter au serveur tombe** (§4.1).
+
+> ✅ **D26 — le pasteur voit le transcript ET la synthèse, jamais la synthèse seule.**
+>
+> La synthèse de cette branche naît du transcript de la pièce, et les deux s'affichent ensemble.
+> ⚠️ **Ce n'est pas de la transparence de confort : c'est une parade, et c'est la seule du
+> produit.** Le pasteur sait ce qu'il a prêché. Une invention dans le transcript — la boucle
+> *« de la fin de la fin de la fin »* de Whisper `tiny`, le paragraphe sur la stratégie
+> numérique du Bénin de `gemini-3.6-flash` (§5.1bis) — il la repère à l'œil parce qu'il a le
+> texte sous les yeux. **La synthèse seule la cacherait** : elle serait fluide, plausible, et
+> bâtie sur du faux. C'est l'endroit exact où un humain peut attraper une invention avant
+> qu'elle ne devienne un souvenir.
+
+✅ **Tranché le 04/09, en même temps que D24 :** il y a bien **deux synthèses, distinguées par
+leur origine**. Celle de D59 naît *de la préparation*, avant le culte — ce qu'il a prévu de
+dire. Celle de D26 naît *du transcript de la pièce* — ce qu'il a réellement dit, et c'est
+celle-là qui sort en epub.
 
 ---
 
