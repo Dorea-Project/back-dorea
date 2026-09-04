@@ -53,6 +53,63 @@ construire S-6 là où il est aujourd'hui.
 
 ---
 
+## 1bis. Le renversement du 04/09/2026 — **l'audio n'est pas une source de texte, c'est le produit**
+
+🔴 **La phrase ci-dessus est fausse depuis aujourd'hui, et c'est la plus grosse correction que
+cette note ait reçue.** Tout ce qui suit dans ce document a été écrit en supposant que le seul
+usage de l'audio d'un culte est d'en tirer du texte. Un pasteur a décrit son dimanche réel, et
+ce n'est pas ce qu'il fait.
+
+Il enregistre 1 h 30 d'un seul tenant — une prédication d'une heure enchaînée par trente
+minutes de prière. Il réécoute, il avance, il met en pause. Il constate du bruit, des chants au
+démarrage de la prière. **Il ne veut ni transcrire, ni publier, ni faire interpréter.** Il veut
+*une* chose : éditer son audio, le réduire, le découper en deux parties séparées. Puis publier
+la prière le mardi ; le vendredi la prédication, avec son texte ; le samedi demander la version
+en langue, la recevoir, et la publier le samedi soir.
+
+> ✅ **D24 — le tronc de la branche « prêcher » est l'audio retravaillé. La transcription, la
+> synthèse et l'interprétation sont trois branches optionnelles qui pendent d'une pièce.**
+>
+> ```
+>   enregistrement → édition (découper, retravailler) → LA PIÈCE
+>                                                          ├──► publication sur Dorea app
+>                                                          ├──► transcription (si besoin)
+>                                                          │         └──► synthèse → epub
+>                                                          └──► l'équipe Dorea écoute → interprétation
+> ```
+
+**Ce que cette décision fait sauter, et c'est le point.** Le verrou de séquencement — *étape 1
+seule autorisée, étapes 2 à 4 verrouillées jusqu'à la mesure dans trois églises* — avait été
+posé sur un tronc où **tout** passait par le transcript. Il ne change pas de sévérité, il change
+de **portée** : il ne garde plus que la flèche `transcription → synthèse`. L'édition, la
+publication de l'audio et l'interprétation ne l'ont jamais traversé et n'avaient aucune raison
+de l'attendre.
+
+⚠️ **L'interprétation part de l'audio écouté, pas du texte.** L'équipe Dorea entend la pièce ;
+elle n'a besoin ni de Whisper, ni de `decider()`, ni d'une synthèse. C'est donc **livrable
+aujourd'hui**, et c'est la conséquence la plus immédiate de D24. Le corpus d'apprentissage de
+D63 change de paire au passage — *audio ↔ interprétation* et non plus *synthèse validée ↔
+interprétation* : un alignement plus difficile, et un consentement à reformuler.
+
+**Ce que D24 crée, et qui n'existe nulle part** : *la pièce* comme objet de premier rang — ses
+bornes dans la matière, son titre, son état, sa date de publication — et l'éditeur qui la
+produit. Plusieurs pièces naissent d'un même dimanche, ce que `urim_reflection.capture_id`
+unique et non nul interdit aujourd'hui (§6).
+
+**Ce que D24 ne change pas.** Un micro capte la salle. La matière brute reste purgée à J+7 —
+c'est ce qui a été pris *sans intention*. Seule la pièce survit, comme une piste vit avec sa
+synthèse. 🔴 **Le découpage est le consentement** : le pasteur a écouté avant de couper, donc ce
+qu'il garde est ce qu'il a décidé de garder. C'est cet acte, et non une durée de rétention, qui
+transforme une matière captée en pièce assumée.
+
+⛔ **Reste ouvert, et se tranche par un humain :** D59 fait déjà naître une synthèse *de la
+préparation*, avant le culte. D24 en fait naître une seconde, *du transcript de la pièce* —
+ce qui a réellement été dit, et c'est celle-là qui sort en epub. **Cette note suppose qu'il y en
+a deux, distinguées par leur origine.** Si le fondateur n'en veut qu'une, il faut dire laquelle
+nourrit l'autre.
+
+---
+
 ## 2. Le modèle économique — d'abord, parce qu'il décide de la technique
 
 ### 2.1 L'étalon existe, et il a été mesuré

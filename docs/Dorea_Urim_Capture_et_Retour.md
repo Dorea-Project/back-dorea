@@ -13,23 +13,42 @@ ici : chaque colonne se dérive d'une phrase de la spec de transcription, citée
 
 ## 1. La boucle, et où elle s'arrête aujourd'hui
 
+🔴 **Redessiné le 04/09/2026 — D24 (S6 §1bis).** Le dessin précédent faisait passer toute la
+branche « prêcher » par le transcript, et le verrou de séquencement bloquait donc tout. Ce
+n'est plus le tronc : **le tronc est l'audio retravaillé.**
+
 ```
-préparer  ────────────►  prêcher  ────────────►  revoir
-(8 étages livrés)        (capture)               (le Retour)
-                              ▲                       ▲
-                         étape 1 seule           étapes 2-4
-                         autorisée               verrouillées
+préparer  ─────────►  prêcher  ─────────►  édition  ─────────►  LA PIÈCE
+(8 étages livrés)     (capture)         (découper,                  │
+                                        retravailler)               │
+                                                                    ├──►  publication (Dorea app)
+                                                                    │
+                                                                    ├──►  transcription  ──►  synthèse ──► epub
+                                                                    │           ▲                  ▲
+                                                                    │      étape 2-3          étape 4
+                                                                    │                    ⛔ VERROUILLÉ
+                                                                    │
+                                                                    └──►  l'équipe écoute ──►  interprétation
 ```
 
-Le verrou n'est pas technique. **Étape 1 seule** — capture, transport, transcript brut *non
-exploité* — jusqu'à mesure du taux d'erreur dans **trois églises réelles**. L'extraction des
-versets est l'étape 2, l'alignement la 3, la synthèse la **quatrième et dernière**.
+**Le verrou n'a pas bougé de sévérité, il a bougé de portée.** Il ne garde plus que la flèche
+`transcription → synthèse` : extraction des versets (étape 2), alignement (3), synthèse (4)
+restent fermés jusqu'à mesure du taux d'erreur dans **trois églises réelles**.
 
 > *« Une synthèse bâtie sur une transcription non mesurée est une invention présentée comme un
 > souvenir. »*
 
+✅ **Ce qui sort du verrou, et qui n'aurait jamais dû y être :** l'édition, la publication de
+l'audio, et l'interprétation. Aucune des trois ne traverse un modèle. L'interprète de l'équipe
+Dorea **écoute la pièce** — il n'a besoin ni de Whisper, ni de `decider()`, ni d'une synthèse.
+
 Les tables des étapes 2 à 4 sont définies ici quand même : les définir maintenant coûte zéro
 — aucune ligne n'existe — et les définir plus tard coûterait une reprise.
+
+⚠️ **Ce que ce schéma ne porte pas encore.** *La pièce* n'a pas de table. Elle en aura besoin
+d'une — ses bornes dans la capture, son titre, son état, sa date de publication — et
+`urim_reflection.capture_id`, unique et non nul (§6), interdit aujourd'hui qu'un même dimanche
+en produise deux. C'est le premier travail de schéma que D24 appelle.
 
 ---
 
