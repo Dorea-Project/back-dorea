@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
+from app.contexts.urim.capture.interpretation import Interpretation
 from app.contexts.urim.capture.piece import Piece
 from app.contexts.urim.domain.libelles import LOCI, en_clair, forme_en_clair
 from app.contexts.urim.engine.normalizer import normalize
@@ -1284,6 +1285,63 @@ class PassageDetailView(BaseModel):
                 for r, p, s, lem, nat, par, langue in dto.original
             ],
             collisions=[CollisionView.from_dto(c) for c in dto.collisions],
+        )
+
+
+class InterpretationBody(BaseModel):
+    """Ce que le pasteur demande : une langue, et rien d'autre.
+
+    ⚠️ **Du texte libre, et c'est délibéré.** « Baoulé de Bouaké » ne rentre pas dans une
+    énumération écrite à Abidjan : les langues de Côte d'Ivoire ne se listent pas d'avance,
+    et un nom mutilé est une langue mal écrite rendue à celui qui l'a nommée."""
+
+    language: str = Field(min_length=1, max_length=80, examples=["Baoulé de Bouaké"])
+
+
+class RefusBody(BaseModel):
+    """Pourquoi l'équipe ne peut pas.
+
+    🔴 **Le motif est exigé, jamais facultatif.** *Un travail abandonné laisse une trace,
+    jamais un silence* : sans lui, le pasteur verrait sa demande close sans savoir s'il doit
+    la refaire autrement, changer de langue, ou renoncer."""
+
+    motif: str = Field(
+        min_length=1, max_length=500, examples=["Nous ne couvrons pas encore le bété."]
+    )
+
+
+class InterpretationView(BaseModel):
+    """Où en est une demande — **son état, jamais un délai**.
+
+    🔴 **Il n'y a pas d'échéance dans cette vue, et ce n'est pas un oubli.** Le pasteur
+    demande le samedi et voudrait publier le samedi soir ; personne n'a encore dit si
+    l'équipe tient la journée. *Un délai affiché est une promesse ; un état est un fait.* Le
+    champ s'ajoutera le jour où l'engagement existera.
+
+    `refused_reason` porte le motif d'un refus, parce qu'*un travail abandonné laisse une
+    trace, jamais un silence* — une demande qui s'évapore est indiscernable d'une demande
+    jamais partie."""
+
+    id: UUID
+    piece_id: UUID
+    language: str
+    state: str
+    media_url: str | None = None
+    refused_reason: str | None = None
+    requested_at: datetime
+    settled_at: datetime | None = None
+
+    @classmethod
+    def from_domain(cls, demande: Interpretation) -> InterpretationView:
+        return cls(
+            id=demande.id,
+            piece_id=demande.piece_id,
+            language=demande.language,
+            state=demande.state.value,
+            media_url=demande.media_url,
+            refused_reason=demande.refused_reason,
+            requested_at=demande.requested_at,
+            settled_at=demande.settled_at,
         )
 
 

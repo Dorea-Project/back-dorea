@@ -21,13 +21,20 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.contexts.auth.interface.dependencies import get_current_actor
+from app.contexts.urim.capture.interpretation import (
+    Interpretation,
+    InterpretationEtat,
+    InterpretationInvalideError,
+)
 from app.contexts.urim.capture.piece import (
     AudioRefuseError,
     Piece,
+    PieceIntrouvableError,
     PieceInvalideError,
 )
 from app.contexts.urim.capture.piece_service import PieceService
 from app.contexts.urim.interface.dependencies import get_piece_service
+from app.core.config import get_settings
 from app.main import create_app
 
 LUNDI = datetime(2026, 8, 31, 21, 0, tzinfo=UTC)
@@ -88,9 +95,42 @@ class _AccesOuvert:
         self.demandes.append((account_id, church_id))
 
 
-def _service(*, pieces=None, media=None, acces=None) -> PieceService:
+class _Demandes:
+    """Un dépôt en mémoire, fidèle sur le point qui compte : une pièce, une langue, une fois."""
+
+    def __init__(self) -> None:
+        self.rangees: dict[UUID, Interpretation] = {}
+
+    async def add(self, demande: Interpretation) -> Interpretation:
+        deja = next(
+            (
+                d
+                for d in self.rangees.values()
+                if d.piece_id == demande.piece_id and d.language == demande.language
+            ),
+            None,
+        )
+        if deja is not None:
+            return deja
+        self.rangees[demande.id] = demande
+        return demande
+
+    async def get(self, demande_id: UUID) -> Interpretation | None:
+        return self.rangees.get(demande_id)
+
+    async def pour_piece(self, piece_id: UUID) -> tuple[Interpretation, ...]:
+        siennes = [d for d in self.rangees.values() if d.piece_id == piece_id]
+        siennes.sort(key=lambda d: d.requested_at)
+        return tuple(siennes)
+
+    async def save(self, demande: Interpretation) -> None:
+        self.rangees[demande.id] = demande
+
+
+def _service(*, pieces=None, media=None, acces=None, demandes=None) -> PieceService:
     return PieceService(
         pieces=pieces or _Pieces(),
+        interpretations=demandes or _Demandes(),
         media=media or _Media(),
         access=acces or _AccesOuvert(),
         clock=lambda: VENDREDI,
@@ -240,6 +280,7 @@ class TestLeFilDeLAssemblee:
         # Une seconde publication, plus tard.
         service_tardif = PieceService(
             pieces=pieces,
+            interpretations=_Demandes(),
             media=_Media(),
             access=_AccesOuvert(),
             clock=lambda: datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
@@ -259,6 +300,148 @@ class TestLeFilDeLAssemblee:
         fil = await service.pour_eglise(actor_account_id=PASTEUR, church_id=uuid4())
 
         assert fil == ()
+
+
+class TestDemanderUneInterpretation:
+    async def test_la_demande_part_sans_attendre_aucun_transcript(self):
+        # 🔴 **Ce que D71 a debloque.** Tant que l'interpretation partait d'une synthese
+        # validee, elle attendait la mesure dans trois eglises. Elle part de l'audio.
+        pieces, demandes = _Pieces(), _Demandes()
+        service = _service(pieces=pieces, demandes=demandes)
+        piece_id = uuid4()
+        await _publier(service, piece_id)
+
+        demande = await service.demander_interpretation(
+            actor_account_id=PASTEUR,
+            demande_id=uuid4(),
+            piece_id=piece_id,
+            language="  Baoulé de Bouaké  ",
+        )
+
+        assert demande.language == "Baoulé de Bouaké"
+        assert demande.state is InterpretationEtat.DEMANDEE
+        assert demande.church_id == EGLISE
+
+    async def test_une_piece_une_langue_une_fois(self):
+        # ⚠️ Sinon un interprète découvrirait trois fois la même prière à traduire.
+        demandes = _Demandes()
+        service = _service(demandes=demandes)
+        piece_id = uuid4()
+        await _publier(service, piece_id)
+
+        premiere = await service.demander_interpretation(
+            actor_account_id=PASTEUR,
+            demande_id=uuid4(),
+            piece_id=piece_id,
+            language="Dioula",
+        )
+        seconde = await service.demander_interpretation(
+            actor_account_id=PASTEUR,
+            demande_id=uuid4(),
+            piece_id=piece_id,
+            language="Dioula",
+        )
+
+        assert seconde == premiere
+        assert len(demandes.rangees) == 1
+
+    async def test_deux_langues_sont_deux_travaux(self):
+        demandes = _Demandes()
+        service = _service(demandes=demandes)
+        piece_id = uuid4()
+        await _publier(service, piece_id)
+
+        for langue in ("Dioula", "Malinké"):
+            await service.demander_interpretation(
+                actor_account_id=PASTEUR,
+                demande_id=uuid4(),
+                piece_id=piece_id,
+                language=langue,
+            )
+
+        assert len(demandes.rangees) == 2
+
+    async def test_on_ne_demande_pas_sur_une_piece_qui_n_a_pas_traverse(self):
+        # ⛔ L'équipe ne peut écouter que ce qui est arrivé jusqu'à elle.
+        with pytest.raises(PieceIntrouvableError):
+            await _service().demander_interpretation(
+                actor_account_id=PASTEUR,
+                demande_id=uuid4(),
+                piece_id=uuid4(),
+                language="Dioula",
+            )
+
+    async def test_une_langue_vide_est_refusee(self):
+        service = _service()
+        piece_id = uuid4()
+        await _publier(service, piece_id)
+
+        with pytest.raises(InterpretationInvalideError):
+            await service.demander_interpretation(
+                actor_account_id=PASTEUR,
+                demande_id=uuid4(),
+                piece_id=piece_id,
+                language="   ",
+            )
+
+
+class TestLesTransitions:
+    def _demande(self) -> Interpretation:
+        return Interpretation.demander(
+            id=uuid4(),
+            piece_id=uuid4(),
+            church_id=EGLISE,
+            requested_by=PASTEUR,
+            language="Dioula",
+            at=VENDREDI,
+        )
+
+    def test_le_chemin_ordinaire(self):
+        rendue = (
+            self._demande()
+            .prendre(at=VENDREDI)
+            .rendre(media_url="https://media.example/1.wav", at=VENDREDI)
+        )
+
+        assert rendue.state is InterpretationEtat.RENDUE
+        assert rendue.media_url is not None
+
+    def test_on_ne_reprend_pas_un_travail_deja_pris(self):
+        # Reprendre un travail rendu effacerait sa date de livraison, et le pasteur verrait
+        # sa version en langue redevenir « en cours » sans que rien ne se soit passé.
+        pris = self._demande().prendre(at=VENDREDI)
+
+        with pytest.raises(InterpretationInvalideError):
+            pris.prendre(at=VENDREDI)
+
+    def test_on_ne_rend_pas_une_interpretation_sans_son_audio(self):
+        # 🔴 Marquer « rendue » sur rien ferait disparaître la demande de la file **tout en
+        # laissant le pasteur sans version** — le pire des deux mondes.
+        pris = self._demande().prendre(at=VENDREDI)
+
+        with pytest.raises(InterpretationInvalideError):
+            pris.rendre(media_url="", at=VENDREDI)
+
+    def test_un_refus_porte_son_motif(self):
+        refusee = self._demande().refuser(motif="Langue non couverte", at=VENDREDI)
+
+        assert refusee.state is InterpretationEtat.REFUSEE
+        assert refusee.refused_reason == "Langue non couverte"
+
+    def test_un_refus_sans_motif_est_refuse(self):
+        # *Un travail abandonné laisse une trace, jamais un silence.*
+        with pytest.raises(InterpretationInvalideError):
+            self._demande().refuser(motif="  ", at=VENDREDI)
+
+    def test_un_travail_clos_ne_se_rouvre_pas(self):
+        rendue = (
+            self._demande()
+            .prendre(at=VENDREDI)
+            .rendre(media_url="https://media.example/1.wav", at=VENDREDI)
+        )
+
+        with pytest.raises(InterpretationInvalideError):
+            rendue.refuser(motif="trop tard", at=VENDREDI)
 
 
 @pytest.fixture
@@ -348,6 +531,88 @@ class TestLaRoute:
             pieces.rangees[piece_id].title
             == "Prière pour les malades — Église d'Abidjan"
         )
+
+    async def test_la_boucle_de_l_equipe_va_jusqu_au_bout(self, client_et_pieces):
+        # 🔴 **La boucle complète, côté serveur** : le pasteur demande, l'équipe prend, rend.
+        # Sans les routes Plateforme, une demande partait dans une file que rien ne vidait.
+        client, _ = client_et_pieces
+        piece_id, demande_id = uuid4(), uuid4()
+
+        await client.post(
+            f"/api/mobile/urim/pieces/{piece_id}",
+            content=WAV,
+            params={
+                "capture_id": str(CULTE),
+                "church_id": str(EGLISE),
+                "title": "Prédication",
+                "start_ms": 0,
+                "end_ms": 1000,
+                "cut_at": LUNDI.isoformat(),
+            },
+        )
+        await client.post(
+            f"/api/mobile/urim/pieces/{piece_id}/interpretations/{demande_id}",
+            json={"language": "Malinké"},
+        )
+
+        jeton = {"X-Service-Token": get_settings().backoffice_service_token}
+
+        prise = await client.post(
+            f"/api/backoffice/platform/interpretations/{demande_id}/prise",
+            headers=jeton,
+        )
+        assert prise.json()["state"] == "prise", prise.text
+
+        rendu = await client.post(
+            f"/api/backoffice/platform/interpretations/{demande_id}/rendu",
+            content=WAV,
+            headers=jeton,
+        )
+        corps = rendu.json()
+        assert corps["state"] == "rendue"
+        assert corps["media_url"] is not None
+
+        # ⛔ **Aucun délai n'est rendu, et ce n'est pas un oubli** : un délai affiché est une
+        # promesse, un état est un fait. Le champ s'ajoutera avec l'engagement.
+        assert "delai" not in corps
+        assert "due_at" not in corps
+
+    async def test_un_refus_remonte_son_motif_au_pasteur(self, client_et_pieces):
+        # *Un travail abandonné laisse une trace, jamais un silence.*
+        client, _ = client_et_pieces
+        piece_id, demande_id = uuid4(), uuid4()
+
+        await client.post(
+            f"/api/mobile/urim/pieces/{piece_id}",
+            content=WAV,
+            params={
+                "capture_id": str(CULTE),
+                "church_id": str(EGLISE),
+                "title": "Prière",
+                "start_ms": 0,
+                "end_ms": 1000,
+                "cut_at": LUNDI.isoformat(),
+            },
+        )
+        await client.post(
+            f"/api/mobile/urim/pieces/{piece_id}/interpretations/{demande_id}",
+            json={"language": "Bété"},
+        )
+
+        await client.post(
+            f"/api/backoffice/platform/interpretations/{demande_id}/refus",
+            json={"motif": "Nous ne couvrons pas encore le bété."},
+            headers={"X-Service-Token": get_settings().backoffice_service_token},
+        )
+
+        lues = (
+            await client.get(
+                f"/api/mobile/urim/pieces/{piece_id}/interpretations"
+            )
+        ).json()
+
+        assert lues[0]["state"] == "refusée"
+        assert lues[0]["refused_reason"] == "Nous ne couvrons pas encore le bété."
 
     async def test_le_fil_se_lit(self, client_et_pieces):
         client, _ = client_et_pieces

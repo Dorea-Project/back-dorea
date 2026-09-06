@@ -64,6 +64,9 @@ from app.contexts.urim.infrastructure.persistence.deliverable_repository import 
     SqlDeliverableRepository,
     SqlVerseTextReader,
 )
+from app.contexts.urim.infrastructure.persistence.interpretation_repository import (
+    SqlInterpretationRepository,
+)
 from app.contexts.urim.infrastructure.persistence.piece_repository import (
     SqlPieceRepository,
 )
@@ -169,6 +172,7 @@ def get_piece_service(session: DbSession) -> PieceService:
     Celui-là purge à sept jours ; une pièce ne meurt pas."""
     return PieceService(
         pieces=SqlPieceRepository(session),
+        interpretations=SqlInterpretationRepository(session),
         media=MediaPieceAudioStore(build_media_store(get_settings())),
         access=GroupAccessPreacherAuthorization(
             GroupAccessPolicy(

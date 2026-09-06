@@ -45,6 +45,8 @@ from app.contexts.urim.interface.schemas import (
     DeliverableView,
     ElementsBody,
     FragmentRecuView,
+    InterpretationBody,
+    InterpretationView,
     OpenStudyBody,
     PassageDetailView,
     PieceView,
@@ -901,6 +903,57 @@ async def lire_les_pieces(
         actor_account_id=actor.account_id, church_id=church_id
     )
     return [PieceView.from_domain(piece) for piece in pieces]
+
+
+@router.post(
+    "/pieces/{piece_id}/interpretations/{demande_id}",
+    response_model=InterpretationView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Demander qu'une pièce soit dite dans une langue locale",
+)
+async def demander_interpretation(
+    piece_id: UUID,
+    demande_id: UUID,
+    payload: InterpretationBody,
+    actor: CurrentActor,
+    service: PieceServiceDep,
+) -> InterpretationView:
+    """🔴 **L'interprète écoutera la pièce — rien n'attend un transcript** (D62, D71).
+
+    Tant que l'interprétation partait d'une synthèse validée, elle attendait la mesure dans
+    trois églises. Elle part de l'audio : cette demande peut se faire aujourd'hui.
+
+    ⚠️ **Une pièce, une langue, une fois.** Redemander rend la demande déjà ouverte — sinon
+    un interprète découvrirait trois fois la même prière à traduire. L'identifiant vient de
+    l'appareil, comme partout ailleurs.
+
+    ⛔ **Aucun délai n'est rendu.** Le pasteur demande le samedi et voudrait publier le
+    samedi soir ; personne n'a encore dit si l'équipe tient la journée. *Un délai affiché
+    est une promesse ; un état est un fait.*"""
+    demande = await service.demander_interpretation(
+        actor_account_id=actor.account_id,
+        demande_id=demande_id,
+        piece_id=piece_id,
+        language=payload.language,
+    )
+    return InterpretationView.from_domain(demande)
+
+
+@router.get(
+    "/pieces/{piece_id}/interpretations",
+    response_model=list[InterpretationView],
+    summary="Où en sont les versions en langue de cette pièce",
+)
+async def lire_les_interpretations(
+    piece_id: UUID,
+    actor: CurrentActor,
+    service: PieceServiceDep,
+) -> list[InterpretationView]:
+    """L'état de chaque demande, dans l'ordre où elles ont été faites."""
+    demandes = await service.interpretations(
+        actor_account_id=actor.account_id, piece_id=piece_id
+    )
+    return [InterpretationView.from_domain(d) for d in demandes]
 
 
 # =================================================================================================

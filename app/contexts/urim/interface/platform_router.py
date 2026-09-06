@@ -49,7 +49,7 @@ les préparations ouvertes signalent `corpus_drifted` — leur trace n'est plus 
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.contexts.tenant.interface.dependencies import require_platform_token
 from app.contexts.urim.application.curation import (
@@ -73,6 +73,7 @@ from app.contexts.urim.interface.curation_schemas import (
 )
 from app.contexts.urim.interface.dependencies import (
     CurationDep,
+    PieceServiceDep,
     RelecteurDep,
     RelectureDep,
 )
@@ -84,8 +85,96 @@ from app.contexts.urim.interface.relecture_schemas import (
     VerdictRetireView,
     VerdictView,
 )
+from app.contexts.urim.interface.schemas import InterpretationView, RefusBody
 
 router = APIRouter(dependencies=[Depends(require_platform_token)])
+
+
+# -- l'interprétation : la boucle de l'équipe Dorea ----------------------------
+#
+# D62 — le pasteur prêche en français, une part de son assemblée entend le dioula, le baoulé
+# ou le malinké. Ce travail est **tenu par des gens**, un interprète maîtrisé par langue :
+# aucune synthèse vocale ne dit ces langues, et faire semblant serait pire que se taire.
+#
+#     POST /urim/interpretations/{id}/prise      un interprète s'en charge
+#     POST /urim/interpretations/{id}/rendu      voici l'audio
+#     POST /urim/interpretations/{id}/refus      on ne peut pas, et voici pourquoi
+#
+# 🔴 **Ces routes vivent ici, pas sur la surface mobile, et c'est structurel.** L'interprète
+# n'est pas membre de l'église qu'il sert ; un contrôle d'appartenance refuserait exactement
+# la personne qui doit agir. Le geste vient de la Plateforme, comme la curation du corpus.
+#
+# ⛔ **Aucune de ces routes n'enregistre *qui* a agi, et c'est délibéré.** Le dépôt porte déjà
+# la leçon, quelques lignes plus haut dans ce fichier : un verdict de curation a été posé au
+# nom du propriétaire du dépôt parce que le nom était une donnée d'entrée — et *tant que le
+# nom est une donnée d'entrée, aucune vérification ne le sauve*. Ajouter un en-tête
+# `X-Urim-Interprete` referait la même faute en la croyant réparée.
+#
+# La colonne `interpreted_by` et son garde arriveront **ensemble**, avec la console
+# d'administration Dorea. D'ici là, la Plateforme agit et le dépôt ne prétend pas savoir qui.
+#
+# ⚠️ **L'écran n'existe pas encore.** Ces routes sont posées avant lui pour que la boucle soit
+# complète côté serveur : le pasteur demande, l'équipe répond, l'état est vrai à chaque
+# instant. Sans elles, une demande partait dans une file que rien ne pouvait vider.
+
+
+@router.post(
+    "/interpretations/{demande_id}/prise",
+    response_model=InterpretationView,
+    summary="Un interprète prend ce travail",
+)
+async def prendre_interpretation(
+    demande_id: UUID, service: PieceServiceDep
+) -> InterpretationView:
+    """La demande sort de la file d'attente.
+
+    ⚠️ **Seule une demande en attente se prend.** Reprendre un travail rendu effacerait sa
+    date de livraison, et le pasteur verrait sa version en langue redevenir « en cours » sans
+    que rien ne se soit passé."""
+    return InterpretationView.from_domain(
+        await service.prendre_interpretation(demande_id=demande_id)
+    )
+
+
+@router.post(
+    "/interpretations/{demande_id}/rendu",
+    response_model=InterpretationView,
+    summary="Rendre l'interprétation — avec son audio",
+)
+async def rendre_interpretation(
+    demande_id: UUID, request: Request, service: PieceServiceDep
+) -> InterpretationView:
+    """Le corps porte l'audio, comme pour une pièce : du WAV, en brut.
+
+    🔴 **Une interprétation sans audio n'est pas rendue.** L'agrégat le refuse, et l'audio se
+    range avant la transition : une demande marquée « rendue » dont le fichier manque
+    sortirait de la file de l'équipe **en laissant le pasteur sans version** — le pire des
+    deux mondes, et personne ne verrait la contradiction."""
+    return InterpretationView.from_domain(
+        await service.rendre_interpretation(
+            demande_id=demande_id, octets=await request.body()
+        )
+    )
+
+
+@router.post(
+    "/interpretations/{demande_id}/refus",
+    response_model=InterpretationView,
+    summary="Refuser — et dire pourquoi",
+)
+async def refuser_interpretation(
+    demande_id: UUID, payload: RefusBody, service: PieceServiceDep
+) -> InterpretationView:
+    """🔴 *Un travail abandonné laisse une trace, jamais un silence.*
+
+    Une demande qui disparaît est indiscernable d'une demande jamais partie : le pasteur
+    attendrait un samedi soir devant un écran muet. Le motif est donc exigé — une langue non
+    couverte, un audio inaudible — et il remonte jusqu'à lui."""
+    return InterpretationView.from_domain(
+        await service.refuser_interpretation(
+            demande_id=demande_id, motif=payload.motif
+        )
+    )
 
 
 # -- la curation : écrire le corpus --------------------------------------------
@@ -118,12 +207,19 @@ async def list_pericopes(curation: CurationDep, book: str | None = None) -> list
 async def create_pericope(
     payload: PericopeBody, curation: CurationDep, relecteur: RelecteurDep
 ) -> PericopeCreatedView:
-    nouvelle = await curation.create_pericope(PericopeDraft(
-        book=payload.book, start_ch=payload.start_ch, start_v=payload.start_v,
-        end_ch=payload.end_ch, end_v=payload.end_v, label=payload.label,
-        rationale=payload.rationale, source_ref=payload.source_ref,
-        reviewed_by=relecteur.nom,
-    ))
+    nouvelle = await curation.create_pericope(
+        PericopeDraft(
+            book=payload.book,
+            start_ch=payload.start_ch,
+            start_v=payload.start_v,
+            end_ch=payload.end_ch,
+            end_v=payload.end_v,
+            label=payload.label,
+            rationale=payload.rationale,
+            source_ref=payload.source_ref,
+            reviewed_by=relecteur.nom,
+        )
+    )
     return PericopeCreatedView(id=nouvelle)
 
 
@@ -157,8 +253,10 @@ async def add_caveat(
     nouveau = await curation.add_caveat(
         pericope_id,
         CaveatDraft(
-            axis_code=payload.axis_code, caveat_kind=payload.caveat_kind,
-            body=payload.body, source_ref=payload.source_ref,
+            axis_code=payload.axis_code,
+            caveat_kind=payload.caveat_kind,
+            body=payload.body,
+            source_ref=payload.source_ref,
             tradition_scope=payload.tradition_scope,
         ),
         relecteur.nom,
@@ -177,8 +275,10 @@ async def add_context(
     nouveau = await curation.add_context(
         pericope_id,
         ContextDraft(
-            context_kind=payload.context_kind, body=payload.body,
-            ordinal=payload.ordinal, source_ref=payload.source_ref,
+            context_kind=payload.context_kind,
+            body=payload.body,
+            ordinal=payload.ordinal,
+            source_ref=payload.source_ref,
         ),
         relecteur.nom,
     )
@@ -197,8 +297,10 @@ async def set_feasibility(
         pericope_id,
         [
             FeasibilityDraft(
-                plan_source=c.plan_source, subject_matter=c.subject_matter,
-                feasible=c.feasible, proof_text_risk=c.proof_text_risk,
+                plan_source=c.plan_source,
+                subject_matter=c.subject_matter,
+                feasible=c.feasible,
+                proof_text_risk=c.proof_text_risk,
                 refusal_reason=c.refusal_reason,
             )
             for c in payload.couples
@@ -272,8 +374,7 @@ async def file(
     plutôt que de décaler les suivantes. Descendre la file en sautant des entrées serait la
     seule façon de manquer quelque chose sans le savoir."""
     return [
-        UniteDeFileView.depuis(u)
-        for u in await relecture.file(limite=limite, decalage=decalage)
+        UniteDeFileView.depuis(u) for u in await relecture.file(limite=limite, decalage=decalage)
     ]
 
 

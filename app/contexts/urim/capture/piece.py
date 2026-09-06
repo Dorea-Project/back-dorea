@@ -123,6 +123,17 @@ class AudioRefuseError(DomainError):
     http_status = 415
 
 
+class PieceIntrouvableError(DomainError):
+    """On demande quelque chose sur une pièce que le serveur ne connaît pas.
+
+    ⚠️ **Le cas ordinaire n'est pas une faute de frappe.** Une pièce vit sur le téléphone
+    jusqu'à sa publication : demander une interprétation sur une pièce non publiée est un
+    geste plausible, et le refus doit dire *ce qui manque* plutôt que « introuvable »."""
+
+    code = "URIM_PIECE_INTROUVABLE"
+    http_status = 404
+
+
 class PieceAudioStore(Protocol):
     """Où les octets d'une pièce publiée vont vivre.
 

@@ -927,6 +927,74 @@ class UrimPieceModel(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UrimInterpretationModel(Base):
+    """La demande d'une pièce **dite dans une langue locale** — D62, étape 7.
+
+    Le pasteur prêche en français ; une part de son assemblée entend le dioula, le baoulé ou
+    le malinké. D62 a tranché que ce travail est **un service tenu par l'équipe Dorea** — un
+    interprète maîtrisé par langue — et non un moteur.
+
+    ## 🔴 L'interprète écoute la pièce, il ne lit pas un transcript
+
+    C'est ce que D71 a changé, et c'est ce qui rend cette table possible aujourd'hui. Tant que
+    l'interprétation partait d'une synthèse validée, elle attendait le transcript, qui attend
+    la mesure dans trois églises. **Elle n'attend plus rien** : la pièce existe, elle
+    s'écoute.
+
+    ## Aucun délai n'est promis, et c'est une décision
+
+    ⚠️ **Il n'y a pas de colonne d'échéance.** Le pasteur demande le samedi et voudrait
+    publier le samedi soir ; personne n'a encore dit si l'équipe tient la journée. Un délai
+    affiché est une promesse — l'état, lui, est vrai à chaque instant sans engager quiconque.
+    La colonne s'ajoutera le jour où l'engagement existera, pas avant.
+
+    ## Le refus porte son motif
+
+    🔴 *Un travail abandonné laisse une trace, jamais un silence.* Une demande qui disparaît
+    est indiscernable d'une demande jamais partie — et le pasteur attendrait un samedi soir
+    devant un écran muet."""
+
+    __tablename__ = "urim_interpretation"
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('demandée','prise','rendue','refusée')", name="interpretation_state"
+        ),
+        CheckConstraint("length(language) > 0", name="interpretation_langue_non_vide"),
+        # Une pièce, une langue, une fois : redemander la même chose n'ouvre pas
+        # un second travail dans la file de l'équipe.
+        Index("ix_urim_interpretation_unique", "piece_id", "language", unique=True),
+        # La file de l'équipe : ce qui attend, du plus ancien au plus récent.
+        Index("ix_urim_interpretation_file", "state", "requested_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+
+    piece_id: Mapped[UUID] = mapped_column(Uuid)
+    church_id: Mapped[UUID] = mapped_column(Uuid)
+    requested_by: Mapped[UUID] = mapped_column(Uuid)
+
+    #: **Du texte libre, nommé par le pasteur.** « Baoulé de Bouaké » n'est pas dans une liste
+    #: fermée : les langues de Côte d'Ivoire ne rentrent pas dans une énumération écrite à
+    #: Abidjan, et un nom mutilé est une langue mal écrite rendue à celui qui l'a nommée.
+    language: Mapped[str] = mapped_column(String)
+
+    state: Mapped[str] = mapped_column(String)
+
+    #: L'audio rendu par l'interprète. Nul tant que le travail n'est pas fini.
+    media_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    #: Pourquoi l'équipe a refusé — une langue qu'elle ne couvre pas, un audio inaudible.
+    #: Nul sauf sur un refus.
+    refused_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class UrimCaptureJobModel(Base):
     """La file de travaux — **aucune infrastructure nouvelle**, elle vit en table Postgres.
 

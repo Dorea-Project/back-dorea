@@ -34,10 +34,16 @@ from datetime import datetime
 from uuid import UUID
 
 from app.contexts.urim.application.ports import PreacherAuthorization
+from app.contexts.urim.capture.interpretation import (
+    Interpretation,
+    InterpretationIntrouvableError,
+    InterpretationRepository,
+)
 from app.contexts.urim.capture.piece import (
     AudioRefuseError,
     Piece,
     PieceAudioStore,
+    PieceIntrouvableError,
     PieceRepository,
 )
 
@@ -88,11 +94,13 @@ class PieceService:
         media: PieceAudioStore,
         access: PreacherAuthorization,
         clock: Callable[[], datetime],
+        interpretations: InterpretationRepository,
     ) -> None:
         self._pieces = pieces
         self._media = media
         self._access = access
         self._clock = clock
+        self._interpretations = interpretations
 
     async def publier(
         self,
@@ -140,6 +148,119 @@ class PieceService:
                 at=self._clock(),
             )
         )
+
+    async def demander_interpretation(
+        self,
+        *,
+        actor_account_id: UUID,
+        demande_id: UUID,
+        piece_id: UUID,
+        language: str,
+    ) -> Interpretation:
+        """Demande qu'une pièce soit dite dans une langue locale (D62).
+
+        🔴 **L'interprète écoutera la pièce ; rien n'attend un transcript.** Tant que
+        l'interprétation partait d'une synthèse validée, elle attendait la mesure dans trois
+        églises. D71 l'a fait partir de l'audio : cette demande part aujourd'hui.
+
+        ⚠️ **Une pièce, une langue, une fois.** Redemander rend la demande déjà ouverte —
+        sinon un interprète découvrirait trois fois la même prière à traduire.
+
+        ⛔ **Et on ne demande pas sur une pièce qui n'a pas traversé** : l'équipe ne peut
+        écouter que ce qui est arrivé jusqu'à elle."""
+        piece = await self._pieces.get(piece_id)
+        if piece is None:
+            raise PieceIntrouvableError(
+                "Cette pièce n'a pas encore été publiée : l'équipe ne peut pas l'écouter."
+            )
+
+        await self._access.ensure_may_prepare(
+            account_id=actor_account_id, church_id=piece.church_id
+        )
+
+        return await self._interpretations.add(
+            Interpretation.demander(
+                id=demande_id,
+                piece_id=piece_id,
+                church_id=piece.church_id,
+                requested_by=actor_account_id,
+                language=language,
+                at=self._clock(),
+            )
+        )
+
+    async def interpretations(
+        self, *, actor_account_id: UUID, piece_id: UUID
+    ) -> tuple[Interpretation, ...]:
+        """Où en sont les demandes faites sur cette pièce.
+
+        ⚠️ **Aucun délai n'est rendu, et c'est une décision.** Un délai affiché est une
+        promesse ; un état est un fait. On rend le second tant que le premier n'existe pas."""
+        piece = await self._pieces.get(piece_id)
+        if piece is None:
+            return ()
+
+        await self._access.ensure_may_prepare(
+            account_id=actor_account_id, church_id=piece.church_id
+        )
+        return await self._interpretations.pour_piece(piece_id)
+
+    # ---------------------------------------------------------------- côté équipe Dorea
+    #
+    # ⚠️ **Ces trois verbes ne passent pas par `access`, et c'est structurel.** L'interprète
+    # n'est pas membre de l'église qu'il sert : le geste vient de la Plateforme, gardé par son
+    # jeton de service, comme la curation du corpus. Un contrôle d'appartenance refuserait
+    # exactement la personne qui doit agir.
+    #
+    # ⛔ **Aucun de ces verbes n'enregistre *qui* a agi, et c'est délibéré.** Le dépôt porte
+    # déjà la leçon : un verdict de curation a été posé au nom du propriétaire du dépôt parce
+    # que le nom était une donnée d'entrée, et *tant que le nom est une donnée d'entrée, aucune
+    # vérification ne le sauve*. La colonne `interpreted_by` et son garde arriveront ensemble,
+    # avec la console d'administration Dorea — pas avant.
+
+    async def prendre_interpretation(self, *, demande_id: UUID) -> Interpretation:
+        """Un interprète s'en charge. La demande sort de la file d'attente."""
+        return await self._transition(demande_id, lambda d: d.prendre(at=self._clock()))
+
+    async def rendre_interpretation(
+        self, *, demande_id: UUID, octets: bytes, content_type: str = TYPE_AUDIO
+    ) -> Interpretation:
+        """Le travail est fait, et voici l'audio.
+
+        🔴 **L'audio se range avant la transition**, même ordre que la publication : une
+        demande marquée « rendue » dont le fichier manque sortirait de la file de l'équipe en
+        laissant le pasteur sans version — et personne ne verrait la contradiction."""
+        _verifier_audio(octets, content_type)
+        url = await self._media.ranger(octets, content_type=content_type)
+
+        return await self._transition(
+            demande_id, lambda d: d.rendre(media_url=url, at=self._clock())
+        )
+
+    async def refuser_interpretation(
+        self, *, demande_id: UUID, motif: str
+    ) -> Interpretation:
+        """L'équipe ne peut pas — et elle dit pourquoi.
+
+        *Un travail abandonné laisse une trace, jamais un silence* : une demande qui
+        disparaît est indiscernable d'une demande jamais partie, et le pasteur attendrait un
+        samedi soir devant un écran muet."""
+        return await self._transition(
+            demande_id, lambda d: d.refuser(motif=motif, at=self._clock())
+        )
+
+    async def _transition(
+        self, demande_id: UUID, appliquer: Callable[[Interpretation], Interpretation]
+    ) -> Interpretation:
+        demande = await self._interpretations.get(demande_id)
+        if demande is None:
+            raise InterpretationIntrouvableError(
+                "Cette demande d'interprétation n'existe pas."
+            )
+
+        apres = appliquer(demande)
+        await self._interpretations.save(apres)
+        return apres
 
     async def pour_eglise(
         self, *, actor_account_id: UUID, church_id: UUID, limite: int = 50
