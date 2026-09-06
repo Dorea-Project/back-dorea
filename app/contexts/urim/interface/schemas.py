@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.contexts.urim.application.ports import StudyDTO
+from app.contexts.urim.capture.piece import Piece
 from app.contexts.urim.domain.libelles import LOCI, en_clair, forme_en_clair
 from app.contexts.urim.engine.normalizer import normalize
 from app.contexts.urim.engine.stages.propose_theme import theme_propose
@@ -171,8 +172,14 @@ def _option_view(ligne: tuple) -> OptionView:
     code, label, rationale, origin, dismissed, *reste = ligne
     strength, signature, reference = [*reste, None, None, ""][:3]
     return OptionView(
-        code=code, label=label, rationale=rationale, origin=origin, dismissed=dismissed,
-        strength=strength, signature=signature, reference=reference or "",
+        code=code,
+        label=label,
+        rationale=rationale,
+        origin=origin,
+        dismissed=dismissed,
+        strength=strength,
+        signature=signature,
+        reference=reference or "",
     )
 
 
@@ -487,10 +494,13 @@ class StudyView(BaseModel):
             trace=[TraceEntryView(stage_code=c, rationale=m) for c, m in dto.trace],
             weighings=[
                 StageWeighingView(
-                    stage_code=w.stage_code, rationale=w.rationale,
+                    stage_code=w.stage_code,
+                    rationale=w.rationale,
                     weighed=[
                         WeighedOptionView(
-                            code=o.code, label=o.label, rationale=o.rationale,
+                            code=o.code,
+                            label=o.label,
+                            rationale=o.rationale,
                             dismissed=o.dismissed,
                         )
                         for o in w.weighed
@@ -538,7 +548,8 @@ class StudyView(BaseModel):
             ],
             verses=[
                 VerseView(
-                    reference=v.reference, text=v.text,
+                    reference=v.reference,
+                    text=v.text,
                     elsewhere=[
                         ReferenceElsewhereView(version=a.version, reference=a.reference)
                         for a in v.elsewhere
@@ -548,8 +559,10 @@ class StudyView(BaseModel):
             ],
             variants=[
                 VariantView(
-                    reference=v.reference, body=v.body,
-                    doctrinal_weight=v.doctrinal_weight, note=v.note,
+                    reference=v.reference,
+                    body=v.body,
+                    doctrinal_weight=v.doctrinal_weight,
+                    note=v.note,
                     families_with=list(v.families_with),
                     families_without=list(v.families_without),
                     source_ref=v.source_ref,
@@ -558,20 +571,23 @@ class StudyView(BaseModel):
             ],
             bearings=[
                 BearingView(
-                    axis_code=b.axis_code, label=b.label,
-                    strength=b.strength, rationale=b.rationale,
+                    axis_code=b.axis_code,
+                    label=b.label,
+                    strength=b.strength,
+                    rationale=b.rationale,
                 )
                 for b in dto.bearings
             ],
             caveats=list(dto.caveats),
             context=[
-                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref)
-                for c in dto.context
+                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref) for c in dto.context
             ],
             couples=[
                 CoupleView(
-                    plan_source=c.plan_source, subject_matter=c.subject_matter,
-                    feasible=c.feasible, refusal_reason=c.refusal_reason,
+                    plan_source=c.plan_source,
+                    subject_matter=c.subject_matter,
+                    feasible=c.feasible,
+                    refusal_reason=c.refusal_reason,
                     proof_text_risk=c.proof_text_risk,
                 )
                 for c in dto.couples
@@ -595,11 +611,7 @@ class StudyView(BaseModel):
         contredire."""
         vue = cls.from_dto(dto)
         return vue.model_copy(
-            update={
-                "turn": construire_tour(
-                    vue, say=dto.reponse, relance=dto.relance
-                )
-            }
+            update={"turn": construire_tour(vue, say=dto.reponse, relance=dto.relance)}
         )
 
 
@@ -700,14 +712,22 @@ class DeliverableView(BaseModel):
     def from_dto(cls, dto) -> DeliverableView:
         r = dto.record
         return cls(
-            id=r.id, kind=r.kind, format=r.format, validation=r.validation,
-            validated_by=r.validated_by, generated_at=r.generated_at,
-            corpus_snapshot=r.corpus_snapshot, content_fingerprint=r.content_fingerprint,
+            id=r.id,
+            kind=r.kind,
+            format=r.format,
+            validation=r.validation,
+            validated_by=r.validated_by,
+            generated_at=r.generated_at,
+            corpus_snapshot=r.corpus_snapshot,
+            content_fingerprint=r.content_fingerprint,
             controles=[
                 ControleView(
-                    slide_no=c.slide_no, reference=c.reference,
-                    projected_text=c.projected_text, verdict=c.verdict,
-                    rationale=c.rationale, version_id=c.version_id,
+                    slide_no=c.slide_no,
+                    reference=c.reference,
+                    projected_text=c.projected_text,
+                    verdict=c.verdict,
+                    rationale=c.rationale,
+                    version_id=c.version_id,
                 )
                 for c in dto.controles
             ],
@@ -812,10 +832,15 @@ class ArchiveEntryView(BaseModel):
     def from_dto(cls, dto) -> ArchiveEntryView:
         r = dto.record
         return cls(
-            id=r.id, preached_on=r.preached_on, reference=dto.reference,
-            pericope_label=dto.pericope_label, axis_code=r.axis_code, theme=r.theme,
+            id=r.id,
+            preached_on=r.preached_on,
+            reference=dto.reference,
+            pericope_label=dto.pericope_label,
+            axis_code=r.axis_code,
+            theme=r.theme,
             theme_label=theme_en_clair(r),
-            capture_kind=r.capture_kind, preparation_id=r.preparation_id,
+            capture_kind=r.capture_kind,
+            preparation_id=r.preparation_id,
             church_id=r.church_id,
         )
 
@@ -859,14 +884,17 @@ class CoverageView(BaseModel):
         return cls(
             books=[
                 BookCoverageView(
-                    book=libelle, passages=c.passages, preachings=c.preachings,
+                    book=libelle,
+                    passages=c.passages,
+                    preachings=c.preachings,
                     last_preached_on=c.last_preached_on,
                 )
                 for libelle, c in dto.books
             ],
             axes=[
                 AxisTallyView(
-                    axis_code=a.axis_code, preachings=a.preachings,
+                    axis_code=a.axis_code,
+                    preachings=a.preachings,
                     last_preached_on=a.last_preached_on,
                 )
                 for a in dto.axes
@@ -989,12 +1017,18 @@ class CollisionView(BaseModel):
     @classmethod
     def from_dto(cls, dto) -> CollisionView:
         return cls(
-            reference=dto.reference, word=dto.word, form=dto.form,
+            reference=dto.reference,
+            word=dto.word,
+            form=dto.form,
             says=_CE_QUE_LA_FORME_DIT.get(dto.form, ""),
             witnesses=[
                 WitnessReadView(
-                    code=t.code, label=t.label, text_family=t.text_family,
-                    stance=t.stance, reading=t.reading, body=t.body,
+                    code=t.code,
+                    label=t.label,
+                    text_family=t.text_family,
+                    stance=t.stance,
+                    reading=t.reading,
+                    body=t.body,
                 )
                 for t in dto.witnesses
             ],
@@ -1051,6 +1085,7 @@ class SupportView(BaseModel):
     #: Ce qui manque **au corpus**, jamais au pasteur : « Hébreux 2 compte 18 versets ».
     verdict: str
 
+
 class OccurrenceView(BaseModel):
     """Un endroit où le mot paraît — la référence, le verset français, la forme, sa grammaire."""
 
@@ -1084,10 +1119,14 @@ class ConcordanceView(BaseModel):
     @classmethod
     def from_dto(cls, dto) -> ConcordanceView:
         return cls(
-            lemma=dto.lemma, language=dto.language, total=dto.total,
+            lemma=dto.lemma,
+            language=dto.language,
+            total=dto.total,
             occurrences=[
                 OccurrenceView(
-                    reference=r, text=t, surface=s,
+                    reference=r,
+                    text=t,
+                    surface=s,
                     morphology=_decrire(m, dto.language),
                 )
                 for r, t, s, m in dto.occurrences
@@ -1173,8 +1212,7 @@ class PassageDetailView(BaseModel):
         return cls(
             reference=dto.reference,
             units=[
-                UnitRefView(id=i, label=lab, reference=r, rationale=m)
-                for i, lab, r, m in dto.units
+                UnitRefView(id=i, label=lab, reference=r, rationale=m) for i, lab, r, m in dto.units
             ],
             pericope_id=dto.pericope_id,
             pericope_label=dto.pericope_label,
@@ -1182,7 +1220,8 @@ class PassageDetailView(BaseModel):
             reviewed_by=dto.reviewed_by,
             verses=[
                 VerseView(
-                    reference=v.reference, text=v.text,
+                    reference=v.reference,
+                    text=v.text,
                     elsewhere=[
                         ReferenceElsewhereView(version=a.version, reference=a.reference)
                         for a in v.elsewhere
@@ -1192,8 +1231,10 @@ class PassageDetailView(BaseModel):
             ],
             variants=[
                 VariantView(
-                    reference=v.reference, body=v.body,
-                    doctrinal_weight=v.doctrinal_weight, note=v.note,
+                    reference=v.reference,
+                    body=v.body,
+                    doctrinal_weight=v.doctrinal_weight,
+                    note=v.note,
                     families_with=list(v.families_with),
                     families_without=list(v.families_without),
                     source_ref=v.source_ref,
@@ -1202,20 +1243,23 @@ class PassageDetailView(BaseModel):
             ],
             bearings=[
                 BearingView(
-                    axis_code=b.axis_code, label=b.label,
-                    strength=b.strength, rationale=b.rationale,
+                    axis_code=b.axis_code,
+                    label=b.label,
+                    strength=b.strength,
+                    rationale=b.rationale,
                 )
                 for b in dto.bearings
             ],
             caveats=list(dto.caveats),
             context=[
-                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref)
-                for c in dto.context
+                ContextView(kind=c.kind, body=c.body, source_ref=c.source_ref) for c in dto.context
             ],
             couples=[
                 CoupleView(
-                    plan_source=c.plan_source, subject_matter=c.subject_matter,
-                    feasible=c.feasible, refusal_reason=c.refusal_reason,
+                    plan_source=c.plan_source,
+                    subject_matter=c.subject_matter,
+                    feasible=c.feasible,
+                    refusal_reason=c.refusal_reason,
                     proof_text_risk=c.proof_text_risk,
                 )
                 for c in dto.couples
@@ -1228,12 +1272,76 @@ class PassageDetailView(BaseModel):
             ],
             original=[
                 OriginalWordView(
-                    reference=r, position=p, surface=s, lemma=lem,
-                    pos=_nature(nat, langue), morphology=_decrire(par, langue),
-                    parsing=par, language=langue,
+                    reference=r,
+                    position=p,
+                    surface=s,
+                    lemma=lem,
+                    pos=_nature(nat, langue),
+                    morphology=_decrire(par, langue),
+                    parsing=par,
+                    language=langue,
                 )
                 for r, p, s, lem, nat, par, langue in dto.original
             ],
             collisions=[CollisionView.from_dto(c) for c in dto.collisions],
         )
 
+
+class PieceView(BaseModel):
+    """Une pièce publiée, telle que l'appareil et l'assemblée la lisent.
+
+    🔴 **`media_url` est ce qui compte, et c'est tout ce que le serveur promet.** La base
+    garde le nom d'une pièce, pas son son : quarante-cinq minutes pèsent quatre-vingt-six
+    mégaoctets, et elles vivent dans le `MediaStore`.
+
+    Les bornes voyagent parce qu'elles disent **d'où** vient ce qu'on écoute — reconnaître
+    la prière de la prédication sans les rejouer. Elles ne servent plus à retailler : la
+    matière d'origine aura disparu au septième jour.
+
+    ⚠️ **Deux dates, et elles disent des choses différentes.** `cut_at` vient du téléphone —
+    le pasteur a coupé hors ligne, un lundi soir. `published_at` vient du serveur, seul à
+    savoir quand la pièce a réellement traversé."""
+
+    id: UUID
+    capture_id: UUID
+    church_id: UUID
+    title: str
+    start_ms: int
+    end_ms: int
+    duration_ms: int
+    media_url: str
+    cut_at: datetime
+    published_at: datetime
+
+    @classmethod
+    def from_domain(cls, piece: Piece) -> PieceView:
+        return cls(
+            id=piece.id,
+            capture_id=piece.capture_id,
+            church_id=piece.church_id,
+            title=piece.title,
+            start_ms=piece.start_ms,
+            end_ms=piece.end_ms,
+            duration_ms=piece.duree_ms,
+            media_url=piece.media_url,
+            cut_at=piece.cut_at,
+            published_at=piece.published_at,
+        )
+
+
+class FragmentRecuView(BaseModel):
+    """L'accusé d'un fragment — **ce que la file d'envoi attend pour avancer**.
+
+    🔴 **Il ne dit pas « écrit », il dit « rangé et connu ».** L'appareil fait avancer sa
+    marque haute sur cette réponse, et ne renverra plus jamais ce fragment : la rendre avant
+    d'avoir écrit les octets ferait perdre le fragment des deux côtés.
+
+    Les trois autres champs évitent une seconde requête. L'appareil apprend, dès son premier
+    fragment, que le serveur a bien créé la capture et **quand il en effacera l'audio** — ce
+    qui lui permet de dire au pasteur ce qui va disparaître, plutôt que de le lui apprendre
+    après coup."""
+
+    capture_id: UUID
+    index: int
+    state: str
+    audio_purge_at: datetime

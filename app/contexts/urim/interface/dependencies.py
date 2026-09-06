@@ -22,11 +22,13 @@ from app.contexts.groups.application.group_access import GroupAccessPolicy
 from app.contexts.iam.infrastructure.persistence.repositories import (
     SqlAlchemyMembershipRepository,
 )
+from app.contexts.media.infrastructure.stores import build_media_store
 from app.contexts.tenant.infrastructure.persistence.ownership_repo import (
     SqlOwnershipRepository,
 )
 from app.contexts.urim.adapters.authorization import GroupAccessPreacherAuthorization
 from app.contexts.urim.adapters.mistral import build_verse_resolver
+from app.contexts.urim.adapters.piece_audio import MediaPieceAudioStore
 from app.contexts.urim.application.archive_service import UrimArchiveService
 from app.contexts.urim.application.curation import UrimCuration
 from app.contexts.urim.application.relecture import (
@@ -35,6 +37,10 @@ from app.contexts.urim.application.relecture import (
     Relecture,
 )
 from app.contexts.urim.application.study_service import UrimStudyService
+from app.contexts.urim.application.transcript_service import TranscriptService
+from app.contexts.urim.capture.fragment_store import build_fragment_store
+from app.contexts.urim.capture.piece_service import PieceService
+from app.contexts.urim.capture.service import UrimCaptureService
 from app.contexts.urim.deliverable.application.service import UrimDeliverableService
 from app.contexts.urim.domain.errors import CorpusNonSemeError
 from app.contexts.urim.infrastructure.corpus.index import (
@@ -44,6 +50,9 @@ from app.contexts.urim.infrastructure.corpus.index import (
 )
 from app.contexts.urim.infrastructure.persistence.archive_repository import (
     SqlArchiveRepository,
+)
+from app.contexts.urim.infrastructure.persistence.capture_repository import (
+    SqlCaptureRepository,
 )
 from app.contexts.urim.infrastructure.persistence.citation_ailleurs import (
     SqlCitationAilleurs,
@@ -55,6 +64,9 @@ from app.contexts.urim.infrastructure.persistence.deliverable_repository import 
     SqlDeliverableRepository,
     SqlVerseTextReader,
 )
+from app.contexts.urim.infrastructure.persistence.piece_repository import (
+    SqlPieceRepository,
+)
 from app.contexts.urim.infrastructure.persistence.relecture_repository import (
     SqlRegistreRepository,
     SqlRelectureRepository,
@@ -62,6 +74,9 @@ from app.contexts.urim.infrastructure.persistence.relecture_repository import (
 from app.contexts.urim.infrastructure.persistence.study_repository import (
     SqlReservationRepository,
     SqlStudyRepository,
+)
+from app.contexts.urim.infrastructure.persistence.transcript_repository import (
+    SqlTranscriptRepository,
 )
 from app.core.config import get_settings
 
@@ -117,6 +132,76 @@ def get_study_service(
 
 StudyServiceDep = Annotated[UrimStudyService, Depends(get_study_service)]
 
+
+def get_capture_service(session: DbSession) -> UrimCaptureService:
+    """Le service de la capture — **et il ne dépend pas de l'index du corpus**.
+
+    Recevoir un fragment ne demande ni péricope ni lexique : c'est du transport. Le brancher
+    sur `get_corpus_index` ferait échouer un dépôt d'audio sur une installation dont le
+    corpus n'est pas semé, un dimanche matin, pour une raison sans rapport."""
+    reglages = get_settings()
+
+    return UrimCaptureService(
+        captures=SqlCaptureRepository(session),
+        fragments=build_fragment_store(reglages),
+        access=GroupAccessPreacherAuthorization(
+            GroupAccessPolicy(
+                SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+            )
+        ),
+        clock=_now,
+        campagne_ouverte=reglages.capture_audio_upload_enabled,
+    )
+
+
+CaptureServiceDep = Annotated[UrimCaptureService, Depends(get_capture_service)]
+
+
+def get_piece_service(session: DbSession) -> PieceService:
+    """Le service de la pièce — **et il ne connaît pas la campagne de mesure**.
+
+    ⚠️ `get_capture_service` porte `campagne_ouverte` : la montée d'audio brut est datée
+    (D56), elle se ferme avec la mesure. **Publier une pièce n'a pas de fin de campagne.**
+    C'est le produit, pas un instrument de mesure ; le brancher sur le même interrupteur
+    éteindrait la publication le jour où la mesure s'achève.
+
+    🔴 **Et les octets vont dans le `MediaStore`, jamais dans le magasin des fragments.**
+    Celui-là purge à sept jours ; une pièce ne meurt pas."""
+    return PieceService(
+        pieces=SqlPieceRepository(session),
+        media=MediaPieceAudioStore(build_media_store(get_settings())),
+        access=GroupAccessPreacherAuthorization(
+            GroupAccessPolicy(
+                SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+            )
+        ),
+        clock=_now,
+    )
+
+
+PieceServiceDep = Annotated[PieceService, Depends(get_piece_service)]
+
+
+def get_transcript_service(session: DbSession) -> TranscriptService:
+    """Recevoir un transcript — **et pas davantage de dépendances que ça n'en demande**.
+
+    Ni index du corpus, ni modèle : le serveur ne transcrit rien (D52), il range du texte. Le
+    brancher sur le corpus ferait échouer un dépôt sur une installation dont le corpus n'est
+    pas semé, pour une raison sans rapport — même raisonnement que le service de capture."""
+    return TranscriptService(
+        captures=SqlCaptureRepository(session),
+        transcripts=SqlTranscriptRepository(session),
+        access=GroupAccessPreacherAuthorization(
+            GroupAccessPolicy(
+                SqlOwnershipRepository(session), SqlAlchemyMembershipRepository(session)
+            )
+        ),
+        clock=_now,
+    )
+
+
+TranscriptServiceDep = Annotated[TranscriptService, Depends(get_transcript_service)]
+
 #: L'index du corpus, pour les routes qui nomment sans faire tourner le moteur.
 CorpusIndexDep = Annotated[CorpusIndex, Depends(get_corpus_index)]
 
@@ -162,9 +247,7 @@ def get_deliverable_service(
     )
 
 
-DeliverableServiceDep = Annotated[
-    UrimDeliverableService, Depends(get_deliverable_service)
-]
+DeliverableServiceDep = Annotated[UrimDeliverableService, Depends(get_deliverable_service)]
 
 
 def get_curation(
@@ -206,9 +289,7 @@ async def exiger_relecteur(
     C'est aussi le seul endroit à changer le jour où la console d'administration Dorea existe :
     elle remplacera le couple identifiant/secret par une session de compte staff nominatif, et
     les routes n'en sauront rien."""
-    return await RegistreDesRelecteurs(SqlRegistreRepository(session)).identifier(
-        x_urim_relecteur
-    )
+    return await RegistreDesRelecteurs(SqlRegistreRepository(session)).identifier(x_urim_relecteur)
 
 
 RelecteurDep = Annotated[Relecteur, Depends(exiger_relecteur)]

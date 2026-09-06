@@ -398,6 +398,77 @@ class UrimPlanSuggestionModel(Base):
     suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UrimPreparationSynthesisModel(Base):
+    """La synthèse **née d'une préparation** — et pourquoi elle n'est pas dans `urim_reflection`.
+
+    🔴 **S0.3, tranchée le 28/08.** `urim_reflection.capture_id` est unique et non nul : *un
+    Retour par culte*. Une synthèse née d'une préparation n'a aucune capture à donner, et la
+    faire entrer là aurait exigé de rendre `capture_id` nullable — donc **de rendre fausse la
+    phrase que la contrainte existait pour dire**, et d'ajouter deux index partiels pour la
+    remplacer à moitié.
+
+    Ce n'est pas le même objet :
+
+        urim_reflection             le Retour — ce qu'on relit APRÈS avoir prêché
+                                    clé : la capture
+        urim_preparation_synthesis  la synthèse — ce qu'on porte à la voix AVANT
+                                    clé : la préparation
+
+    **D59 l'autorise, et c'est tout le sujet.** Le verrou de séquencement porte sur le chemin
+    *transcript → synthèse* — *une synthèse bâtie sur une transcription non mesurée est une
+    invention présentée comme un souvenir*. Ici il n'y a pas de transcription : la matière est
+    la péricope bornée, l'axe retenu, le plan et les articulations. Elle vient du moteur, elle
+    est déjà passée par la proforma (I25), et aucune mesure ne la garde.
+
+    ⚠️ **Le verset est rangé à part des capsules, et il n'est pas du modèle.** Il vient du
+    corpus servi ; le stocker ici le **fige** au moment de la proposition, pour qu'une
+    synthèse validée ne change pas de texte sous son auteur le jour d'un ressemis.
+
+    ⚠️ **`synthese_preparation_signee` reprend mot pour mot la garde du Retour.** Une synthèse
+    `validee` sans signataire serait *une parole attribuée à quelqu'un que personne n'a
+    signée*. Deux tables, une seule règle — et elle est écrite deux fois plutôt que supposée."""
+
+    __tablename__ = "urim_preparation_synthesis"
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('proposee','validee','rejetee')", name="synthese_preparation_state"
+        ),
+        CheckConstraint(
+            "state IS DISTINCT FROM 'validee'"
+            " OR (validated_by IS NOT NULL AND validated_at IS NOT NULL)",
+            name="synthese_preparation_signee",
+        ),
+    )
+
+    #: **Une par préparation** — la clé primaire *est* la règle. Deux lignes voudraient dire
+    #: deux synthèses concurrentes, et l'écran devrait choisir laquelle montrer.
+    preparation_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("urim_preparation.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    #: Ce dont la proposition dépend : référence servie, axe, couple, plan du pasteur, corpus.
+    #: Un rejeu ne rappelle donc pas le modèle — et **le pasteur ne voit pas ses capsules
+    #: changer sous lui** à chaque phrase qu'il écrit.
+    input_hash: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String)
+
+    #: [{text}] — dans l'ordre où elles se disent. Écrites par le modèle, jamais imprimées
+    #: ailleurs que dans cet objet.
+    capsules: Mapped[list] = mapped_column(JSON)
+
+    #: Le texte de l'Écriture, **tel que le corpus le sert**. Jamais réécrit par le modèle.
+    verse_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    verse_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    state: Mapped[str] = mapped_column(String, default="proposee")
+    validated_by: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimProposedSkeletonModel(Base):
     """Le plan qu'Urim propose — **à côté du sien, jamais dedans**.
 
@@ -750,6 +821,15 @@ class UrimCaptureModel(Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+
+    #: ⚠️ **`device_capture_id` a vécu du 28/08 au 28/08.** Une colonne y gardait
+    #: l'identifiant base 36 de l'appareil à côté de la clé serveur. D64 a tranché autrement :
+    #: l'appareil produit désormais un UUIDv4 (`LocalIdGenerator`), donc `id` **est**
+    #: l'identifiant de l'appareil, et la colonne n'aurait fait que le recopier.
+    #:
+    #: L'idempotence du dépôt n'y perd rien : elle tenait sur un index unique partiel, elle
+    #: tient maintenant sur la clé primaire — plus simplement, et sans seconde identité.
+
     church_id: Mapped[UUID] = mapped_column(Uuid)
     author_id: Mapped[UUID] = mapped_column(Uuid)  # le prédicateur ; l'archive le suit
     #: « On peut prêcher sans avoir préparé » — une capture sans préparation reste utile.
@@ -770,6 +850,81 @@ class UrimCaptureModel(Base):
     state: Mapped[str] = mapped_column(String)
     transcription_deferred: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UrimPieceModel(Base):
+    """Une **pièce** taillée dans un culte, et publiée — D70.
+
+    Un dimanche donne une heure et demie d'un seul tenant : une prédication enchaînée par une
+    prière, avec du bruit et des chants au démarrage. On ne publie pas ça. Le pasteur écoute,
+    coupe, et en tire deux pièces qui sortent à trois jours d'intervalle.
+
+    ## Ce qui la distingue d'une capture, et qui gouverne cette table
+
+    | | La capture | La pièce |
+    | :-- | :-- | :-- |
+    | Ce que c'est | ce que le micro a pris **sans intention** | ce qu'il a **décidé de garder** |
+    | Durée de vie | sept jours, puis purge | **elle vit avec sa publication** |
+    | Combien par dimanche | une | autant qu'il en taille |
+
+    🔴 **Aucune purge ici, et pas de colonne pour en accueillir une.** La matière brute expire
+    parce qu'un micro capte la salle et qu'un témoignage peut s'y trouver ; une pièce est ce que
+    son auteur a écouté puis choisi. *Le découpage est le consentement* — et un objet consenti
+    n'a pas de date de péremption.
+
+    ## ⚠️ `capture_id` n'est pas une clé étrangère, et c'est délibéré
+
+    Depuis D71, **plus rien ne monte tout seul** : les fragments bruts restent sur l'appareil.
+    La pièce est donc **le premier objet de ce culte qui traverse**, et sa capture d'origine
+    n'existe très probablement pas dans `urim_capture`. Une contrainte référentielle refuserait
+    la publication d'un dimanche parfaitement valide.
+
+    L'identifiant est gardé quand même : il dit **de quel culte** vient la pièce, et deux pièces
+    du même dimanche se reconnaissent entre elles. Il ne promet pas qu'on puisse y retourner.
+
+    ## L'identifiant vient de l'appareil
+
+    Même raison que la capture (D64) : le téléphone produit un UUIDv4 avant que le réseau
+    existe. Republier la même pièce ne crée donc pas de doublon — la clé primaire le tient, et
+    un pasteur qui appuie deux fois sur « publier » dans un tunnel ne se retrouve pas avec deux
+    prières dans le fil de son assemblée."""
+
+    __tablename__ = "urim_piece"
+
+    __table_args__ = (
+        CheckConstraint("end_ms > start_ms", name="piece_bornes_ordonnees"),
+        CheckConstraint("length(title) > 0", name="piece_titre_non_vide"),
+        # Le fil d'une assemblée : ce qu'elle a reçu, du plus récent au plus ancien.
+        Index("ix_urim_piece_assemblee", "church_id", "published_at"),
+        # Les pièces d'un même dimanche, pour les montrer ensemble.
+        Index("ix_urim_piece_culte", "capture_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+
+    capture_id: Mapped[UUID] = mapped_column(Uuid)
+    church_id: Mapped[UUID] = mapped_column(Uuid)
+    author_id: Mapped[UUID] = mapped_column(Uuid)
+
+    #: Le nom que le pasteur a écrit. **Jamais vide** — la contrainte le tient : deux pièces
+    #: anonymes d'un même dimanche ne se distinguent pas, et c'est la mauvaise qu'il publierait.
+    title: Mapped[str] = mapped_column(String)
+
+    #: Les bornes **dans le culte d'origine**, en millisecondes.
+    #:
+    #: Elles ne servent plus à retailler — la matière aura disparu — mais elles disent *d'où*
+    #: vient ce qu'on écoute, et permettent de reconnaître la prière de la prédication sans les
+    #: rejouer.
+    start_ms: Mapped[int] = mapped_column(Integer)
+    end_ms: Mapped[int] = mapped_column(Integer)
+
+    #: L'URL rendue par `MediaStore` — le magasin **durable**, jamais celui des fragments.
+    media_url: Mapped[str] = mapped_column(String)
+
+    #: Quand le pasteur l'a taillée, à l'horloge de son téléphone. Distinct de la publication :
+    #: il coupe le lundi et publie le vendredi, et les deux dates disent des choses différentes.
+    cut_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class UrimCaptureJobModel(Base):
@@ -829,6 +984,55 @@ class UrimTranscriptSegmentModel(Base):
     confidence: Mapped[float] = mapped_column(Float)
 
 
+class UrimCaptureQualityReviewModel(Base):
+    """L'avis d'un humain sur un transcript — **la matière du verdict, pas le verdict**.
+
+    Quinze avis venus de trois églises distinctes décident si les étapes 2 et 3 s'ouvrent. Ce
+    que cette table garde est ce qu'on aura relu ; `capture/quality.decider()` en tire une
+    conclusion, **à la main et revue par le fondateur** tant que le pilote tourne.
+
+    ⚠️ **Deux estimations, jamais fondues.** Un transcript lisible qui rate les citations est
+    un échec *différent* d'un transcript haché qui les capte — et pour Urim, dont le métier est
+    de retrouver ce qui a été prêché, c'est le pire des deux. Les additionner ici masquerait
+    laquelle des deux pannes bloque l'étape 2.
+
+    ⚠️ **`segments` porte l'ancrage (I33).** Sans lui, l'avis ne se rejoue sur rien de plus fin
+    qu'un culte de quarante minutes, et on ne saura jamais où ça a cassé.
+
+    🔴 **Aucune contrainte n'interdit , et c'est délibéré.** La
+    règle existe — *le relecteur ne peut pas être celui qui a prêché, il lit a travers ses
+    propres erreurs* — mais elle se tient au **verdict**, qui ecarte ces avis et les **compte**.
+    Les refuser en base les ferait disparaître, et un pilote dont la moitié des avis sont
+    écrits par les prédicateurs eux-mêmes est un fait de terrain que le fondateur doit voir."""
+
+    __tablename__ = "urim_capture_quality_review"
+
+    __table_args__ = (
+        # Les bornes, elles, sont une contrainte : une estimation hors échelle est un défaut de
+        # saisie, pas un fait de terrain, et elle fausserait une moyenne en silence.
+        CheckConstraint(
+            "readability BETWEEN 0 AND 1 AND citations BETWEEN 0 AND 1",
+            name="quality_estimations_bornees",
+        ),
+        Index("ix_urim_quality_eglise", "church_id", "reviewed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    capture_id: Mapped[UUID] = mapped_column(Uuid)
+    church_id: Mapped[UUID] = mapped_column(Uuid)
+
+    #: Les **deux identités**, sans quoi la règle du relecteur n'est pas vérifiable.
+    preacher_id: Mapped[UUID] = mapped_column(Uuid)
+    reviewer_id: Mapped[UUID] = mapped_column(Uuid)
+
+    #: [0, 3, 7] — les ordinaux des segments jugés.
+    segments: Mapped[list] = mapped_column(JSON)
+
+    readability: Mapped[float] = mapped_column(Float)
+    citations: Mapped[float] = mapped_column(Float)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UrimCitedVerseModel(Base):
     """Les versets **réellement convoqués**.
 
@@ -873,9 +1077,19 @@ class UrimReflectionModel(Base):
     Les quatre compteurs ne sont **jamais** calculés par le modèle : différence déterministe sur
     des données factuelles — versets cités, horodatages, ancres repérées.
 
-    `synthesis` reste NULL tant que l'étape 4 n'a pas tourné, et elle ne tournera pas avant la
-    mesure du taux d'erreur dans trois églises réelles : *une synthèse bâtie sur une transcription
-    non mesurée est une invention présentée comme un souvenir.*
+    ⚠️ **Corrigé le 28/08 (D59) — la phrase précédente ne vaut plus que pour un chemin sur deux.**
+    On lisait ici que `synthesis` « ne tournera pas avant la mesure du taux d'erreur dans trois
+    églises réelles ». C'est vrai de la synthèse bâtie **sur un transcript** — *une synthèse bâtie
+    sur une transcription non mesurée est une invention présentée comme un souvenir* — et c'est
+    faux de celle qui naît d'une **préparation** : péricope bornée, axe retenu, plan rédigé,
+    articulations. Cette matière-là vient du moteur, elle est déjà passée par la proforma (I25), et
+    aucune mesure ne la garde.
+
+    Le verrou porte donc sur le chemin *transcript → synthèse*, **jamais sur la synthèse**.
+
+    🔴 **Et une collision reste ouverte** : `capture_id` est unique et non nul — *un Retour par
+    culte*. Une synthèse née d'une préparation n'a pas de capture à donner. À trancher avant
+    d'écrire la route, pas après.
 
     **`synthese_validee_signee` n'est pas dans la spec — elle est ajoutée.** La synthèse est une
     *proposition* ; après validation elle devient la parole de son auteur, et il a pu la corriger.

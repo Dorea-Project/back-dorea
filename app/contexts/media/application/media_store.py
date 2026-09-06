@@ -25,6 +25,12 @@ EXTENSION_OF: dict[str, str] = {
     # la durée dans l'en-tête (`video.mp4_duration_seconds`). Accepter un conteneur qu'on ne sait
     # pas mesurer rouvrirait la porte que la limite de trente secondes existe pour fermer.
     "video/mp4": "mp4",
+    # ⚠️ **Ce port a été écrit pour les images d'annonces ; l'audio l'élargit** (D70).
+    # Une **pièce** taillée dans un culte est du WAV — le même PCM 16 kHz que la capture, avec
+    # son en-tête devant. Elle vit ici et non dans le magasin des fragments : celui-là purge à
+    # sept jours, et une pièce ne meurt pas. Elle n'est pas soumise à la limite de durée des
+    # vidéos : une prédication dure une heure, c'est son état normal.
+    "audio/wav": "wav",
 }
 
 VIDEO_TYPES: frozenset[str] = frozenset({"video/mp4"})
@@ -68,6 +74,8 @@ _MAGIC: dict[str, tuple[bytes, ...]] = {
     "image/webp": (b"RIFF",),
     # ISO-BMFF : `ftyp` en position 4.
     "video/mp4": (b"ftyp",),
+    # RIFF….WAVE — même conteneur que le WebP, même contrôle aux deux bouts.
+    "audio/wav": (b"RIFF",),
 }
 
 
@@ -80,6 +88,8 @@ def _looks_like(content: bytes, content_type: str) -> bool:
         return content[4:8] == b"ftyp"
     if content_type == "image/webp":
         return content.startswith(b"RIFF") and content[8:12] == b"WEBP"
+    if content_type == "audio/wav":
+        return content.startswith(b"RIFF") and content[8:12] == b"WAVE"
     return any(content.startswith(signature) for signature in signatures)
 
 

@@ -29,6 +29,7 @@ from app.contexts.urim.interface.dependencies import (
     CaptureServiceDep,
     CorpusIndexDep,
     DeliverableServiceDep,
+    PieceServiceDep,
     StudyServiceDep,
 )
 from app.contexts.urim.interface.schemas import (
@@ -46,6 +47,7 @@ from app.contexts.urim.interface.schemas import (
     FragmentRecuView,
     OpenStudyBody,
     PassageDetailView,
+    PieceView,
     PromotionBody,
     RenameBody,
     RepriseBody,
@@ -824,6 +826,81 @@ async def deposer_fragment(
         state=capture.state.value,
         audio_purge_at=capture.audio_purge_at,
     )
+
+
+# =================================================================================================
+# La pièce — D70. **Le seul objet de « prêcher » qui traverse.**
+# =================================================================================================
+
+
+@router.post(
+    "/pieces/{piece_id}",
+    response_model=PieceView,
+    status_code=status.HTTP_201_CREATED,
+    summary="Publier une pièce taillée dans un culte",
+)
+async def publier_piece(
+    piece_id: UUID,
+    request: Request,
+    actor: CurrentActor,
+    service: PieceServiceDep,
+    capture_id: Annotated[UUID, Query(description="Le culte dont elle est tirée")],
+    church_id: Annotated[UUID, Query(description="L'assemblée qui la recevra")],
+    title: Annotated[str, Query(min_length=1, max_length=200)],
+    start_ms: Annotated[int, Query(ge=0)],
+    end_ms: Annotated[int, Query(ge=1)],
+    cut_at: Annotated[datetime, Query(description="Quand le pasteur l'a taillée")],
+) -> PieceView:
+    """🔴 **Le corps brut, comme pour un fragment — et sans multipart.**
+
+    Le format est le même que la route de dépôt d'audio, que l'appareil sait déjà appeler :
+    les octets dans le corps, le reste en paramètres. Ajouter `python-multipart` pour porter
+    un titre de deux mots aurait été une dépendance contre une chaîne de caractères.
+
+    ⚠️ **Republier est sans effet, et rend la pièce déjà rangée.** L'identifiant vient de
+    l'appareil (D64) : un pasteur qui appuie deux fois dans un tunnel, ou dont la réponse
+    s'est perdue, renverra la même. Lever lui ferait croire à un échec — et son assemblée
+    finirait par recevoir la même prière trois fois.
+
+    L'idempotence est vérifiée **avant** de toucher au magasin : republier n'écrit pas une
+    seconde copie de quatre-vingt-six mégaoctets pour la jeter ensuite. Le pasteur est sur la
+    connexion d'une église, et l'octet coûte.
+
+    ⛔ **Aucune campagne ne ferme cette route.** La montée d'audio brut est datée (D56) et
+    s'éteint avec la mesure ; publier une pièce est le produit, pas un instrument de mesure."""
+    piece = await service.publier(
+        actor_account_id=actor.account_id,
+        piece_id=piece_id,
+        capture_id=capture_id,
+        church_id=church_id,
+        title=title,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        cut_at=cut_at,
+        octets=await request.body(),
+    )
+    return PieceView.from_domain(piece)
+
+
+@router.get(
+    "/pieces",
+    response_model=list[PieceView],
+    summary="Ce qu'une assemblée a reçu — la plus récente en tête",
+)
+async def lire_les_pieces(
+    actor: CurrentActor,
+    service: PieceServiceDep,
+    church_id: Annotated[UUID, Query(description="L'assemblée dont on lit le fil")],
+) -> list[PieceView]:
+    """Le fil d'une assemblée.
+
+    ⚠️ **Il ne se vide jamais tout seul.** Rien n'expire ici : la matière brute d'un culte
+    disparaît au septième jour, ce que le pasteur en a tiré reste. C'est la seule chose de ce
+    système qu'il ne peut pas deviner, et l'écran le lui dit."""
+    pieces = await service.pour_eglise(
+        actor_account_id=actor.account_id, church_id=church_id
+    )
+    return [PieceView.from_domain(piece) for piece in pieces]
 
 
 # =================================================================================================
